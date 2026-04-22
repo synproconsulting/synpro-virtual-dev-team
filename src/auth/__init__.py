@@ -1,19 +1,7 @@
 """
-Authentication module for password reset and related functionality.
+Authentication module for JWT token management.
 """
 
-from .password_reset import (
-    PasswordResetToken,
-    TokenStorage,
-    EmailService,
-    PasswordResetService,
-    create_password_reset_service
-)
+from .jwt_refresh import JWTTokenManager, TokenRefreshError
 
-__all__ = [
-    'PasswordResetToken',
-    'TokenStorage',
-    'EmailService',
-    'PasswordResetService',
-    'create_password_reset_service'
-]
+__all__ = ["JWTTokenManager", "TokenRefreshError"]
