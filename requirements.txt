@@ -1,16 +1,4 @@
-# Password Reset Completion Dependencies
-
-# Core dependencies
-pydantic>=2.0.0,<3.0.0          # Data validation and settings management
-pydantic[email]>=2.0.0,<3.0.0   # Email validation support
-PyJWT>=2.8.0,<3.0.0             # JSON Web Token implementation
-passlib>=1.7.4,<2.0.0           # Password hashing library
-bcrypt>=4.0.0,<5.0.0            # Bcrypt hashing for passlib
-
-# Testing dependencies
-pytest>=7.4.0,<8.0.0            # Testing framework
-pytest-cov>=4.1.0,<5.0.0        # Coverage plugin for pytest
-pytest-mock>=3.11.0,<4.0.0      # Mocking support for pytest
-
-# Development dependencies
-python-dotenv>=1.0.0,<2.0.0     # Environment variable management
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+python-dotenv==1.0.0
