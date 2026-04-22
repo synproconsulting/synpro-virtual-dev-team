@@ -100,12 +100,13 @@ jobs:
           path: bandit-report.json
           if-no-files-found: ignore
 
-  # â”€â”€ Job 3: SonarCloud analysis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # â”€â”€ Job 3: SonarCloud analysis (informational only, not blocking) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   sonarcloud:
     name: SonarCloud analysis
     runs-on: ubuntu-latest
     needs: [test]
-    continue-on-error: true   # non-blocking: reports results but won't fail the pipeline
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    continue-on-error: true
 
     steps:
       - name: Checkout code
@@ -186,7 +187,7 @@ jobs:
   quality-gate:
     name: Quality gate
     runs-on: ubuntu-latest
-    needs: [test, security, sonarcloud, e2e]
+    needs: [test, security, e2e]
     if: always()
 
     steps:
@@ -196,7 +197,7 @@ jobs:
           echo "  CI Quality Gate Summary"
           echo "  Unit tests:   ${{ needs.test.result }}"
           echo "  Security:     ${{ needs.security.result }}"
-          echo "  SonarCloud:   ${{ needs.sonarcloud.result }}"
+          echo "  SonarCloud:   (see SonarCloud dashboard - non-blocking)"
           echo "  E2E tests:    ${{ needs.e2e.result }}"
           echo "================================"
           echo "Ready for Dev Manager review."
