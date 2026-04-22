@@ -1,213 +1,242 @@
 # User Registration Module
 
-A robust Python module for user registration with comprehensive email and password validation.
+A production-ready Python module for user registration with comprehensive email and password validation.
 
 ## Features
 
-- ✅ **Email Validation**: Uses Pydantic's `EmailStr` for RFC-compliant email validation
-- ✅ **Password Strength Validation**: Configurable requirements for password complexity
-- ✅ **Secure Password Hashing**: Uses bcrypt via passlib for industry-standard password security
-- ✅ **Password Confirmation**: Ensures passwords match before registration
-- ✅ **Duplicate Prevention**: Checks for existing users with case-insensitive email comparison
-- ✅ **Type Safety**: Full type hints for better IDE support and type checking
-- ✅ **Comprehensive Testing**: 100% test coverage with pytest
+- **Email Validation**: RFC 5322 compliant email validation
+- **Password Strength Validation**: Configurable password requirements including:
+  - Minimum length
+  - Uppercase letters
+  - Lowercase letters
+  - Digits
+  - Special characters
+- **Secure Password Hashing**: Uses bcrypt for industry-standard password hashing
+- **Password Verification**: Built-in password verification against hashed passwords
+- **Flexible Configuration**: Customizable validation rules to match your security requirements
 
 ## Installation
+
+Install the required dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Quick Start
+## Usage
+
+### Basic Registration
 
 ```python
-from src.auth import UserRegistrationService, RegistrationError
+from src.auth.registration import UserRegistration, RegistrationError
 
-# Create a registration service instance
-service = UserRegistrationService()
+# Initialize registration handler
+registration = UserRegistration()
 
 # Register a new user
 try:
-    user = service.register_user(
-        email="john.doe@example.com",
-        password="SecurePass123!",
-        confirm_password="SecurePass123!",
-        full_name="John Doe"
+    user_data = registration.register_user(
+        email="user@example.com",
+        password="SecureP@ss1",
+        confirm_password="SecureP@ss1"
     )
-    print(f"User registered successfully: {user.email}")
+    print(f"User registered: {user_data['email']}")
 except RegistrationError as e:
     print(f"Registration failed: {e}")
 ```
 
-## Password Requirements
-
-By default, passwords must meet the following criteria:
-
-- Minimum 8 characters long
-- At least one uppercase letter (A-Z)
-- At least one lowercase letter (a-z)
-- At least one digit (0-9)
-- At least one special character (!@#$%^&*(),.?":{}|<>)
-
 ### Custom Password Requirements
 
-You can customize password requirements:
-
 ```python
-from src.auth import UserRegistrationService, PasswordRequirements
-
-# Define custom requirements
-custom_reqs = PasswordRequirements(
-    min_length=10,
+# Create registration handler with custom requirements
+registration = UserRegistration(
+    min_password_length=12,
     require_uppercase=True,
     require_lowercase=True,
-    require_digit=True,
-    require_special=False  # Don't require special characters
+    require_digits=True,
+    require_special=True
 )
 
-# Create service with custom requirements
-service = UserRegistrationService(password_requirements=custom_reqs)
+user_data = registration.register_user(
+    email="user@example.com",
+    password="MyV3ryS3cur3P@ssword!"
+)
 ```
 
-## API Reference
+### Registration with Additional Data
 
-### `UserRegistrationService`
+```python
+# Register user with additional profile data
+user_data = registration.register_user(
+    email="user@example.com",
+    password="SecureP@ss1",
+    additional_data={
+        "first_name": "John",
+        "last_name": "Doe",
+        "phone": "+1234567890"
+    }
+)
+```
 
-Main service class for handling user registration.
+### Email Validation Only
 
-#### Methods
+```python
+# Validate email format
+try:
+    registration.validate_email("user@example.com")
+    print("Email is valid")
+except RegistrationError as e:
+    print(f"Invalid email: {e}")
+```
 
-**`register_user(email: str, password: str, confirm_password: str, full_name: Optional[str] = None) -> User`**
+### Password Validation Only
 
-Register a new user with validation.
+```python
+# Validate password strength
+try:
+    registration.validate_password("SecureP@ss1")
+    print("Password meets requirements")
+except RegistrationError as e:
+    print(f"Weak password: {e}")
+```
 
-- **Parameters:**
-  - `email`: User's email address
-  - `password`: User's password
-  - `confirm_password`: Password confirmation (must match password)
-  - `full_name`: Optional full name of the user
+### Password Hashing and Verification
 
-- **Returns:** `User` object with hashed password
+```python
+# Hash a password
+hashed_password = registration.hash_password("SecureP@ss1")
 
-- **Raises:** `RegistrationError` if validation fails or user already exists
+# Verify a password
+is_valid = registration.verify_password("SecureP@ss1", hashed_password)
+print(f"Password valid: {is_valid}")
+```
 
-**`validate_password_strength(password: str) -> Tuple[bool, str]`**
+## Configuration Options
 
-Validate password against strength requirements.
+The `UserRegistration` class accepts the following configuration parameters:
 
-- **Returns:** Tuple of (is_valid, error_message)
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `min_password_length` | int | 8 | Minimum required password length |
+| `require_uppercase` | bool | True | Require at least one uppercase letter |
+| `require_lowercase` | bool | True | Require at least one lowercase letter |
+| `require_digits` | bool | True | Require at least one digit |
+| `require_special` | bool | True | Require at least one special character |
 
-**`hash_password(password: str) -> str`**
+## User Data Structure
 
-Hash a password using bcrypt.
+The `register_user` method returns a dictionary with the following structure:
 
-**`verify_password(plain_password: str, hashed_password: str) -> bool`**
+```python
+{
+    "email": "user@example.com",           # Normalized email (lowercase, trimmed)
+    "password_hash": "$2b$12$...",         # Bcrypt hashed password
+    "created_at": "2024-01-15T10:30:00",   # ISO format timestamp
+    "is_active": True,                      # Account activation status
+    # ... any additional data provided
+}
+```
 
-Verify a password against its hash.
+## Error Handling
 
-**`user_exists(email: str) -> bool`**
+All validation errors raise `RegistrationError` with descriptive messages:
 
-Check if a user with the given email already exists.
+- `"Email is required"` - Empty email provided
+- `"Invalid email format"` - Email doesn't match RFC 5322 format
+- `"Email address is too long"` - Email exceeds 254 characters
+- `"Password is required"` - Empty password provided
+- `"Password must be at least X characters long"` - Password too short
+- `"Password must contain at least one uppercase letter"` - Missing uppercase
+- `"Password must contain at least one lowercase letter"` - Missing lowercase
+- `"Password must contain at least one digit"` - Missing digit
+- `"Password must contain at least one special character"` - Missing special character
+- `"Passwords do not match"` - Password confirmation mismatch
 
-**`get_user_by_email(email: str) -> Optional[User]`**
+## Testing
 
-Retrieve a user by email address.
-
-### Models
-
-**`User`**
-- `email`: EmailStr - User's email address
-- `hashed_password`: str - Bcrypt hashed password
-- `full_name`: Optional[str] - User's full name
-- `is_active`: bool - Account active status (default: True)
-
-**`UserRegistrationInput`**
-- `email`: EmailStr - User's email address
-- `password`: str - User's password
-- `confirm_password`: str - Password confirmation
-- `full_name`: Optional[str] - User's full name
-
-**`PasswordRequirements`**
-- `min_length`: int - Minimum password length (default: 8)
-- `require_uppercase`: bool - Require uppercase letters (default: True)
-- `require_lowercase`: bool - Require lowercase letters (default: True)
-- `require_digit`: bool - Require digits (default: True)
-- `require_special`: bool - Require special characters (default: True)
-
-## Running Tests
+Run the test suite:
 
 ```bash
 # Run all tests
-pytest
+pytest tests/
 
 # Run with coverage report
-pytest --cov=src --cov-report=html
+pytest tests/ --cov=src/auth --cov-report=html
 
-# Run specific test file
-pytest tests/test_user_registration.py
+# Run specific test class
+pytest tests/test_registration.py::TestEmailValidation
 
-# Run with verbose output
-pytest -v
+# Run specific test
+pytest tests/test_registration.py::TestEmailValidation::test_valid_email
 ```
-
-## Test Coverage
-
-The module includes comprehensive tests covering:
-
-- ✅ Email validation (valid/invalid formats)
-- ✅ Password strength validation (all requirements)
-- ✅ Password matching validation
-- ✅ Password hashing and verification
-- ✅ User registration flow
-- ✅ Duplicate user prevention
-- ✅ Case-insensitive email handling
-- ✅ Custom password requirements
-- ✅ User retrieval functionality
 
 ## Security Considerations
 
-1. **Password Hashing**: Uses bcrypt with automatic salt generation
-2. **No Plain Text Storage**: Passwords are never stored in plain text
-3. **Environment Variables**: Configure any external services via environment variables
-4. **Case-Insensitive Emails**: Prevents duplicate registrations with different cases
-5. **Validation Before Processing**: All input is validated before any processing occurs
+- **Password Storage**: Passwords are hashed using bcrypt with automatic salt generation
+- **Email Normalization**: Emails are automatically converted to lowercase and trimmed
+- **No Plain Text Storage**: Plain text passwords are never stored or logged
+- **Configurable Strength**: Password requirements can be adjusted based on security needs
+- **RFC Compliance**: Email validation follows RFC 5322 and RFC 5321 standards
 
-## Architecture
+## Module Structure
 
 ```
 src/auth/
-├── __init__.py                 # Package exports
-└── user_registration.py        # Main registration logic
+├── __init__.py           # Package initialization
+└── registration.py       # Main registration logic
 
 tests/
-├── __init__.py
-└── test_user_registration.py   # Comprehensive test suite
+├── __init__.py          # Test package initialization
+└── test_registration.py # Comprehensive test suite
 ```
 
 ## Dependencies
 
-- **passlib[bcrypt]**: Password hashing with bcrypt
-- **pydantic[email]**: Data validation and email validation
+- **passlib[bcrypt]**: Password hashing library with bcrypt support
+- **bcrypt**: Bcrypt hashing algorithm implementation
 - **pytest**: Testing framework
-- **pytest-cov**: Test coverage reporting
-
-## Future Enhancements
-
-Potential improvements for production use:
-
-- Database integration (PostgreSQL, MongoDB, etc.)
-- Email verification flow
-- Rate limiting for registration attempts
-- CAPTCHA integration
-- OAuth/Social login integration
-- Account recovery mechanisms
-- Audit logging
-- Multi-factor authentication (MFA)
+- **pytest-cov**: Code coverage plugin for pytest
 
 ## License
 
 This module is part of the SDT1-7 project.
 
+## Development
+
+### Adding New Validation Rules
+
+Extend the `UserRegistration` class to add custom validation:
+
+```python
+class CustomRegistration(UserRegistration):
+    def validate_password(self, password: str) -> bool:
+        # Call parent validation
+        super().validate_password(password)
+        
+        # Add custom rules
+        if "password" in password.lower():
+            raise RegistrationError("Password cannot contain the word 'password'")
+        
+        return True
+```
+
+### Integration with Database
+
+The returned user data dictionary can be easily integrated with any database:
+
+```python
+# Example with SQLAlchemy
+from sqlalchemy.orm import Session
+from models import User
+
+user_data = registration.register_user(email="user@example.com", password="SecureP@ss1")
+
+# Create database record
+db_user = User(**user_data)
+db.add(db_user)
+db.commit()
+```
+
 ## Support
 
-For issues or questions, please contact the development team.
+For issues, questions, or contributions, please contact the development team.
