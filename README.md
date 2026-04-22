@@ -1,250 +1,242 @@
-# User Registration Module
+# JWT Token Generation and Validation Module
 
-A production-ready user registration system with email and password validation, built with Python 3.11+.
+This module provides a complete implementation of JSON Web Token (JWT) generation and validation for authentication and authorization purposes.
 
 ## Features
 
-- ✅ **Email Validation**: RFC 5322 compliant email validation
-- ✅ **Strong Password Requirements**: 
-  - Minimum 8 characters
-  - At least one uppercase letter
-  - At least one lowercase letter
-  - At least one digit
-  - At least one special character
-- ✅ **Secure Password Hashing**: Uses bcrypt via passlib
-- ✅ **User Management**: In-memory storage (easily replaceable with database)
-- ✅ **Credential Verification**: Built-in login verification
-- ✅ **Comprehensive Tests**: Full pytest test suite
+- **Access Token Generation**: Create short-lived access tokens for API authentication
+- **Refresh Token Generation**: Create long-lived refresh tokens for obtaining new access tokens
+- **Token Validation**: Validate tokens with type checking and expiration handling
+- **Token Decoding**: Extract and verify token payloads
+- **Subject Extraction**: Retrieve user identifiers from tokens
+- **Token Refresh**: Generate new access tokens from valid refresh tokens
 
 ## Installation
 
-1. Clone the repository
-2. Install dependencies:
+Install the required dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
+## Configuration
+
+The JWT handler requires a secret key for signing tokens. You can provide it in two ways:
+
+1. **Environment Variable** (recommended):
+   ```bash
+   export SECRET_KEY="your-secret-key-here"
+   ```
+
+2. **Direct instantiation**:
+   ```python
+   from src.auth import JWTHandler
+   
+   handler = JWTHandler(secret_key="your-secret-key-here")
+   ```
+
+### Configuration Parameters
+
+- `secret_key`: Secret key for signing tokens (required)
+- `algorithm`: Algorithm for encoding/decoding (default: "HS256")
+- `access_token_expire_minutes`: Expiration time for access tokens in minutes (default: 30)
+- `refresh_token_expire_days`: Expiration time for refresh tokens in days (default: 7)
+
 ## Usage
 
-### Basic Registration
+### Basic Usage
 
 ```python
-from src.auth.registration import UserRegistration
+from src.auth import JWTHandler
 
-# Initialize the registration service
-registration = UserRegistration()
-
-# Register a new user
-success, message, user = registration.register_user(
-    email="user@example.com",
-    password="SecurePass123!"
+# Initialize the handler
+handler = JWTHandler(
+    secret_key="your-secret-key",
+    access_token_expire_minutes=30,
+    refresh_token_expire_days=7
 )
 
-if success:
-    print(f"User registered: {user.email}")
-    print(f"User ID: {user.id}")
-else:
-    print(f"Registration failed: {message}")
+# Create an access token
+access_token = handler.create_access_token(subject="user123")
+
+# Create a refresh token
+refresh_token = handler.create_refresh_token(subject="user123")
+
+# Validate a token
+is_valid = handler.validate_token(access_token)
+
+# Decode a token
+payload = handler.decode_token(access_token)
+print(payload["sub"])  # Output: user123
+
+# Get subject from token
+subject = handler.get_token_subject(access_token)
+print(subject)  # Output: user123
 ```
 
-### Strict Mode (Raises Exceptions)
+### Advanced Usage
+
+#### Tokens with Additional Claims
 
 ```python
-from src.auth.registration import UserRegistration, RegistrationError
+# Create access token with custom claims
+access_token = handler.create_access_token(
+    subject="user123",
+    additional_claims={
+        "role": "admin",
+        "permissions": ["read", "write", "delete"]
+    }
+)
 
-registration = UserRegistration()
+# Decode and use custom claims
+payload = handler.decode_token(access_token)
+print(payload["role"])  # Output: admin
+print(payload["permissions"])  # Output: ["read", "write", "delete"]
+```
+
+#### Custom Token Expiration
+
+```python
+from datetime import timedelta
+
+# Create access token with custom expiration
+access_token = handler.create_access_token(
+    subject="user123",
+    expires_delta=timedelta(hours=2)
+)
+```
+
+#### Token Type Validation
+
+```python
+# Validate token and check its type
+is_valid_access = handler.validate_token(access_token, token_type="access")
+is_valid_refresh = handler.validate_token(refresh_token, token_type="refresh")
+```
+
+#### Refresh Access Tokens
+
+```python
+# Generate a new access token from a refresh token
+new_access_token = handler.refresh_access_token(refresh_token)
+
+if new_access_token:
+    print("New access token generated successfully")
+else:
+    print("Invalid or expired refresh token")
+```
+
+### Error Handling
+
+```python
+from jose import JWTError
+from jose.exceptions import ExpiredSignatureError
 
 try:
-    user = registration.register_user_strict(
-        email="user@example.com",
-        password="SecurePass123!"
-    )
-    print(f"User registered: {user.email}")
-except RegistrationError as e:
-    print(f"Registration failed: {e}")
+    payload = handler.decode_token(token)
+    print(f"Token is valid for user: {payload['sub']}")
+except ExpiredSignatureError:
+    print("Token has expired")
+except JWTError as e:
+    print(f"Invalid token: {e}")
 ```
 
-### Verify Credentials
+## Testing
 
-```python
-from src.auth.registration import UserRegistration
-
-registration = UserRegistration()
-
-# Register a user first
-registration.register_user("user@example.com", "SecurePass123!")
-
-# Verify credentials for login
-is_valid, user = registration.verify_credentials(
-    email="user@example.com",
-    password="SecurePass123!"
-)
-
-if is_valid:
-    print(f"Login successful for {user.email}")
-else:
-    print("Invalid credentials")
-```
-
-### Standalone Validators
-
-```python
-from src.auth.validators import EmailValidator, PasswordValidator
-
-# Validate email
-is_valid, error = EmailValidator.validate("user@example.com")
-if not is_valid:
-    print(f"Email error: {error}")
-
-# Validate password
-is_valid, error = PasswordValidator.validate("SecurePass123!")
-if not is_valid:
-    print(f"Password error: {error}")
-```
-
-## Project Structure
-
-```
-.
-├── src/
-│   └── auth/
-│       ├── __init__.py           # Module exports
-│       ├── models.py             # User data model
-│       ├── validators.py         # Email and password validators
-│       ├── password_hasher.py    # Password hashing utilities
-│       ├── storage.py            # User storage (in-memory)
-│       └── registration.py       # Main registration service
-├── tests/
-│   ├── __init__.py
-│   ├── test_models.py            # User model tests
-│   ├── test_validators.py        # Validator tests
-│   ├── test_password_hasher.py   # Password hasher tests
-│   ├── test_storage.py           # Storage tests
-│   └── test_registration.py      # Registration service tests
-├── requirements.txt              # Project dependencies
-└── README.md                     # This file
-```
-
-## Running Tests
-
-Run the full test suite:
+Run the test suite using pytest:
 
 ```bash
+# Run all tests
 pytest
-```
 
-Run with coverage report:
-
-```bash
+# Run with coverage report
 pytest --cov=src/auth --cov-report=html
+
+# Run specific test file
+pytest tests/test_jwt_handler.py
+
+# Run with verbose output
+pytest -v
 ```
 
-Run specific test file:
+### Test Coverage
 
-```bash
-pytest tests/test_registration.py
+The test suite includes comprehensive tests for:
+- Handler initialization and configuration
+- Access token generation and validation
+- Refresh token generation and validation
+- Token decoding with valid and invalid tokens
+- Token expiration handling
+- Subject extraction
+- Token refresh functionality
+- Error scenarios and edge cases
+
+## Security Considerations
+
+1. **Secret Key**: Always use a strong, randomly generated secret key. Never commit it to version control.
+2. **HTTPS Only**: Always transmit tokens over HTTPS in production.
+3. **Token Storage**: Store tokens securely on the client side (e.g., httpOnly cookies for web apps).
+4. **Expiration**: Use appropriate expiration times. Access tokens should be short-lived (15-30 minutes), refresh tokens longer (7-30 days).
+5. **Token Revocation**: Implement token blacklisting or rotation for enhanced security.
+6. **Algorithm**: The default HS256 algorithm is suitable for most use cases. Use RS256 for distributed systems.
+
+## Architecture
+
 ```
+src/
+└── auth/
+    ├── __init__.py          # Package exports
+    └── jwt_handler.py       # Main JWT handler implementation
 
-## Password Requirements
+tests/
+├── __init__.py              # Test package
+└── test_jwt_handler.py      # Comprehensive test suite
 
-Passwords must meet the following criteria:
-
-- **Length**: 8-128 characters
-- **Uppercase**: At least one uppercase letter (A-Z)
-- **Lowercase**: At least one lowercase letter (a-z)
-- **Digit**: At least one number (0-9)
-- **Special Character**: At least one special character (!@#$%^&*(),.?":{}|<>_-+=[]\/;`~)
-
-## Email Validation
-
-Emails are validated against:
-
-- Basic RFC 5322 format compliance
-- Maximum length of 254 characters
-- Valid domain structure
-- Proper character usage
-
-Emails are normalized to lowercase for storage and lookups.
-
-## Security Features
-
-1. **Bcrypt Password Hashing**: Uses industry-standard bcrypt algorithm with cost factor 12
-2. **Salted Hashes**: Each password hash includes a unique salt
-3. **No Plaintext Storage**: Passwords are never stored in plaintext
-4. **Case-Insensitive Email Lookup**: Prevents duplicate accounts with different casing
-5. **Input Validation**: All inputs are validated before processing
-
-## Production Considerations
-
-This implementation uses in-memory storage for simplicity. For production deployment:
-
-1. **Replace UserStorage**: Implement database storage (PostgreSQL, MongoDB, etc.)
-2. **Add Email Verification**: Send verification emails to confirm email ownership
-3. **Rate Limiting**: Implement rate limiting to prevent brute force attacks
-4. **Logging**: Add comprehensive logging for security auditing
-5. **Environment Variables**: Configure bcrypt rounds and other settings via environment
-6. **Session Management**: Implement JWT or session-based authentication
-7. **Account Recovery**: Add password reset functionality
+requirements.txt             # Project dependencies
+README.md                    # This file
+```
 
 ## API Reference
 
-### UserRegistration
+### JWTHandler Class
 
-Main service class for user registration.
+#### `__init__(secret_key, algorithm, access_token_expire_minutes, refresh_token_expire_days)`
+Initialize the JWT handler with configuration.
 
-**Methods:**
+#### `create_access_token(subject, additional_claims, expires_delta) -> str`
+Create a JWT access token.
 
-- `register_user(email: str, password: str) -> Tuple[bool, str, Optional[User]]`
-  - Register a new user
-  - Returns: (success, message, user)
+#### `create_refresh_token(subject, additional_claims, expires_delta) -> str`
+Create a JWT refresh token.
 
-- `register_user_strict(email: str, password: str) -> User`
-  - Register a new user (raises RegistrationError on failure)
-  - Returns: User object
+#### `decode_token(token) -> Dict[str, Any]`
+Decode and validate a JWT token. Raises `JWTError` or `ExpiredSignatureError` if invalid.
 
-- `get_user_by_email(email: str) -> Optional[User]`
-  - Retrieve user by email address
-  - Returns: User object or None
+#### `validate_token(token, token_type) -> bool`
+Validate a JWT token, optionally checking its type.
 
-- `verify_credentials(email: str, password: str) -> Tuple[bool, Optional[User]]`
-  - Verify login credentials
-  - Returns: (is_valid, user)
+#### `get_token_subject(token) -> Optional[str]`
+Extract the subject from a token. Returns `None` if invalid.
 
-### EmailValidator
+#### `refresh_access_token(refresh_token) -> Optional[str]`
+Generate a new access token from a valid refresh token.
 
-Static validator for email addresses.
+## Dependencies
 
-**Methods:**
-
-- `validate(email: str) -> Tuple[bool, str]`
-  - Returns: (is_valid, error_message)
-
-### PasswordValidator
-
-Static validator for passwords.
-
-**Methods:**
-
-- `validate(password: str) -> Tuple[bool, str]`
-  - Returns: (is_valid, error_message)
-
-### PasswordHasher
-
-Password hashing and verification.
-
-**Methods:**
-
-- `hash_password(password: str) -> str`
-  - Returns: Hashed password string
-
-- `verify_password(plaintext: str, hashed: str) -> bool`
-  - Returns: True if password matches
+- **python-jose[cryptography]**: JWT encoding/decoding with cryptographic support
+- **pytest**: Testing framework
+- **pytest-cov**: Code coverage reporting
+- **mypy**: Static type checking (optional)
 
 ## License
 
-This module is part of the SDT1-7 project implementation.
+This module is part of the SDT1 project.
 
-## Author
+## Contributing
 
-Backend Developer - Virtual Development Team
+When contributing to this module:
+1. Ensure all tests pass
+2. Add tests for new functionality
+3. Follow the existing code style
+4. Update documentation as needed
+5. Use type hints for all functions
