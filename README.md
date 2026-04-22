@@ -1,16 +1,25 @@
-# Password Reset Completion Module
+# Password Reset Request Module
 
-A secure, production-ready Python implementation for completing password reset flows with JWT token validation and bcrypt password hashing.
+## Overview
+
+This module provides a complete password reset request functionality for Python applications. It includes secure token generation, email delivery, and token validation with expiration handling.
 
 ## Features
 
-- ✅ Secure JWT token-based password reset validation
-- ✅ Industry-standard bcrypt password hashing
-- ✅ Strong password validation requirements
-- ✅ Token expiration handling
-- ✅ Comprehensive error handling
-- ✅ Type hints throughout
-- ✅ Fully tested with pytest
+- **Secure Token Generation**: Uses cryptographically secure random tokens (32-byte URL-safe tokens)
+- **Email Notifications**: Sends HTML and plain text password reset emails via SMTP
+- **Token Expiration**: Configurable token expiration time (default: 1 hour)
+- **Token Validation**: Validates tokens and prevents reuse
+- **In-Memory Storage**: Token storage (easily replaceable with database/Redis in production)
+
+## Architecture
+
+### Components
+
+1. **PasswordResetToken**: Data class representing a reset token with metadata
+2. **TokenStorage**: In-memory storage for managing tokens
+3. **EmailService**: SMTP-based email delivery service
+4. **PasswordResetService**: Main service orchestrating the reset flow
 
 ## Installation
 
@@ -18,233 +27,231 @@ A secure, production-ready Python implementation for completing password reset f
 pip install -r requirements.txt
 ```
 
-## Environment Variables
+## Configuration
 
-Set the following environment variable:
+The module uses environment variables for configuration:
 
-```bash
-export JWT_SECRET_KEY="your-secure-secret-key-here"
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SMTP_HOST` | SMTP server hostname | `smtp.gmail.com` |
+| `SMTP_PORT` | SMTP server port | `587` |
+| `SMTP_USER` | SMTP authentication username | `""` |
+| `SMTP_PASSWORD` | SMTP authentication password | `""` |
+| `FROM_EMAIL` | Email address to send from | Same as `SMTP_USER` |
+| `TOKEN_EXPIRY_HOURS` | Token expiration time in hours | `1` |
+
+### Example .env file
+
 ```
-
-**⚠️ Important:** Never commit your actual secret key to version control. Use a secure key management system in production.
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+FROM_EMAIL=noreply@yourdomain.com
+TOKEN_EXPIRY_HOURS=1
+```
 
 ## Usage
 
 ### Basic Usage
 
 ```python
-from src.auth import PasswordResetCompletionService, PasswordResetRequest
+from src.auth.password_reset import create_password_reset_service
 
-# Initialize the service
-service = PasswordResetCompletionService()
+# Create service instance
+service = create_password_reset_service()
 
-# Define a callback to update the user's password in your database
-def update_user_password(user_id: str, hashed_password: str) -> bool:
-    # Your database update logic here
-    # Example: db.users.update_one({'id': user_id}, {'$set': {'password': hashed_password}})
-    return True
-
-# Complete the password reset
-request = PasswordResetRequest(
-    token="user-reset-token-from-email",
-    new_password="NewSecurePassword123"
+# Request password reset
+result = service.request_password_reset(
+    user_email="user@example.com",
+    reset_url_base="https://yourapp.com/reset-password"
 )
 
-response = service.complete_password_reset(request, update_user_password)
-
-if response.success:
-    print(f"Password reset successful for {response.email}")
+if result["success"]:
+    print("Reset email sent successfully")
 else:
-    print(f"Password reset failed: {response.message}")
+    print(f"Error: {result['message']}")
 ```
 
-### Generating Reset Tokens
+### Validating a Reset Token
 
 ```python
-# Generate a password reset token (typically done when user requests reset)
-token = service.generate_reset_token(
-    user_id="user123",
-    email="user@example.com"
-)
+# Validate token when user clicks the reset link
+validation_result = service.validate_reset_token(token)
 
-# Send this token to the user via email
-# The token expires after 24 hours by default
+if validation_result["valid"]:
+    user_email = validation_result["user_email"]
+    # Proceed with password reset
+    # ...
+    # Mark token as used
+    service.mark_token_used(token)
+else:
+    print(f"Invalid token: {validation_result['message']}")
 ```
 
-### Custom Token Expiry
+### Advanced Usage with Custom Configuration
 
 ```python
-# Set custom expiry (in hours)
-service = PasswordResetCompletionService(
-    secret_key="your-secret-key",
-    token_expiry_hours=2  # Token expires in 2 hours
+from src.auth.password_reset import (
+    TokenStorage,
+    EmailService,
+    PasswordResetService
+)
+
+# Create custom instances
+token_storage = TokenStorage()
+email_service = EmailService(
+    smtp_host="smtp.example.com",
+    smtp_port=587,
+    smtp_user="user@example.com",
+    smtp_password="password",
+    from_email="noreply@example.com"
+)
+
+service = PasswordResetService(
+    token_storage=token_storage,
+    email_service=email_service,
+    token_expiry_hours=2  # 2-hour expiration
 )
 ```
-
-## Password Requirements
-
-The module enforces the following password requirements:
-
-- Minimum 8 characters long
-- At least one uppercase letter
-- At least one lowercase letter
-- At least one digit
-
-## API Reference
-
-### `PasswordResetCompletionService`
-
-Main service class for handling password reset completion.
-
-**Methods:**
-
-- `generate_reset_token(user_id: str, email: str) -> str`
-  - Generates a JWT reset token for a user
-  
-- `verify_reset_token(token: str) -> Dict[str, Any]`
-  - Verifies and decodes a reset token
-  
-- `hash_password(password: str) -> str`
-  - Hashes a password using bcrypt
-  
-- `complete_password_reset(request: PasswordResetRequest, update_callback: callable) -> PasswordResetResponse`
-  - Completes the password reset process
-
-### `PasswordResetRequest`
-
-Pydantic model for password reset requests.
-
-**Fields:**
-- `token: str` - The JWT reset token
-- `new_password: str` - The new password (validated)
-
-### `PasswordResetResponse`
-
-Pydantic model for password reset responses.
-
-**Fields:**
-- `success: bool` - Whether the operation succeeded
-- `message: str` - Human-readable result message
-- `email: Optional[EmailStr]` - User's email (on success)
 
 ## Testing
 
-Run the test suite:
+Run the test suite using pytest:
 
 ```bash
 # Run all tests
-pytest
+pytest tests/
 
 # Run with coverage
-pytest --cov=src/auth --cov-report=html
+pytest tests/ --cov=src/auth --cov-report=html
 
 # Run specific test file
-pytest tests/test_password_reset_completion.py
+pytest tests/test_password_reset.py
 
 # Run with verbose output
-pytest -v
+pytest tests/ -v
 ```
 
-## Project Structure
+### Test Coverage
 
-```
-.
-├── src/
-│   └── auth/
-│       ├── __init__.py
-│       └── password_reset_completion.py
-├── tests/
-│   ├── __init__.py
-│   └── test_password_reset_completion.py
-├── requirements.txt
-└── README.md
-```
+The module includes comprehensive unit tests covering:
+- Token generation and validation
+- Token storage operations
+- Email sending (mocked)
+- Service integration
+- Error handling
+- Edge cases (expired tokens, invalid emails, etc.)
 
 ## Security Considerations
 
-1. **Secret Key Management**: Never hardcode the JWT secret key. Use environment variables or a secure key management service.
+### Production Deployment
 
-2. **HTTPS Only**: Always transmit reset tokens over HTTPS in production.
+1. **Replace In-Memory Storage**: Use a database (PostgreSQL, MySQL) or Redis for token storage
+2. **Environment Variables**: Never commit SMTP credentials to version control
+3. **HTTPS Only**: Ensure reset URLs use HTTPS in production
+4. **Rate Limiting**: Implement rate limiting to prevent abuse
+5. **User Verification**: Verify that the email address exists before sending reset emails
+6. **Logging**: Add secure logging (don't log tokens or passwords)
 
-3. **Token Expiry**: Reset tokens expire after 24 hours by default. Adjust based on your security requirements.
+### Token Security
 
-4. **Password Hashing**: Uses bcrypt with automatic salt generation for secure password storage.
+- Tokens are 32-byte URL-safe strings (43 characters)
+- Tokens are cryptographically secure (using `secrets` module)
+- Tokens expire after configurable time (default: 1 hour)
+- Tokens are single-use (marked as used after password reset)
 
-5. **Password Validation**: Enforces strong password requirements to prevent weak passwords.
+## Email Templates
 
-6. **Single Use Tokens**: Implement token invalidation after use in your database layer.
+The module sends both HTML and plain text versions of the reset email. The templates include:
+- Clear reset instructions
+- Clickable reset link
+- Expiration notice
+- Security warning for unsolicited emails
+
+## API Reference
+
+### PasswordResetService
+
+#### `request_password_reset(user_email: str, reset_url_base: str) -> Dict[str, Any]`
+
+Request a password reset for the given email address.
+
+**Parameters:**
+- `user_email`: Email address of the user
+- `reset_url_base`: Base URL for the reset page (token will be appended)
+
+**Returns:**
+```python
+{
+    "success": bool,
+    "message": str,
+    "token": str  # Only in development, remove in production
+}
+```
+
+#### `validate_reset_token(token: str) -> Dict[str, Any]`
+
+Validate a password reset token.
+
+**Returns:**
+```python
+{
+    "valid": bool,
+    "user_email": str,  # If valid
+    "message": str
+}
+```
+
+#### `mark_token_used(token: str) -> bool`
+
+Mark a token as used after successful password reset.
 
 ## Error Handling
 
-The service handles various error scenarios gracefully:
-
+The module handles various error scenarios:
+- Invalid email addresses
+- SMTP connection failures
 - Expired tokens
-- Invalid tokens
-- Malformed tokens
-- Weak passwords
-- Database update failures
+- Already-used tokens
+- Non-existent tokens
 
-All errors return a `PasswordResetResponse` with `success=False` and a descriptive message.
+All errors are returned as structured responses with clear messages.
 
-## Example Integration
-
-### With FastAPI
-
-```python
-from fastapi import FastAPI, HTTPException
-from src.auth import PasswordResetCompletionService, PasswordResetRequest
-
-app = FastAPI()
-service = PasswordResetCompletionService()
-
-@app.post("/auth/reset-password/complete")
-async def complete_reset(request: PasswordResetRequest):
-    def update_password(user_id: str, hashed_password: str) -> bool:
-        # Your database logic
-        return True
-    
-    response = service.complete_password_reset(request, update_password)
-    
-    if not response.success:
-        raise HTTPException(status_code=400, detail=response.message)
-    
-    return {"message": response.message, "email": response.email}
-```
-
-### With Flask
+## Integration Example
 
 ```python
 from flask import Flask, request, jsonify
-from src.auth import PasswordResetCompletionService, PasswordResetRequest
+from src.auth.password_reset import create_password_reset_service
 
 app = Flask(__name__)
-service = PasswordResetCompletionService()
+service = create_password_reset_service()
 
-@app.route('/auth/reset-password/complete', methods=['POST'])
-def complete_reset():
+@app.route('/api/auth/request-reset', methods=['POST'])
+def request_reset():
     data = request.get_json()
+    email = data.get('email')
     
-    reset_request = PasswordResetRequest(**data)
+    result = service.request_password_reset(
+        user_email=email,
+        reset_url_base="https://yourapp.com/reset-password"
+    )
     
-    def update_password(user_id: str, hashed_password: str) -> bool:
-        # Your database logic
-        return True
+    return jsonify(result)
+
+@app.route('/api/auth/validate-token', methods=['POST'])
+def validate_token():
+    data = request.get_json()
+    token = data.get('token')
     
-    response = service.complete_password_reset(reset_request, update_password)
-    
-    if not response.success:
-        return jsonify({"error": response.message}), 400
-    
-    return jsonify({
-        "message": response.message,
-        "email": response.email
-    })
+    result = service.validate_reset_token(token)
+    return jsonify(result)
 ```
 
 ## License
 
-Copyright © 2024 SynPro Consulting. All rights reserved.
+This module is part of the SDT1 project.
 
 ## Support
 
-For issues or questions, please contact the development team or create an issue in the repository.
+For issues or questions, please contact the development team.
