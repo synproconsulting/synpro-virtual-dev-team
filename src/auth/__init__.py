@@ -1,7 +1,13 @@
-"""
-Authentication module for JWT token handling.
-"""
+"""Authentication module for password reset and user management."""
 
-from .jwt_handler import JWTHandler
+from .password_reset_completion import (
+    PasswordResetCompletionService,
+    PasswordResetRequest,
+    PasswordResetResponse,
+)
 
-__all__ = ["JWTHandler"]
+__all__ = [
+    'PasswordResetCompletionService',
+    'PasswordResetRequest',
+    'PasswordResetResponse',
+]
