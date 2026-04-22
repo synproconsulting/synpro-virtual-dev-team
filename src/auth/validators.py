@@ -1,100 +1,84 @@
 """
-Email and password validation utilities for user registration.
+Email and password validation utilities.
 """
+
 import re
 from typing import Tuple
 
 
-class EmailValidator:
+def validate_email(email: str) -> Tuple[bool, str]:
     """
-    Validator for email addresses.
+    Validate email address format.
     
-    Implements RFC 5322 compliant email validation with basic checks.
+    Args:
+        email: Email address to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message)
     """
+    if not email:
+        return False, "Email is required"
     
-    # Simple but effective email regex pattern
-    EMAIL_PATTERN = re.compile(
-        r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    )
+    if len(email) > 320:  # RFC 5321
+        return False, "Email address is too long"
     
-    @classmethod
-    def validate(cls, email: str) -> Tuple[bool, str]:
-        """
-        Validate an email address.
-        
-        Args:
-            email: The email address to validate
-            
-        Returns:
-            Tuple of (is_valid, error_message)
-            If valid, error_message is empty string
-        """
-        if not email:
-            return False, "Email address is required"
-        
-        if not isinstance(email, str):
-            return False, "Email must be a string"
-        
-        email = email.strip()
-        
-        if len(email) > 254:
-            return False, "Email address is too long (max 254 characters)"
-        
-        if not cls.EMAIL_PATTERN.match(email):
-            return False, "Invalid email format"
-        
-        return True, ""
+    # Basic email regex pattern
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    
+    if not re.match(pattern, email):
+        return False, "Invalid email format"
+    
+    # Additional checks
+    local_part, domain = email.rsplit('@', 1)
+    
+    if len(local_part) > 64:  # RFC 5321
+        return False, "Email local part is too long"
+    
+    if local_part.startswith('.') or local_part.endswith('.'):
+        return False, "Email local part cannot start or end with a dot"
+    
+    if '..' in local_part:
+        return False, "Email local part cannot contain consecutive dots"
+    
+    return True, ""
 
 
-class PasswordValidator:
+def validate_password(password: str) -> Tuple[bool, str]:
     """
-    Validator for user passwords.
+    Validate password strength.
     
-    Enforces strong password requirements:
+    Password requirements:
     - Minimum 8 characters
     - At least one uppercase letter
     - At least one lowercase letter
     - At least one digit
     - At least one special character
+    
+    Args:
+        password: Password to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message)
     """
+    if not password:
+        return False, "Password is required"
     
-    MIN_LENGTH = 8
-    MAX_LENGTH = 128
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long"
     
-    @classmethod
-    def validate(cls, password: str) -> Tuple[bool, str]:
-        """
-        Validate a password against security requirements.
-        
-        Args:
-            password: The password to validate
-            
-        Returns:
-            Tuple of (is_valid, error_message)
-            If valid, error_message is empty string
-        """
-        if not password:
-            return False, "Password is required"
-        
-        if not isinstance(password, str):
-            return False, "Password must be a string"
-        
-        if len(password) < cls.MIN_LENGTH:
-            return False, f"Password must be at least {cls.MIN_LENGTH} characters long"
-        
-        if len(password) > cls.MAX_LENGTH:
-            return False, f"Password must not exceed {cls.MAX_LENGTH} characters"
-        
-        if not re.search(r'[A-Z]', password):
-            return False, "Password must contain at least one uppercase letter"
-        
-        if not re.search(r'[a-z]', password):
-            return False, "Password must contain at least one lowercase letter"
-        
-        if not re.search(r'\d', password):
-            return False, "Password must contain at least one digit"
-        
-        if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/;`~]', password):
-            return False, "Password must contain at least one special character"
-        
-        return True, ""
+    if len(password) > 128:
+        return False, "Password is too long (max 128 characters)"
+    
+    if not re.search(r'[A-Z]', password):
+        return False, "Password must contain at least one uppercase letter"
+    
+    if not re.search(r'[a-z]', password):
+        return False, "Password must contain at least one lowercase letter"
+    
+    if not re.search(r'\d', password):
+        return False, "Password must contain at least one digit"
+    
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/;\'`~]', password):
+        return False, "Password must contain at least one special character"
+    
+    return True, ""
