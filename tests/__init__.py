@@ -1,3 +1,3 @@
 """
-Test package for authentication module.
+Test suite for authentication module.
 """
