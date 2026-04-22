@@ -1,242 +1,250 @@
-# JWT Token Generation and Validation Module
+# Password Reset Completion Module
 
-This module provides a complete implementation of JSON Web Token (JWT) generation and validation for authentication and authorization purposes.
+A secure, production-ready Python implementation for completing password reset flows with JWT token validation and bcrypt password hashing.
 
 ## Features
 
-- **Access Token Generation**: Create short-lived access tokens for API authentication
-- **Refresh Token Generation**: Create long-lived refresh tokens for obtaining new access tokens
-- **Token Validation**: Validate tokens with type checking and expiration handling
-- **Token Decoding**: Extract and verify token payloads
-- **Subject Extraction**: Retrieve user identifiers from tokens
-- **Token Refresh**: Generate new access tokens from valid refresh tokens
+- ✅ Secure JWT token-based password reset validation
+- ✅ Industry-standard bcrypt password hashing
+- ✅ Strong password validation requirements
+- ✅ Token expiration handling
+- ✅ Comprehensive error handling
+- ✅ Type hints throughout
+- ✅ Fully tested with pytest
 
 ## Installation
-
-Install the required dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Configuration
+## Environment Variables
 
-The JWT handler requires a secret key for signing tokens. You can provide it in two ways:
+Set the following environment variable:
 
-1. **Environment Variable** (recommended):
-   ```bash
-   export SECRET_KEY="your-secret-key-here"
-   ```
+```bash
+export JWT_SECRET_KEY="your-secure-secret-key-here"
+```
 
-2. **Direct instantiation**:
-   ```python
-   from src.auth import JWTHandler
-   
-   handler = JWTHandler(secret_key="your-secret-key-here")
-   ```
-
-### Configuration Parameters
-
-- `secret_key`: Secret key for signing tokens (required)
-- `algorithm`: Algorithm for encoding/decoding (default: "HS256")
-- `access_token_expire_minutes`: Expiration time for access tokens in minutes (default: 30)
-- `refresh_token_expire_days`: Expiration time for refresh tokens in days (default: 7)
+**⚠️ Important:** Never commit your actual secret key to version control. Use a secure key management system in production.
 
 ## Usage
 
 ### Basic Usage
 
 ```python
-from src.auth import JWTHandler
+from src.auth import PasswordResetCompletionService, PasswordResetRequest
 
-# Initialize the handler
-handler = JWTHandler(
-    secret_key="your-secret-key",
-    access_token_expire_minutes=30,
-    refresh_token_expire_days=7
+# Initialize the service
+service = PasswordResetCompletionService()
+
+# Define a callback to update the user's password in your database
+def update_user_password(user_id: str, hashed_password: str) -> bool:
+    # Your database update logic here
+    # Example: db.users.update_one({'id': user_id}, {'$set': {'password': hashed_password}})
+    return True
+
+# Complete the password reset
+request = PasswordResetRequest(
+    token="user-reset-token-from-email",
+    new_password="NewSecurePassword123"
 )
 
-# Create an access token
-access_token = handler.create_access_token(subject="user123")
+response = service.complete_password_reset(request, update_user_password)
 
-# Create a refresh token
-refresh_token = handler.create_refresh_token(subject="user123")
-
-# Validate a token
-is_valid = handler.validate_token(access_token)
-
-# Decode a token
-payload = handler.decode_token(access_token)
-print(payload["sub"])  # Output: user123
-
-# Get subject from token
-subject = handler.get_token_subject(access_token)
-print(subject)  # Output: user123
-```
-
-### Advanced Usage
-
-#### Tokens with Additional Claims
-
-```python
-# Create access token with custom claims
-access_token = handler.create_access_token(
-    subject="user123",
-    additional_claims={
-        "role": "admin",
-        "permissions": ["read", "write", "delete"]
-    }
-)
-
-# Decode and use custom claims
-payload = handler.decode_token(access_token)
-print(payload["role"])  # Output: admin
-print(payload["permissions"])  # Output: ["read", "write", "delete"]
-```
-
-#### Custom Token Expiration
-
-```python
-from datetime import timedelta
-
-# Create access token with custom expiration
-access_token = handler.create_access_token(
-    subject="user123",
-    expires_delta=timedelta(hours=2)
-)
-```
-
-#### Token Type Validation
-
-```python
-# Validate token and check its type
-is_valid_access = handler.validate_token(access_token, token_type="access")
-is_valid_refresh = handler.validate_token(refresh_token, token_type="refresh")
-```
-
-#### Refresh Access Tokens
-
-```python
-# Generate a new access token from a refresh token
-new_access_token = handler.refresh_access_token(refresh_token)
-
-if new_access_token:
-    print("New access token generated successfully")
+if response.success:
+    print(f"Password reset successful for {response.email}")
 else:
-    print("Invalid or expired refresh token")
+    print(f"Password reset failed: {response.message}")
 ```
 
-### Error Handling
+### Generating Reset Tokens
 
 ```python
-from jose import JWTError
-from jose.exceptions import ExpiredSignatureError
+# Generate a password reset token (typically done when user requests reset)
+token = service.generate_reset_token(
+    user_id="user123",
+    email="user@example.com"
+)
 
-try:
-    payload = handler.decode_token(token)
-    print(f"Token is valid for user: {payload['sub']}")
-except ExpiredSignatureError:
-    print("Token has expired")
-except JWTError as e:
-    print(f"Invalid token: {e}")
+# Send this token to the user via email
+# The token expires after 24 hours by default
 ```
+
+### Custom Token Expiry
+
+```python
+# Set custom expiry (in hours)
+service = PasswordResetCompletionService(
+    secret_key="your-secret-key",
+    token_expiry_hours=2  # Token expires in 2 hours
+)
+```
+
+## Password Requirements
+
+The module enforces the following password requirements:
+
+- Minimum 8 characters long
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one digit
+
+## API Reference
+
+### `PasswordResetCompletionService`
+
+Main service class for handling password reset completion.
+
+**Methods:**
+
+- `generate_reset_token(user_id: str, email: str) -> str`
+  - Generates a JWT reset token for a user
+  
+- `verify_reset_token(token: str) -> Dict[str, Any]`
+  - Verifies and decodes a reset token
+  
+- `hash_password(password: str) -> str`
+  - Hashes a password using bcrypt
+  
+- `complete_password_reset(request: PasswordResetRequest, update_callback: callable) -> PasswordResetResponse`
+  - Completes the password reset process
+
+### `PasswordResetRequest`
+
+Pydantic model for password reset requests.
+
+**Fields:**
+- `token: str` - The JWT reset token
+- `new_password: str` - The new password (validated)
+
+### `PasswordResetResponse`
+
+Pydantic model for password reset responses.
+
+**Fields:**
+- `success: bool` - Whether the operation succeeded
+- `message: str` - Human-readable result message
+- `email: Optional[EmailStr]` - User's email (on success)
 
 ## Testing
 
-Run the test suite using pytest:
+Run the test suite:
 
 ```bash
 # Run all tests
 pytest
 
-# Run with coverage report
+# Run with coverage
 pytest --cov=src/auth --cov-report=html
 
 # Run specific test file
-pytest tests/test_jwt_handler.py
+pytest tests/test_password_reset_completion.py
 
 # Run with verbose output
 pytest -v
 ```
 
-### Test Coverage
+## Project Structure
 
-The test suite includes comprehensive tests for:
-- Handler initialization and configuration
-- Access token generation and validation
-- Refresh token generation and validation
-- Token decoding with valid and invalid tokens
-- Token expiration handling
-- Subject extraction
-- Token refresh functionality
-- Error scenarios and edge cases
+```
+.
+├── src/
+│   └── auth/
+│       ├── __init__.py
+│       └── password_reset_completion.py
+├── tests/
+│   ├── __init__.py
+│   └── test_password_reset_completion.py
+├── requirements.txt
+└── README.md
+```
 
 ## Security Considerations
 
-1. **Secret Key**: Always use a strong, randomly generated secret key. Never commit it to version control.
-2. **HTTPS Only**: Always transmit tokens over HTTPS in production.
-3. **Token Storage**: Store tokens securely on the client side (e.g., httpOnly cookies for web apps).
-4. **Expiration**: Use appropriate expiration times. Access tokens should be short-lived (15-30 minutes), refresh tokens longer (7-30 days).
-5. **Token Revocation**: Implement token blacklisting or rotation for enhanced security.
-6. **Algorithm**: The default HS256 algorithm is suitable for most use cases. Use RS256 for distributed systems.
+1. **Secret Key Management**: Never hardcode the JWT secret key. Use environment variables or a secure key management service.
 
-## Architecture
+2. **HTTPS Only**: Always transmit reset tokens over HTTPS in production.
 
+3. **Token Expiry**: Reset tokens expire after 24 hours by default. Adjust based on your security requirements.
+
+4. **Password Hashing**: Uses bcrypt with automatic salt generation for secure password storage.
+
+5. **Password Validation**: Enforces strong password requirements to prevent weak passwords.
+
+6. **Single Use Tokens**: Implement token invalidation after use in your database layer.
+
+## Error Handling
+
+The service handles various error scenarios gracefully:
+
+- Expired tokens
+- Invalid tokens
+- Malformed tokens
+- Weak passwords
+- Database update failures
+
+All errors return a `PasswordResetResponse` with `success=False` and a descriptive message.
+
+## Example Integration
+
+### With FastAPI
+
+```python
+from fastapi import FastAPI, HTTPException
+from src.auth import PasswordResetCompletionService, PasswordResetRequest
+
+app = FastAPI()
+service = PasswordResetCompletionService()
+
+@app.post("/auth/reset-password/complete")
+async def complete_reset(request: PasswordResetRequest):
+    def update_password(user_id: str, hashed_password: str) -> bool:
+        # Your database logic
+        return True
+    
+    response = service.complete_password_reset(request, update_password)
+    
+    if not response.success:
+        raise HTTPException(status_code=400, detail=response.message)
+    
+    return {"message": response.message, "email": response.email}
 ```
-src/
-└── auth/
-    ├── __init__.py          # Package exports
-    └── jwt_handler.py       # Main JWT handler implementation
 
-tests/
-├── __init__.py              # Test package
-└── test_jwt_handler.py      # Comprehensive test suite
+### With Flask
 
-requirements.txt             # Project dependencies
-README.md                    # This file
+```python
+from flask import Flask, request, jsonify
+from src.auth import PasswordResetCompletionService, PasswordResetRequest
+
+app = Flask(__name__)
+service = PasswordResetCompletionService()
+
+@app.route('/auth/reset-password/complete', methods=['POST'])
+def complete_reset():
+    data = request.get_json()
+    
+    reset_request = PasswordResetRequest(**data)
+    
+    def update_password(user_id: str, hashed_password: str) -> bool:
+        # Your database logic
+        return True
+    
+    response = service.complete_password_reset(reset_request, update_password)
+    
+    if not response.success:
+        return jsonify({"error": response.message}), 400
+    
+    return jsonify({
+        "message": response.message,
+        "email": response.email
+    })
 ```
-
-## API Reference
-
-### JWTHandler Class
-
-#### `__init__(secret_key, algorithm, access_token_expire_minutes, refresh_token_expire_days)`
-Initialize the JWT handler with configuration.
-
-#### `create_access_token(subject, additional_claims, expires_delta) -> str`
-Create a JWT access token.
-
-#### `create_refresh_token(subject, additional_claims, expires_delta) -> str`
-Create a JWT refresh token.
-
-#### `decode_token(token) -> Dict[str, Any]`
-Decode and validate a JWT token. Raises `JWTError` or `ExpiredSignatureError` if invalid.
-
-#### `validate_token(token, token_type) -> bool`
-Validate a JWT token, optionally checking its type.
-
-#### `get_token_subject(token) -> Optional[str]`
-Extract the subject from a token. Returns `None` if invalid.
-
-#### `refresh_access_token(refresh_token) -> Optional[str]`
-Generate a new access token from a valid refresh token.
-
-## Dependencies
-
-- **python-jose[cryptography]**: JWT encoding/decoding with cryptographic support
-- **pytest**: Testing framework
-- **pytest-cov**: Code coverage reporting
-- **mypy**: Static type checking (optional)
 
 ## License
 
-This module is part of the SDT1 project.
+Copyright © 2024 SynPro Consulting. All rights reserved.
 
-## Contributing
+## Support
 
-When contributing to this module:
-1. Ensure all tests pass
-2. Add tests for new functionality
-3. Follow the existing code style
-4. Update documentation as needed
-5. Use type hints for all functions
+For issues or questions, please contact the development team or create an issue in the repository.
