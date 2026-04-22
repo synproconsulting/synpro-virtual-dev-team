@@ -1,3 +1,1 @@
-"""
-Tests package for the authentication module.
-"""
+"""Tests package for authentication module."""
