@@ -1,0 +1,14 @@
+# User Registration Module Dependencies
+
+# Password hashing
+passlib[bcrypt]==1.7.4
+
+# Data validation and settings management
+pydantic[email]==2.5.3
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+
+# Type checking (development)
+mypy==1.7.1
