@@ -1,257 +1,147 @@
-# Password Reset Request Module
+# User Authentication Module
 
-## Overview
-
-This module provides a complete password reset request functionality for Python applications. It includes secure token generation, email delivery, and token validation with expiration handling.
+A production-ready user authentication module with login, registration, and password reset functionality.
 
 ## Features
 
-- **Secure Token Generation**: Uses cryptographically secure random tokens (32-byte URL-safe tokens)
-- **Email Notifications**: Sends HTML and plain text password reset emails via SMTP
-- **Token Expiration**: Configurable token expiration time (default: 1 hour)
-- **Token Validation**: Validates tokens and prevents reuse
-- **In-Memory Storage**: Token storage (easily replaceable with database/Redis in production)
+- **User Registration**: Secure user registration with email validation and password hashing
+- **User Login**: JWT-based authentication with access tokens
+- **Password Reset**: Token-based password reset flow
+- **Secure Password Hashing**: Using bcrypt via passlib
+- **JWT Tokens**: Industry-standard JWT tokens for authentication
 
-## Architecture
+## Project Structure
 
-### Components
-
-1. **PasswordResetToken**: Data class representing a reset token with metadata
-2. **TokenStorage**: In-memory storage for managing tokens
-3. **EmailService**: SMTP-based email delivery service
-4. **PasswordResetService**: Main service orchestrating the reset flow
+```
+.
+├── src/
+│   └── auth/
+│       ├── __init__.py
+│       ├── models.py          # User data models
+│       ├── schemas.py         # Pydantic schemas for request/response
+│       ├── security.py        # Password hashing and JWT utilities
+│       ├── database.py        # Database configuration
+│       ├── service.py         # Business logic for auth operations
+│       └── router.py          # FastAPI routes
+├── tests/
+│   ├── __init__.py
+│   ├── test_security.py       # Tests for security utilities
+│   ├── test_service.py        # Tests for auth service
+│   └── test_router.py         # Integration tests for API endpoints
+├── requirements.txt
+└── README.md
+```
 
 ## Installation
 
-```bash
-pip install -r requirements.txt
-```
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## Configuration
-
-The module uses environment variables for configuration:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SMTP_HOST` | SMTP server hostname | `smtp.gmail.com` |
-| `SMTP_PORT` | SMTP server port | `587` |
-| `SMTP_USER` | SMTP authentication username | `""` |
-| `SMTP_PASSWORD` | SMTP authentication password | `""` |
-| `FROM_EMAIL` | Email address to send from | Same as `SMTP_USER` |
-| `TOKEN_EXPIRY_HOURS` | Token expiration time in hours | `1` |
-
-### Example .env file
-
-```
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
-FROM_EMAIL=noreply@yourdomain.com
-TOKEN_EXPIRY_HOURS=1
-```
+3. Set up environment variables:
+   ```bash
+   export SECRET_KEY="your-secret-key-here"
+   export DATABASE_URL="sqlite:///./auth.db"  # or your database URL
+   export ACCESS_TOKEN_EXPIRE_MINUTES="30"
+   ```
 
 ## Usage
 
-### Basic Usage
+### Running the Application
 
 ```python
-from src.auth.password_reset import create_password_reset_service
+from fastapi import FastAPI
+from src.auth.router import router as auth_router
+from src.auth.database import init_db
 
-# Create service instance
-service = create_password_reset_service()
+app = FastAPI()
+app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 
-# Request password reset
-result = service.request_password_reset(
-    user_email="user@example.com",
-    reset_url_base="https://yourapp.com/reset-password"
-)
+@app.on_event("startup")
+async def startup():
+    init_db()
 
-if result["success"]:
-    print("Reset email sent successfully")
-else:
-    print(f"Error: {result['message']}")
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
-### Validating a Reset Token
+### API Endpoints
 
-```python
-# Validate token when user clicks the reset link
-validation_result = service.validate_reset_token(token)
+#### Register a New User
+```bash
+POST /auth/register
+Content-Type: application/json
 
-if validation_result["valid"]:
-    user_email = validation_result["user_email"]
-    # Proceed with password reset
-    # ...
-    # Mark token as used
-    service.mark_token_used(token)
-else:
-    print(f"Invalid token: {validation_result['message']}")
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123!",
+  "full_name": "John Doe"
+}
 ```
 
-### Advanced Usage with Custom Configuration
+#### Login
+```bash
+POST /auth/login
+Content-Type: application/x-www-form-urlencoded
 
-```python
-from src.auth.password_reset import (
-    TokenStorage,
-    EmailService,
-    PasswordResetService
-)
-
-# Create custom instances
-token_storage = TokenStorage()
-email_service = EmailService(
-    smtp_host="smtp.example.com",
-    smtp_port=587,
-    smtp_user="user@example.com",
-    smtp_password="password",
-    from_email="noreply@example.com"
-)
-
-service = PasswordResetService(
-    token_storage=token_storage,
-    email_service=email_service,
-    token_expiry_hours=2  # 2-hour expiration
-)
+username=user@example.com&password=SecurePassword123!
 ```
 
-## Testing
+Response:
+```json
+{
+  "access_token": "eyJhbGc...",
+  "token_type": "bearer"
+}
+```
 
-Run the test suite using pytest:
+#### Request Password Reset
+```bash
+POST /auth/password-reset/request
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+#### Reset Password
+```bash
+POST /auth/password-reset/confirm
+Content-Type: application/json
+
+{
+  "token": "reset-token-here",
+  "new_password": "NewSecurePassword123!"
+}
+```
+
+## Running Tests
 
 ```bash
-# Run all tests
-pytest tests/
-
-# Run with coverage
-pytest tests/ --cov=src/auth --cov-report=html
-
-# Run specific test file
-pytest tests/test_password_reset.py
-
-# Run with verbose output
 pytest tests/ -v
 ```
 
-### Test Coverage
-
-The module includes comprehensive unit tests covering:
-- Token generation and validation
-- Token storage operations
-- Email sending (mocked)
-- Service integration
-- Error handling
-- Edge cases (expired tokens, invalid emails, etc.)
-
 ## Security Considerations
 
-### Production Deployment
+- Passwords are hashed using bcrypt with automatic salt generation
+- JWT tokens are signed with HS256 algorithm
+- Password reset tokens expire after a configurable time period
+- Never commit the SECRET_KEY to version control
+- Use environment variables for all sensitive configuration
 
-1. **Replace In-Memory Storage**: Use a database (PostgreSQL, MySQL) or Redis for token storage
-2. **Environment Variables**: Never commit SMTP credentials to version control
-3. **HTTPS Only**: Ensure reset URLs use HTTPS in production
-4. **Rate Limiting**: Implement rate limiting to prevent abuse
-5. **User Verification**: Verify that the email address exists before sending reset emails
-6. **Logging**: Add secure logging (don't log tokens or passwords)
+## Environment Variables
 
-### Token Security
-
-- Tokens are 32-byte URL-safe strings (43 characters)
-- Tokens are cryptographically secure (using `secrets` module)
-- Tokens expire after configurable time (default: 1 hour)
-- Tokens are single-use (marked as used after password reset)
-
-## Email Templates
-
-The module sends both HTML and plain text versions of the reset email. The templates include:
-- Clear reset instructions
-- Clickable reset link
-- Expiration notice
-- Security warning for unsolicited emails
-
-## API Reference
-
-### PasswordResetService
-
-#### `request_password_reset(user_email: str, reset_url_base: str) -> Dict[str, Any]`
-
-Request a password reset for the given email address.
-
-**Parameters:**
-- `user_email`: Email address of the user
-- `reset_url_base`: Base URL for the reset page (token will be appended)
-
-**Returns:**
-```python
-{
-    "success": bool,
-    "message": str,
-    "token": str  # Only in development, remove in production
-}
-```
-
-#### `validate_reset_token(token: str) -> Dict[str, Any]`
-
-Validate a password reset token.
-
-**Returns:**
-```python
-{
-    "valid": bool,
-    "user_email": str,  # If valid
-    "message": str
-}
-```
-
-#### `mark_token_used(token: str) -> bool`
-
-Mark a token as used after successful password reset.
-
-## Error Handling
-
-The module handles various error scenarios:
-- Invalid email addresses
-- SMTP connection failures
-- Expired tokens
-- Already-used tokens
-- Non-existent tokens
-
-All errors are returned as structured responses with clear messages.
-
-## Integration Example
-
-```python
-from flask import Flask, request, jsonify
-from src.auth.password_reset import create_password_reset_service
-
-app = Flask(__name__)
-service = create_password_reset_service()
-
-@app.route('/api/auth/request-reset', methods=['POST'])
-def request_reset():
-    data = request.get_json()
-    email = data.get('email')
-    
-    result = service.request_password_reset(
-        user_email=email,
-        reset_url_base="https://yourapp.com/reset-password"
-    )
-    
-    return jsonify(result)
-
-@app.route('/api/auth/validate-token', methods=['POST'])
-def validate_token():
-    data = request.get_json()
-    token = data.get('token')
-    
-    result = service.validate_reset_token(token)
-    return jsonify(result)
-```
+| Variable | Description | Default |
+|----------|-------------|---------|
+| SECRET_KEY | Secret key for JWT signing | (required) |
+| DATABASE_URL | Database connection string | sqlite:///./auth.db |
+| ACCESS_TOKEN_EXPIRE_MINUTES | JWT token expiration time | 30 |
+| RESET_TOKEN_EXPIRE_HOURS | Password reset token expiration | 24 |
 
 ## License
 
-This module is part of the SDT1 project.
-
-## Support
-
-For issues or questions, please contact the development team.
+MIT
