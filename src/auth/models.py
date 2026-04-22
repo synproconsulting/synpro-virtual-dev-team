@@ -1,44 +1,55 @@
 """
-User data models for authentication.
+Database models for user authentication.
 """
-from dataclasses import dataclass, field
+
+from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
-from typing import Optional
-import uuid
+
+Base = declarative_base()
 
 
-@dataclass
-class User:
+class User(Base):
     """
-    User model representing a registered user.
+    User model representing a registered user in the system.
     
     Attributes:
-        id: Unique user identifier
-        email: User's email address
-        password_hash: Hashed password (never store plaintext)
-        created_at: Timestamp of user creation
+        id: Primary key
+        email: Unique email address
+        hashed_password: Bcrypt hashed password
+        full_name: User's full name
         is_active: Whether the user account is active
-        is_verified: Whether the email has been verified
+        created_at: Timestamp of account creation
+        updated_at: Timestamp of last update
     """
+    __tablename__ = "users"
     
-    email: str
-    password_hash: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    is_active: bool = True
-    is_verified: bool = False
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    full_name = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PasswordResetToken(Base):
+    """
+    Password reset token model for managing password reset requests.
     
-    def to_dict(self) -> dict:
-        """
-        Convert user to dictionary representation.
-        
-        Returns:
-            Dictionary with user data (excludes password_hash)
-        """
-        return {
-            "id": self.id,
-            "email": self.email,
-            "created_at": self.created_at.isoformat(),
-            "is_active": self.is_active,
-            "is_verified": self.is_verified,
-        }
+    Attributes:
+        id: Primary key
+        user_id: Foreign key to user
+        token: Unique reset token
+        expires_at: Token expiration timestamp
+        used: Whether the token has been used
+        created_at: Timestamp of token creation
+    """
+    __tablename__ = "password_reset_tokens"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    token = Column(String, unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
