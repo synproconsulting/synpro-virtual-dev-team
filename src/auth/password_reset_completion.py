@@ -6,7 +6,7 @@ reset tokens and updating user passwords securely.
 """
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 import jwt
 from passlib.context import CryptContext
@@ -195,14 +195,14 @@ class PasswordResetCompletionService:
         Returns:
             JWT reset token string
         """
-        expiry = datetime.utcnow() + timedelta(hours=self.token_expiry_hours)
+        expiry = datetime.now(timezone.utc) + timedelta(hours=self.token_expiry_hours)
         
         payload = {
             'user_id': user_id,
             'email': email,
             'type': 'password_reset',
             'exp': expiry,
-            'iat': datetime.utcnow()
+            'iat': datetime.now(timezone.utc)
         }
         
         token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
