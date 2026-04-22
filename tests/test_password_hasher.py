@@ -1,61 +1,51 @@
 """
-Unit tests for password hashing functionality.
+Tests for password hashing utilities.
 """
+
 import pytest
-from src.auth.password_hasher import PasswordHasher
+from src.auth.password_hasher import hash_password, verify_password
 
 
 class TestPasswordHasher:
-    """Test cases for PasswordHasher."""
+    """Test cases for password hashing."""
     
     def test_hash_password(self):
         """Test that password hashing works."""
-        hasher = PasswordHasher()
-        password = "TestPassword123!"
-        
-        hashed = hasher.hash_password(password)
+        password = "MySecurePassword123!"
+        hashed = hash_password(password)
         
         assert hashed is not None
         assert hashed != password
         assert len(hashed) > 0
     
-    def test_hash_password_different_each_time(self):
-        """Test that hashing same password produces different hashes (salt)."""
-        hasher = PasswordHasher()
-        password = "TestPassword123!"
+    def test_hash_password_different_hashes(self):
+        """Test that same password produces different hashes (salt)."""
+        password = "SamePassword123!"
+        hash1 = hash_password(password)
+        hash2 = hash_password(password)
         
-        hash1 = hasher.hash_password(password)
-        hash2 = hasher.hash_password(password)
-        
+        # Bcrypt uses salt, so hashes should be different
         assert hash1 != hash2
     
-    def test_verify_password_correct(self):
+    def test_verify_correct_password(self):
         """Test that correct password verification works."""
-        hasher = PasswordHasher()
-        password = "TestPassword123!"
+        password = "CorrectPassword123!"
+        hashed = hash_password(password)
         
-        hashed = hasher.hash_password(password)
-        result = hasher.verify_password(password, hashed)
-        
-        assert result is True
+        assert verify_password(password, hashed) is True
     
-    def test_verify_password_incorrect(self):
-        """Test that incorrect password is rejected."""
-        hasher = PasswordHasher()
-        password = "TestPassword123!"
+    def test_verify_incorrect_password(self):
+        """Test that incorrect password verification fails."""
+        password = "CorrectPassword123!"
         wrong_password = "WrongPassword123!"
+        hashed = hash_password(password)
         
-        hashed = hasher.hash_password(password)
-        result = hasher.verify_password(wrong_password, hashed)
-        
-        assert result is False
+        assert verify_password(wrong_password, hashed) is False
     
-    def test_verify_password_case_sensitive(self):
-        """Test that password verification is case sensitive."""
-        hasher = PasswordHasher()
-        password = "TestPassword123!"
+    def test_verify_case_sensitive(self):
+        """Test that password verification is case-sensitive."""
+        password = "Password123!"
+        hashed = hash_password(password)
         
-        hashed = hasher.hash_password(password)
-        result = hasher.verify_password("testpassword123!", hashed)
-        
-        assert result is False
+        assert verify_password("password123!", hashed) is False
+        assert verify_password("PASSWORD123!", hashed) is False
