@@ -1,7 +1,9 @@
-# Core dependencies for user registration module
-passlib[bcrypt]==1.7.4
-bcrypt==4.1.2
+# Core JWT library
+python-jose[cryptography]==3.3.0
 
-# Testing dependencies
+# Testing
 pytest==7.4.3
 pytest-cov==4.1.0
+
+# Type checking (optional but recommended)
+mypy==1.7.1
