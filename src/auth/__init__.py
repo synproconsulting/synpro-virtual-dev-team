@@ -1,13 +1,19 @@
-"""Authentication module for password reset and user management."""
+"""
+Authentication module for password reset and related functionality.
+"""
 
-from .password_reset_completion import (
-    PasswordResetCompletionService,
-    PasswordResetRequest,
-    PasswordResetResponse,
+from .password_reset import (
+    PasswordResetToken,
+    TokenStorage,
+    EmailService,
+    PasswordResetService,
+    create_password_reset_service
 )
 
 __all__ = [
-    'PasswordResetCompletionService',
-    'PasswordResetRequest',
-    'PasswordResetResponse',
+    'PasswordResetToken',
+    'TokenStorage',
+    'EmailService',
+    'PasswordResetService',
+    'create_password_reset_service'
 ]
