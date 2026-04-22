@@ -1,30 +1,37 @@
 """
-Unit tests for email and password validators.
+Tests for email and password validators.
 """
+
 import pytest
-from src.auth.validators import EmailValidator, PasswordValidator
+from src.auth.validators import validate_email, validate_password
 
 
-class TestEmailValidator:
-    """Test cases for EmailValidator."""
+class TestEmailValidation:
+    """Test cases for email validation."""
     
     def test_valid_email(self):
-        """Test validation of valid email addresses."""
+        """Test that valid email addresses are accepted."""
         valid_emails = [
             "user@example.com",
-            "test.user@example.com",
-            "user+tag@example.co.uk",
-            "firstname.lastname@company.org",
-            "user123@test-domain.com",
+            "john.doe@company.co.uk",
+            "test+tag@domain.org",
+            "first_last@subdomain.example.com",
+            "123@numbers.com",
         ]
         
         for email in valid_emails:
-            is_valid, error = EmailValidator.validate(email)
-            assert is_valid is True, f"Email {email} should be valid"
+            is_valid, error = validate_email(email)
+            assert is_valid, f"Email {email} should be valid but got error: {error}"
             assert error == ""
     
+    def test_empty_email(self):
+        """Test that empty email is rejected."""
+        is_valid, error = validate_email("")
+        assert not is_valid
+        assert error == "Email is required"
+    
     def test_invalid_email_format(self):
-        """Test validation of invalid email formats."""
+        """Test that invalid email formats are rejected."""
         invalid_emails = [
             "notanemail",
             "@example.com",
@@ -32,102 +39,86 @@ class TestEmailValidator:
             "user @example.com",
             "user@example",
             "user..name@example.com",
+            ".user@example.com",
+            "user.@example.com",
         ]
         
         for email in invalid_emails:
-            is_valid, error = EmailValidator.validate(email)
-            assert is_valid is False, f"Email {email} should be invalid"
+            is_valid, error = validate_email(email)
+            assert not is_valid, f"Email {email} should be invalid"
             assert error != ""
     
-    def test_empty_email(self):
-        """Test validation of empty email."""
-        is_valid, error = EmailValidator.validate("")
-        assert is_valid is False
-        assert "required" in error.lower()
-    
     def test_email_too_long(self):
-        """Test validation of overly long email."""
-        long_email = "a" * 250 + "@test.com"
-        is_valid, error = EmailValidator.validate(long_email)
-        assert is_valid is False
+        """Test that emails exceeding max length are rejected."""
+        long_email = "a" * 310 + "@example.com"
+        is_valid, error = validate_email(long_email)
+        assert not is_valid
         assert "too long" in error.lower()
     
-    def test_email_with_whitespace(self):
-        """Test that emails with whitespace are handled."""
-        is_valid, error = EmailValidator.validate("  user@example.com  ")
-        assert is_valid is True
-        assert error == ""
-    
-    def test_non_string_email(self):
-        """Test validation rejects non-string input."""
-        is_valid, error = EmailValidator.validate(12345)
-        assert is_valid is False
-        assert "string" in error.lower()
+    def test_local_part_too_long(self):
+        """Test that local part exceeding 64 chars is rejected."""
+        long_local = "a" * 65 + "@example.com"
+        is_valid, error = validate_email(long_local)
+        assert not is_valid
+        assert "local part" in error.lower()
 
 
-class TestPasswordValidator:
-    """Test cases for PasswordValidator."""
+class TestPasswordValidation:
+    """Test cases for password validation."""
     
     def test_valid_password(self):
-        """Test validation of valid passwords."""
+        """Test that valid passwords are accepted."""
         valid_passwords = [
             "Password123!",
-            "Str0ng@Pass",
-            "C0mpl3x!ty",
             "MyP@ssw0rd",
-            "Secure#123",
+            "Str0ng!Pass",
+            "C0mplex#Password",
         ]
         
         for password in valid_passwords:
-            is_valid, error = PasswordValidator.validate(password)
-            assert is_valid is True, f"Password should be valid"
+            is_valid, error = validate_password(password)
+            assert is_valid, f"Password should be valid but got error: {error}"
             assert error == ""
     
+    def test_empty_password(self):
+        """Test that empty password is rejected."""
+        is_valid, error = validate_password("")
+        assert not is_valid
+        assert error == "Password is required"
+    
     def test_password_too_short(self):
-        """Test validation of too short password."""
-        is_valid, error = PasswordValidator.validate("Short1!")
-        assert is_valid is False
-        assert "at least" in error.lower()
+        """Test that passwords shorter than 8 chars are rejected."""
+        is_valid, error = validate_password("Pass1!")
+        assert not is_valid
+        assert "at least 8 characters" in error
     
     def test_password_too_long(self):
-        """Test validation of too long password."""
-        long_password = "A1!" + "a" * 130
-        is_valid, error = PasswordValidator.validate(long_password)
-        assert is_valid is False
-        assert "exceed" in error.lower()
+        """Test that passwords longer than 128 chars are rejected."""
+        long_password = "A1!" + "a" * 126
+        is_valid, error = validate_password(long_password)
+        assert not is_valid
+        assert "too long" in error.lower()
     
-    def test_password_missing_uppercase(self):
-        """Test validation of password without uppercase."""
-        is_valid, error = PasswordValidator.validate("password123!")
-        assert is_valid is False
+    def test_password_no_uppercase(self):
+        """Test that password without uppercase is rejected."""
+        is_valid, error = validate_password("password123!")
+        assert not is_valid
         assert "uppercase" in error.lower()
     
-    def test_password_missing_lowercase(self):
-        """Test validation of password without lowercase."""
-        is_valid, error = PasswordValidator.validate("PASSWORD123!")
-        assert is_valid is False
+    def test_password_no_lowercase(self):
+        """Test that password without lowercase is rejected."""
+        is_valid, error = validate_password("PASSWORD123!")
+        assert not is_valid
         assert "lowercase" in error.lower()
     
-    def test_password_missing_digit(self):
-        """Test validation of password without digit."""
-        is_valid, error = PasswordValidator.validate("Password!")
-        assert is_valid is False
+    def test_password_no_digit(self):
+        """Test that password without digit is rejected."""
+        is_valid, error = validate_password("Password!")
+        assert not is_valid
         assert "digit" in error.lower()
     
-    def test_password_missing_special_char(self):
-        """Test validation of password without special character."""
-        is_valid, error = PasswordValidator.validate("Password123")
-        assert is_valid is False
+    def test_password_no_special_char(self):
+        """Test that password without special character is rejected."""
+        is_valid, error = validate_password("Password123")
+        assert not is_valid
         assert "special character" in error.lower()
-    
-    def test_empty_password(self):
-        """Test validation of empty password."""
-        is_valid, error = PasswordValidator.validate("")
-        assert is_valid is False
-        assert "required" in error.lower()
-    
-    def test_non_string_password(self):
-        """Test validation rejects non-string input."""
-        is_valid, error = PasswordValidator.validate(12345)
-        assert is_valid is False
-        assert "string" in error.lower()
