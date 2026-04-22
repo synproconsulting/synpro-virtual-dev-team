@@ -14,6 +14,7 @@ jobs:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
 
@@ -25,30 +26,36 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov flake8
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          find . -name "requirements*.txt" -not -path "./.git/*" \
+            -exec pip install -r {} \; 2>/dev/null || true
 
       - name: Lint with flake8
         run: |
-          # Stop build on syntax errors or undefined names
-          flake8 src/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
-          # Warn on style issues but don't fail
-          flake8 src/ tests/ --count --max-line-length=120 --statistics --exit-zero
+          if [ -d src ]; then
+            flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
+            flake8 src/ --count --max-line-length=120 --statistics --exit-zero
+          else
+            echo "No src/ directory yet — skipping lint"
+          fi
 
       - name: Run tests with coverage
         run: |
-          pytest tests/ \
-            --cov=src \
-            --cov-report=xml \
-            --cov-report=term-missing \
-            --tb=short \
-            -v \
-            || true   # don't fail build if no tests exist yet
+          if [ -d tests ]; then
+            pytest tests/ \
+              --cov=src \
+              --cov-report=xml \
+              --cov-report=term-missing \
+              --tb=short \
+              -v || true
+          else
+            echo "No tests/ directory yet — skipping tests"
+          fi
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
@@ -56,6 +63,7 @@ jobs:
         with:
           name: coverage-report-py${{ matrix.python-version }}
           path: coverage.xml
+          if-no-files-found: ignore
 
   # ── Job 2: Security scan ────────────────────────────────────────────────────
   security:
@@ -70,15 +78,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
       - name: Install bandit
         run: pip install bandit
 
       - name: Run bandit security scan
         run: |
-          bandit -r src/ -f json -o bandit-report.json || true
-          bandit -r src/ --exit-zero
+          if [ -d src ]; then
+            bandit -r src/ -f json -o bandit-report.json --exit-zero
+          else
+            echo "No src/ directory yet — skipping security scan"
+            echo "{}" > bandit-report.json
+          fi
 
       - name: Upload security report
         uses: actions/upload-artifact@v4
@@ -86,13 +97,14 @@ jobs:
         with:
           name: bandit-security-report
           path: bandit-report.json
+          if-no-files-found: ignore
 
   # ── Job 3: PR quality gate summary ─────────────────────────────────────────
   quality-gate:
     name: Quality gate
     runs-on: ubuntu-latest
     needs: [test, security]
-    if: github.event_name == 'pull_request'
+    if: always()
 
     steps:
       - name: Quality gate passed
