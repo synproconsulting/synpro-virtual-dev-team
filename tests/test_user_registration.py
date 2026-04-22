@@ -1,332 +1,291 @@
 """
 Unit tests for user registration module.
-
-Tests cover:
-- Email validation
-- Password strength validation
-- Password matching
-- User registration flow
-- Duplicate user prevention
 """
 
 import pytest
-from pydantic import ValidationError
-
+from datetime import datetime
 from src.auth.user_registration import (
-    UserRegistrationService,
-    UserRegistrationInput,
-    PasswordRequirements,
-    RegistrationError,
-    User,
+    UserRegistration,
+    PasswordValidationError,
+    EmailValidationError,
+    UserAlreadyExistsError
 )
 
 
-class TestPasswordValidation:
-    """Test suite for password validation."""
-    
-    def test_valid_password(self):
-        """Test that a valid password passes all checks."""
-        service = UserRegistrationService()
-        is_valid, message = service.validate_password_strength("SecurePass123!")
-        assert is_valid is True
-        assert message == ""
-    
-    def test_password_too_short(self):
-        """Test that short passwords are rejected."""
-        service = UserRegistrationService()
-        is_valid, message = service.validate_password_strength("Short1!")
-        assert is_valid is False
-        assert "at least 8 characters" in message
-    
-    def test_password_missing_uppercase(self):
-        """Test that passwords without uppercase are rejected."""
-        service = UserRegistrationService()
-        is_valid, message = service.validate_password_strength("lowercase123!")
-        assert is_valid is False
-        assert "uppercase letter" in message
-    
-    def test_password_missing_lowercase(self):
-        """Test that passwords without lowercase are rejected."""
-        service = UserRegistrationService()
-        is_valid, message = service.validate_password_strength("UPPERCASE123!")
-        assert is_valid is False
-        assert "lowercase letter" in message
-    
-    def test_password_missing_digit(self):
-        """Test that passwords without digits are rejected."""
-        service = UserRegistrationService()
-        is_valid, message = service.validate_password_strength("NoDigitsHere!")
-        assert is_valid is False
-        assert "digit" in message
-    
-    def test_password_missing_special_char(self):
-        """Test that passwords without special characters are rejected."""
-        service = UserRegistrationService()
-        is_valid, message = service.validate_password_strength("NoSpecial123")
-        assert is_valid is False
-        assert "special character" in message
-    
-    def test_custom_password_requirements(self):
-        """Test custom password requirements configuration."""
-        custom_reqs = PasswordRequirements(
-            min_length=6,
-            require_uppercase=False,
-            require_special=False
-        )
-        service = UserRegistrationService(password_requirements=custom_reqs)
-        is_valid, message = service.validate_password_strength("simple123")
-        assert is_valid is True
-        assert message == ""
+@pytest.fixture
+def registration_service():
+    """Fixture to provide a fresh UserRegistration instance for each test."""
+    return UserRegistration()
 
 
 class TestEmailValidation:
-    """Test suite for email validation."""
+    """Test cases for email validation."""
     
-    def test_valid_email(self):
-        """Test that valid emails are accepted."""
-        user_input = UserRegistrationInput(
-            email="user@example.com",
-            password="SecurePass123!",
-            confirm_password="SecurePass123!"
-        )
-        assert user_input.email == "user@example.com"
+    def test_valid_email(self, registration_service):
+        """Test that valid email addresses are accepted."""
+        valid_emails = [
+            "user@example.com",
+            "test.user@domain.co.uk",
+            "admin+tag@company.org",
+            "user123@test-domain.com"
+        ]
+        
+        for email in valid_emails:
+            result = registration_service.validate_email(email)
+            assert result is not None
+            assert "@" in result
     
-    def test_invalid_email_format(self):
+    def test_invalid_email_format(self, registration_service):
         """Test that invalid email formats are rejected."""
-        with pytest.raises(ValidationError) as exc_info:
-            UserRegistrationInput(
-                email="not-an-email",
-                password="SecurePass123!",
-                confirm_password="SecurePass123!"
-            )
-        assert "email" in str(exc_info.value).lower()
+        invalid_emails = [
+            "notanemail",
+            "@example.com",
+            "user@",
+            "user @example.com",
+            "",
+            "user@.com"
+        ]
+        
+        for email in invalid_emails:
+            with pytest.raises(EmailValidationError):
+                registration_service.validate_email(email)
     
-    def test_empty_email(self):
-        """Test that empty emails are rejected."""
-        with pytest.raises(ValidationError):
-            UserRegistrationInput(
-                email="",
-                password="SecurePass123!",
-                confirm_password="SecurePass123!"
-            )
+    def test_email_normalization(self, registration_service):
+        """Test that emails are normalized."""
+        email = "User@EXAMPLE.COM"
+        normalized = registration_service.validate_email(email)
+        assert normalized == "user@example.com"
+    
+    def test_none_email(self, registration_service):
+        """Test that None email is rejected."""
+        with pytest.raises(EmailValidationError):
+            registration_service.validate_email(None)
+    
+    def test_non_string_email(self, registration_service):
+        """Test that non-string email is rejected."""
+        with pytest.raises(EmailValidationError):
+            registration_service.validate_email(12345)
 
 
-class TestPasswordMatching:
-    """Test suite for password confirmation matching."""
+class TestPasswordValidation:
+    """Test cases for password validation."""
     
-    def test_passwords_match(self):
-        """Test that matching passwords are accepted."""
-        user_input = UserRegistrationInput(
-            email="user@example.com",
-            password="SecurePass123!",
-            confirm_password="SecurePass123!"
-        )
-        assert user_input.password == user_input.confirm_password
+    def test_valid_password(self, registration_service):
+        """Test that valid passwords are accepted."""
+        valid_passwords = [
+            "Password123!",
+            "MyP@ssw0rd",
+            "Secure#Pass1",
+            "Test1234!@#$"
+        ]
+        
+        for password in valid_passwords:
+            registration_service.validate_password(password)  # Should not raise
     
-    def test_passwords_do_not_match(self):
-        """Test that non-matching passwords are rejected."""
-        with pytest.raises(ValidationError) as exc_info:
-            UserRegistrationInput(
-                email="user@example.com",
-                password="SecurePass123!",
-                confirm_password="DifferentPass123!"
-            )
-        assert "do not match" in str(exc_info.value).lower()
+    def test_password_too_short(self, registration_service):
+        """Test that short passwords are rejected."""
+        with pytest.raises(PasswordValidationError, match="at least 8 characters"):
+            registration_service.validate_password("Pass1!")
+    
+    def test_password_too_long(self, registration_service):
+        """Test that excessively long passwords are rejected."""
+        long_password = "A1a!" + ("x" * 125)
+        with pytest.raises(PasswordValidationError, match="must not exceed"):
+            registration_service.validate_password(long_password)
+    
+    def test_password_no_uppercase(self, registration_service):
+        """Test that passwords without uppercase are rejected."""
+        with pytest.raises(PasswordValidationError, match="uppercase letter"):
+            registration_service.validate_password("password123!")
+    
+    def test_password_no_lowercase(self, registration_service):
+        """Test that passwords without lowercase are rejected."""
+        with pytest.raises(PasswordValidationError, match="lowercase letter"):
+            registration_service.validate_password("PASSWORD123!")
+    
+    def test_password_no_digit(self, registration_service):
+        """Test that passwords without digits are rejected."""
+        with pytest.raises(PasswordValidationError, match="digit"):
+            registration_service.validate_password("Password!")
+    
+    def test_password_no_special_char(self, registration_service):
+        """Test that passwords without special characters are rejected."""
+        with pytest.raises(PasswordValidationError, match="special character"):
+            registration_service.validate_password("Password123")
+    
+    def test_empty_password(self, registration_service):
+        """Test that empty password is rejected."""
+        with pytest.raises(PasswordValidationError):
+            registration_service.validate_password("")
+    
+    def test_none_password(self, registration_service):
+        """Test that None password is rejected."""
+        with pytest.raises(PasswordValidationError):
+            registration_service.validate_password(None)
 
 
 class TestPasswordHashing:
-    """Test suite for password hashing functionality."""
+    """Test cases for password hashing and verification."""
     
-    def test_password_is_hashed(self):
-        """Test that passwords are properly hashed."""
-        service = UserRegistrationService()
+    def test_password_hashing(self, registration_service):
+        """Test that passwords are hashed correctly."""
         password = "SecurePass123!"
-        hashed = service.hash_password(password)
+        hashed = registration_service.hash_password(password)
         
+        assert hashed is not None
         assert hashed != password
         assert len(hashed) > 0
     
-    def test_verify_correct_password(self):
-        """Test that correct passwords verify successfully."""
-        service = UserRegistrationService()
+    def test_password_verification_success(self, registration_service):
+        """Test successful password verification."""
         password = "SecurePass123!"
-        hashed = service.hash_password(password)
+        hashed = registration_service.hash_password(password)
         
-        assert service.verify_password(password, hashed) is True
+        assert registration_service.verify_password(password, hashed) is True
     
-    def test_verify_incorrect_password(self):
-        """Test that incorrect passwords fail verification."""
-        service = UserRegistrationService()
+    def test_password_verification_failure(self, registration_service):
+        """Test failed password verification."""
         password = "SecurePass123!"
-        hashed = service.hash_password(password)
+        hashed = registration_service.hash_password(password)
         
-        assert service.verify_password("WrongPassword!", hashed) is False
+        assert registration_service.verify_password("WrongPass123!", hashed) is False
     
-    def test_different_hashes_for_same_password(self):
+    def test_different_hashes_for_same_password(self, registration_service):
         """Test that same password produces different hashes (salt)."""
-        service = UserRegistrationService()
         password = "SecurePass123!"
-        hash1 = service.hash_password(password)
-        hash2 = service.hash_password(password)
+        hash1 = registration_service.hash_password(password)
+        hash2 = registration_service.hash_password(password)
         
         assert hash1 != hash2
-        assert service.verify_password(password, hash1) is True
-        assert service.verify_password(password, hash2) is True
+        assert registration_service.verify_password(password, hash1)
+        assert registration_service.verify_password(password, hash2)
 
 
 class TestUserRegistration:
-    """Test suite for user registration flow."""
+    """Test cases for user registration."""
     
-    def test_successful_registration(self):
+    def test_successful_registration(self, registration_service):
         """Test successful user registration."""
-        service = UserRegistrationService()
-        user = service.register_user(
-            email="newuser@example.com",
-            password="SecurePass123!",
-            confirm_password="SecurePass123!",
-            full_name="John Doe"
-        )
+        email = "newuser@example.com"
+        password = "SecurePass123!"
         
-        assert isinstance(user, User)
-        assert user.email == "newuser@example.com"
-        assert user.full_name == "John Doe"
-        assert user.is_active is True
-        assert user.hashed_password != "SecurePass123!"
+        user = registration_service.register_user(email, password)
+        
+        assert user is not None
+        assert user['email'] == "newuser@example.com"
+        assert user['username'] == "newuser"
+        assert user['is_active'] is True
+        assert 'created_at' in user
+        assert 'password_hash' not in user  # Should not expose hash
     
-    def test_registration_without_full_name(self):
-        """Test registration without providing full name."""
-        service = UserRegistrationService()
-        user = service.register_user(
-            email="user@example.com",
-            password="SecurePass123!",
-            confirm_password="SecurePass123!"
-        )
+    def test_registration_with_username(self, registration_service):
+        """Test user registration with custom username."""
+        email = "user@example.com"
+        password = "SecurePass123!"
+        username = "custom_user"
         
-        assert user.email == "user@example.com"
-        assert user.full_name is None
+        user = registration_service.register_user(email, password, username)
+        
+        assert user['username'] == username
     
-    def test_duplicate_email_registration(self):
-        """Test that duplicate email registration is prevented."""
-        service = UserRegistrationService()
+    def test_duplicate_user_registration(self, registration_service):
+        """Test that duplicate registration is prevented."""
+        email = "user@example.com"
+        password = "SecurePass123!"
         
-        # Register first user
-        service.register_user(
-            email="duplicate@example.com",
-            password="SecurePass123!",
-            confirm_password="SecurePass123!"
-        )
+        registration_service.register_user(email, password)
         
-        # Attempt to register with same email
-        with pytest.raises(RegistrationError) as exc_info:
-            service.register_user(
-                email="duplicate@example.com",
-                password="AnotherPass123!",
-                confirm_password="AnotherPass123!"
-            )
-        
-        assert "already exists" in str(exc_info.value)
+        with pytest.raises(UserAlreadyExistsError):
+            registration_service.register_user(email, password)
     
-    def test_registration_with_weak_password(self):
-        """Test that registration fails with weak password."""
-        service = UserRegistrationService()
-        
-        with pytest.raises(RegistrationError) as exc_info:
-            service.register_user(
-                email="user@example.com",
-                password="weak",
-                confirm_password="weak"
-            )
-        
-        error_message = str(exc_info.value)
-        assert len(error_message) > 0
+    def test_registration_with_invalid_email(self, registration_service):
+        """Test registration with invalid email."""
+        with pytest.raises(EmailValidationError):
+            registration_service.register_user("invalid-email", "SecurePass123!")
     
-    def test_registration_with_mismatched_passwords(self):
-        """Test that registration fails when passwords don't match."""
-        service = UserRegistrationService()
-        
-        with pytest.raises(RegistrationError) as exc_info:
-            service.register_user(
-                email="user@example.com",
-                password="SecurePass123!",
-                confirm_password="DifferentPass123!"
-            )
-        
-        assert "do not match" in str(exc_info.value).lower()
+    def test_registration_with_invalid_password(self, registration_service):
+        """Test registration with invalid password."""
+        with pytest.raises(PasswordValidationError):
+            registration_service.register_user("user@example.com", "weak")
     
-    def test_registration_with_invalid_email(self):
-        """Test that registration fails with invalid email."""
-        service = UserRegistrationService()
+    def test_get_existing_user(self, registration_service):
+        """Test retrieving an existing user."""
+        email = "user@example.com"
+        password = "SecurePass123!"
         
-        with pytest.raises(RegistrationError):
-            service.register_user(
-                email="invalid-email",
-                password="SecurePass123!",
-                confirm_password="SecurePass123!"
-            )
-    
-    def test_case_insensitive_email_duplicate_check(self):
-        """Test that email duplicate check is case-insensitive."""
-        service = UserRegistrationService()
-        
-        # Register with lowercase email
-        service.register_user(
-            email="user@example.com",
-            password="SecurePass123!",
-            confirm_password="SecurePass123!"
-        )
-        
-        # Attempt to register with uppercase email
-        with pytest.raises(RegistrationError) as exc_info:
-            service.register_user(
-                email="USER@EXAMPLE.COM",
-                password="SecurePass123!",
-                confirm_password="SecurePass123!"
-            )
-        
-        assert "already exists" in str(exc_info.value)
-
-
-class TestUserRetrieval:
-    """Test suite for user retrieval functionality."""
-    
-    def test_get_user_by_email(self):
-        """Test retrieving a user by email."""
-        service = UserRegistrationService()
-        
-        # Register a user
-        registered_user = service.register_user(
-            email="findme@example.com",
-            password="SecurePass123!",
-            confirm_password="SecurePass123!",
-            full_name="Find Me"
-        )
-        
-        # Retrieve the user
-        retrieved_user = service.get_user_by_email("findme@example.com")
+        registered_user = registration_service.register_user(email, password)
+        retrieved_user = registration_service.get_user(email)
         
         assert retrieved_user is not None
-        assert retrieved_user.email == registered_user.email
-        assert retrieved_user.full_name == "Find Me"
+        assert retrieved_user['email'] == registered_user['email']
+        assert retrieved_user['username'] == registered_user['username']
+        assert 'password_hash' not in retrieved_user
     
-    def test_get_nonexistent_user(self):
-        """Test retrieving a non-existent user returns None."""
-        service = UserRegistrationService()
-        user = service.get_user_by_email("nonexistent@example.com")
+    def test_get_nonexistent_user(self, registration_service):
+        """Test retrieving a non-existent user."""
+        user = registration_service.get_user("nonexistent@example.com")
         assert user is None
     
-    def test_user_exists_check(self):
-        """Test user existence check."""
-        service = UserRegistrationService()
+    def test_password_stored_as_hash(self, registration_service):
+        """Test that passwords are stored as hashes, not plaintext."""
+        email = "user@example.com"
+        password = "SecurePass123!"
         
-        # User doesn't exist initially
-        assert service.user_exists("exists@example.com") is False
+        registration_service.register_user(email, password)
         
-        # Register user
-        service.register_user(
-            email="exists@example.com",
-            password="SecurePass123!",
-            confirm_password="SecurePass123!"
+        # Access internal store to verify hash
+        stored_user = registration_service.user_store[email]
+        assert 'password_hash' in stored_user
+        assert stored_user['password_hash'] != password
+        assert registration_service.verify_password(
+            password, 
+            stored_user['password_hash']
         )
+    
+    def test_case_insensitive_email_lookup(self, registration_service):
+        """Test that email lookup is case-insensitive."""
+        email = "User@Example.COM"
+        password = "SecurePass123!"
         
-        # User now exists
-        assert service.user_exists("exists@example.com") is True
+        registration_service.register_user(email, password)
+        
+        # Try to register with different case
+        with pytest.raises(UserAlreadyExistsError):
+            registration_service.register_user("user@example.com", password)
+        
+        # Retrieve with different case
+        user = registration_service.get_user("USER@EXAMPLE.COM")
+        assert user is not None
+
+
+class TestUserStore:
+    """Test cases for user store functionality."""
+    
+    def test_custom_user_store(self):
+        """Test that custom user store can be provided."""
+        custom_store = {}
+        registration_service = UserRegistration(user_store=custom_store)
+        
+        email = "user@example.com"
+        password = "SecurePass123!"
+        
+        registration_service.register_user(email, password)
+        
+        assert email in custom_store
+        assert custom_store[email]['email'] == email
+    
+    def test_multiple_users_in_store(self, registration_service):
+        """Test storing multiple users."""
+        users = [
+            ("user1@example.com", "Password1!"),
+            ("user2@example.com", "Password2!"),
+            ("user3@example.com", "Password3!")
+        ]
+        
+        for email, password in users:
+            registration_service.register_user(email, password)
+        
+        assert len(registration_service.user_store) == 3
+        
+        for email, _ in users:
+            assert registration_service.get_user(email) is not None
