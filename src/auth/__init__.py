@@ -1,19 +1,10 @@
 """
-Authentication module for password reset and related functionality.
+User Authentication Module
+
+This module provides complete user authentication functionality including:
+- User registration
+- Login with JWT tokens
+- Password reset functionality
 """
 
-from .password_reset import (
-    PasswordResetToken,
-    TokenStorage,
-    EmailService,
-    PasswordResetService,
-    create_password_reset_service
-)
-
-__all__ = [
-    'PasswordResetToken',
-    'TokenStorage',
-    'EmailService',
-    'PasswordResetService',
-    'create_password_reset_service'
-]
+__version__ = "1.0.0"
