@@ -1,11 +1,7 @@
 """
-Authentication module for user registration and validation.
+Authentication module for JWT token handling.
 """
-from src.auth.registration import UserRegistration
-from src.auth.validators import EmailValidator, PasswordValidator
 
-__all__ = [
-    "UserRegistration",
-    "EmailValidator",
-    "PasswordValidator",
-]
+from .jwt_handler import JWTHandler
+
+__all__ = ["JWTHandler"]
