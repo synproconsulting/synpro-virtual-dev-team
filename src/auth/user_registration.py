@@ -1,119 +1,139 @@
 """
 User registration module with email and password validation.
 
-This module provides functionality for user registration including:
-- Email format validation
-- Password strength validation
-- Secure password hashing
-- User data storage
+This module provides functionality for user registration with comprehensive
+email and password validation, including password hashing using bcrypt.
 """
 
 import re
 import os
-from typing import Dict, Optional, Tuple
+from typing import Dict, Tuple, Optional
+from datetime import datetime
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr, Field, validator
+from email_validator import validate_email, EmailNotValidError
 
 
-# Password hashing context
+# Password hashing context using bcrypt
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-class PasswordRequirements(BaseModel):
-    """Configuration for password validation requirements."""
-    
-    min_length: int = Field(default=8, ge=1)
-    require_uppercase: bool = Field(default=True)
-    require_lowercase: bool = Field(default=True)
-    require_digit: bool = Field(default=True)
-    require_special: bool = Field(default=True)
-
-
-class UserRegistrationInput(BaseModel):
-    """Input model for user registration."""
-    
-    email: EmailStr
-    password: str
-    confirm_password: str
-    full_name: Optional[str] = None
-    
-    @validator('confirm_password')
-    def passwords_match(cls, v: str, values: Dict) -> str:
-        """Validate that password and confirm_password match."""
-        if 'password' in values and v != values['password']:
-            raise ValueError('Passwords do not match')
-        return v
-
-
-class User(BaseModel):
-    """User model representing a registered user."""
-    
-    email: EmailStr
-    hashed_password: str
-    full_name: Optional[str] = None
-    is_active: bool = True
-
-
-class RegistrationError(Exception):
-    """Custom exception for registration errors."""
+class PasswordValidationError(Exception):
+    """Raised when password validation fails."""
     pass
 
 
-class UserRegistrationService:
-    """Service class for handling user registration logic."""
+class EmailValidationError(Exception):
+    """Raised when email validation fails."""
+    pass
+
+
+class UserAlreadyExistsError(Exception):
+    """Raised when attempting to register a user that already exists."""
+    pass
+
+
+class UserRegistration:
+    """
+    Handles user registration with email and password validation.
     
-    def __init__(
-        self,
-        password_requirements: Optional[PasswordRequirements] = None
-    ):
+    This class provides methods to validate emails, passwords, and register
+    new users with secure password hashing.
+    """
+    
+    def __init__(self, user_store: Optional[Dict] = None):
         """
-        Initialize the registration service.
+        Initialize the UserRegistration instance.
         
         Args:
-            password_requirements: Custom password requirements configuration.
-                                 If None, uses default requirements.
+            user_store: Optional dictionary to store users. If None, creates new dict.
         """
-        self.password_requirements = password_requirements or PasswordRequirements()
-        self.users_db: Dict[str, User] = {}
+        self.user_store = user_store if user_store is not None else {}
+        self.min_password_length = int(os.getenv('MIN_PASSWORD_LENGTH', '8'))
+        self.max_password_length = int(os.getenv('MAX_PASSWORD_LENGTH', '128'))
     
-    def validate_password_strength(self, password: str) -> Tuple[bool, str]:
+    def validate_email(self, email: str) -> str:
         """
-        Validate password against strength requirements.
+        Validate email address format and deliverability.
         
         Args:
-            password: The password to validate.
+            email: Email address to validate
             
         Returns:
-            Tuple of (is_valid, error_message). If valid, error_message is empty.
+            Normalized email address
+            
+        Raises:
+            EmailValidationError: If email is invalid
         """
-        reqs = self.password_requirements
+        if not email or not isinstance(email, str):
+            raise EmailValidationError("Email must be a non-empty string")
         
-        if len(password) < reqs.min_length:
-            return False, f"Password must be at least {reqs.min_length} characters long"
+        try:
+            # Validate and normalize email
+            email_info = validate_email(email, check_deliverability=False)
+            return email_info.normalized
+        except EmailNotValidError as e:
+            raise EmailValidationError(f"Invalid email address: {str(e)}")
+    
+    def validate_password(self, password: str) -> None:
+        """
+        Validate password strength and requirements.
         
-        if reqs.require_uppercase and not re.search(r'[A-Z]', password):
-            return False, "Password must contain at least one uppercase letter"
+        Password must meet the following criteria:
+        - Minimum length (default: 8 characters)
+        - Maximum length (default: 128 characters)
+        - Contains at least one uppercase letter
+        - Contains at least one lowercase letter
+        - Contains at least one digit
+        - Contains at least one special character
         
-        if reqs.require_lowercase and not re.search(r'[a-z]', password):
-            return False, "Password must contain at least one lowercase letter"
+        Args:
+            password: Password to validate
+            
+        Raises:
+            PasswordValidationError: If password doesn't meet requirements
+        """
+        if not password or not isinstance(password, str):
+            raise PasswordValidationError("Password must be a non-empty string")
         
-        if reqs.require_digit and not re.search(r'\d', password):
-            return False, "Password must contain at least one digit"
+        if len(password) < self.min_password_length:
+            raise PasswordValidationError(
+                f"Password must be at least {self.min_password_length} characters long"
+            )
         
-        if reqs.require_special and not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-            return False, "Password must contain at least one special character"
+        if len(password) > self.max_password_length:
+            raise PasswordValidationError(
+                f"Password must not exceed {self.max_password_length} characters"
+            )
         
-        return True, ""
+        if not re.search(r'[A-Z]', password):
+            raise PasswordValidationError(
+                "Password must contain at least one uppercase letter"
+            )
+        
+        if not re.search(r'[a-z]', password):
+            raise PasswordValidationError(
+                "Password must contain at least one lowercase letter"
+            )
+        
+        if not re.search(r'\d', password):
+            raise PasswordValidationError(
+                "Password must contain at least one digit"
+            )
+        
+        if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/`~;]', password):
+            raise PasswordValidationError(
+                "Password must contain at least one special character"
+            )
     
     def hash_password(self, password: str) -> str:
         """
-        Hash a password using bcrypt.
+        Hash password using bcrypt.
         
         Args:
-            password: The plain text password to hash.
+            password: Plain text password to hash
             
         Returns:
-            The hashed password.
+            Hashed password string
         """
         return pwd_context.hash(password)
     
@@ -122,91 +142,93 @@ class UserRegistrationService:
         Verify a password against its hash.
         
         Args:
-            plain_password: The plain text password.
-            hashed_password: The hashed password to verify against.
+            plain_password: Plain text password
+            hashed_password: Hashed password to compare against
             
         Returns:
-            True if password matches, False otherwise.
+            True if password matches, False otherwise
         """
         return pwd_context.verify(plain_password, hashed_password)
     
-    def user_exists(self, email: str) -> bool:
-        """
-        Check if a user with the given email already exists.
-        
-        Args:
-            email: The email address to check.
-            
-        Returns:
-            True if user exists, False otherwise.
-        """
-        return email.lower() in self.users_db
-    
     def register_user(
-        self,
-        email: str,
-        password: str,
-        confirm_password: str,
-        full_name: Optional[str] = None
-    ) -> User:
+        self, 
+        email: str, 
+        password: str, 
+        username: Optional[str] = None
+    ) -> Dict[str, any]:
         """
-        Register a new user with email and password validation.
+        Register a new user with email and password.
         
         Args:
-            email: User's email address.
-            password: User's password.
-            confirm_password: Password confirmation.
-            full_name: Optional full name of the user.
+            email: User's email address
+            password: User's password (will be hashed)
+            username: Optional username
             
         Returns:
-            The created User object.
+            Dictionary containing user information (without password)
             
         Raises:
-            RegistrationError: If validation fails or user already exists.
+            EmailValidationError: If email is invalid
+            PasswordValidationError: If password doesn't meet requirements
+            UserAlreadyExistsError: If user with email already exists
         """
-        # Validate input using Pydantic model
-        try:
-            user_input = UserRegistrationInput(
-                email=email,
-                password=password,
-                confirm_password=confirm_password,
-                full_name=full_name
-            )
-        except ValueError as e:
-            raise RegistrationError(f"Validation error: {str(e)}")
+        # Validate email
+        normalized_email = self.validate_email(email)
         
         # Check if user already exists
-        if self.user_exists(user_input.email):
-            raise RegistrationError(f"User with email {user_input.email} already exists")
+        if normalized_email in self.user_store:
+            raise UserAlreadyExistsError(
+                f"User with email {normalized_email} already exists"
+            )
         
-        # Validate password strength
-        is_valid, error_message = self.validate_password_strength(user_input.password)
-        if not is_valid:
-            raise RegistrationError(error_message)
+        # Validate password
+        self.validate_password(password)
         
-        # Hash the password
-        hashed_password = self.hash_password(user_input.password)
+        # Hash password
+        hashed_password = self.hash_password(password)
         
-        # Create user object
-        user = User(
-            email=user_input.email,
-            hashed_password=hashed_password,
-            full_name=user_input.full_name
-        )
+        # Create user record
+        user_data = {
+            'email': normalized_email,
+            'username': username or normalized_email.split('@')[0],
+            'password_hash': hashed_password,
+            'created_at': datetime.utcnow().isoformat(),
+            'is_active': True
+        }
         
-        # Store user (in-memory for this implementation)
-        self.users_db[user.email.lower()] = user
+        # Store user
+        self.user_store[normalized_email] = user_data
         
-        return user
+        # Return user data without password hash
+        return {
+            'email': user_data['email'],
+            'username': user_data['username'],
+            'created_at': user_data['created_at'],
+            'is_active': user_data['is_active']
+        }
     
-    def get_user_by_email(self, email: str) -> Optional[User]:
+    def get_user(self, email: str) -> Optional[Dict[str, any]]:
         """
-        Retrieve a user by email address.
+        Retrieve user by email.
         
         Args:
-            email: The email address to look up.
+            email: Email address of user to retrieve
             
         Returns:
-            User object if found, None otherwise.
+            User data dictionary without password hash, or None if not found
         """
-        return self.users_db.get(email.lower())
+        try:
+            normalized_email = self.validate_email(email)
+            user_data = self.user_store.get(normalized_email)
+            
+            if user_data:
+                # Return copy without password hash
+                return {
+                    'email': user_data['email'],
+                    'username': user_data['username'],
+                    'created_at': user_data['created_at'],
+                    'is_active': user_data['is_active']
+                }
+            return None
+        except EmailValidationError:
+            return None
