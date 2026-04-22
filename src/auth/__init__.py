@@ -2,6 +2,16 @@
 Authentication module for user registration and management.
 """
 
-from src.auth.registration import UserRegistration, RegistrationError
+from .user_registration import (
+    UserRegistration,
+    PasswordValidationError,
+    EmailValidationError,
+    UserAlreadyExistsError
+)
 
-__all__ = ['UserRegistration', 'RegistrationError']
+__all__ = [
+    'UserRegistration',
+    'PasswordValidationError',
+    'EmailValidationError',
+    'UserAlreadyExistsError'
+]
