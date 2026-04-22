@@ -1,11 +1,7 @@
 """
-Authentication module for user registration and validation.
+Authentication module for user registration and password management.
 """
-from src.auth.registration import UserRegistration
-from src.auth.validators import EmailValidator, PasswordValidator
 
-__all__ = [
-    "UserRegistration",
-    "EmailValidator",
-    "PasswordValidator",
-]
+from src.auth.registration import UserRegistration, RegistrationError
+
+__all__ = ["UserRegistration", "RegistrationError"]
