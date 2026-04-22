@@ -1,25 +1,25 @@
-# User Registration Module
+# User Registration with Email and Password Validation
 
-A production-ready user registration system with email and password validation, built with Python 3.11+.
+This module implements a secure user registration system with comprehensive email and password validation.
 
 ## Features
 
-- ✅ **Email Validation**: RFC 5322 compliant email validation
-- ✅ **Strong Password Requirements**: 
-  - Minimum 8 characters
-  - At least one uppercase letter
-  - At least one lowercase letter
-  - At least one digit
-  - At least one special character
-- ✅ **Secure Password Hashing**: Uses bcrypt via passlib
-- ✅ **User Management**: In-memory storage (easily replaceable with database)
-- ✅ **Credential Verification**: Built-in login verification
-- ✅ **Comprehensive Tests**: Full pytest test suite
+- **Email Validation**: RFC-compliant email validation with format, length, and structure checks
+- **Password Validation**: Strong password requirements enforcing complexity rules
+- **Secure Password Hashing**: Industry-standard bcrypt hashing via passlib
+- **Extensible Storage**: Interface-based storage design supporting multiple backends
+- **Comprehensive Testing**: Full pytest test coverage
+
+## Password Requirements
+
+Passwords must meet the following criteria:
+- Minimum 8 characters, maximum 128 characters
+- At least one uppercase letter (A-Z)
+- At least one lowercase letter (a-z)
+- At least one digit (0-9)
+- At least one special character (!@#$%^&*(),.?":{}|<>_-+=[]\/;'`~)
 
 ## Installation
-
-1. Clone the repository
-2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -32,75 +32,76 @@ pip install -r requirements.txt
 ```python
 from src.auth.registration import UserRegistration
 
-# Initialize the registration service
+# Create registration service
 registration = UserRegistration()
 
 # Register a new user
-success, message, user = registration.register_user(
-    email="user@example.com",
-    password="SecurePass123!"
-)
-
-if success:
-    print(f"User registered: {user.email}")
-    print(f"User ID: {user.id}")
-else:
-    print(f"Registration failed: {message}")
-```
-
-### Strict Mode (Raises Exceptions)
-
-```python
-from src.auth.registration import UserRegistration, RegistrationError
-
-registration = UserRegistration()
-
 try:
-    user = registration.register_user_strict(
+    user_data = registration.register_user(
         email="user@example.com",
         password="SecurePass123!"
     )
-    print(f"User registered: {user.email}")
+    print(f"User registered successfully: {user_data['user_id']}")
 except RegistrationError as e:
     print(f"Registration failed: {e}")
 ```
 
-### Verify Credentials
+### Validate Before Registration
 
 ```python
 from src.auth.registration import UserRegistration
 
 registration = UserRegistration()
 
-# Register a user first
-registration.register_user("user@example.com", "SecurePass123!")
-
-# Verify credentials for login
-is_valid, user = registration.verify_credentials(
+# Validate registration data
+validation = registration.validate_registration_data(
     email="user@example.com",
     password="SecurePass123!"
 )
 
-if is_valid:
-    print(f"Login successful for {user.email}")
+if validation["overall_valid"]:
+    print("Data is valid, proceed with registration")
 else:
-    print("Invalid credentials")
+    if not validation["email"]["valid"]:
+        print(f"Email error: {validation['email']['error']}")
+    if not validation["password"]["valid"]:
+        print(f"Password error: {validation['password']['error']}")
 ```
 
-### Standalone Validators
+### Custom Storage Implementation
 
 ```python
-from src.auth.validators import EmailValidator, PasswordValidator
+from src.auth.registration import UserRegistration
+from src.auth.storage import UserStorageInterface
 
-# Validate email
-is_valid, error = EmailValidator.validate("user@example.com")
-if not is_valid:
-    print(f"Email error: {error}")
+# Implement your own storage (e.g., database-backed)
+class DatabaseUserStorage(UserStorageInterface):
+    def save_user(self, user):
+        # Your database logic here
+        pass
+    
+    def get_user_by_email(self, email):
+        # Your database logic here
+        pass
+    
+    # ... implement other methods
 
-# Validate password
-is_valid, error = PasswordValidator.validate("SecurePass123!")
-if not is_valid:
-    print(f"Password error: {error}")
+# Use custom storage
+storage = DatabaseUserStorage()
+registration = UserRegistration(storage=storage)
+```
+
+## Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Run specific test file
+pytest tests/test_registration.py
 ```
 
 ## Project Structure
@@ -110,141 +111,76 @@ if not is_valid:
 ├── src/
 │   └── auth/
 │       ├── __init__.py           # Module exports
-│       ├── models.py             # User data model
-│       ├── validators.py         # Email and password validators
+│       ├── models.py             # User data models
+│       ├── validators.py         # Email and password validation
 │       ├── password_hasher.py    # Password hashing utilities
-│       ├── storage.py            # User storage (in-memory)
-│       └── registration.py       # Main registration service
+│       ├── storage.py            # Storage interface and implementations
+│       └── registration.py       # User registration service
 ├── tests/
 │   ├── __init__.py
-│   ├── test_models.py            # User model tests
 │   ├── test_validators.py        # Validator tests
-│   ├── test_password_hasher.py   # Password hasher tests
+│   ├── test_password_hasher.py   # Password hashing tests
 │   ├── test_storage.py           # Storage tests
 │   └── test_registration.py      # Registration service tests
-├── requirements.txt              # Project dependencies
-└── README.md                     # This file
+├── requirements.txt               # Python dependencies
+└── README.md                      # This file
 ```
 
-## Running Tests
+## Security Considerations
 
-Run the full test suite:
-
-```bash
-pytest
-```
-
-Run with coverage report:
-
-```bash
-pytest --cov=src/auth --cov-report=html
-```
-
-Run specific test file:
-
-```bash
-pytest tests/test_registration.py
-```
-
-## Password Requirements
-
-Passwords must meet the following criteria:
-
-- **Length**: 8-128 characters
-- **Uppercase**: At least one uppercase letter (A-Z)
-- **Lowercase**: At least one lowercase letter (a-z)
-- **Digit**: At least one number (0-9)
-- **Special Character**: At least one special character (!@#$%^&*(),.?":{}|<>_-+=[]\/;`~)
-
-## Email Validation
-
-Emails are validated against:
-
-- Basic RFC 5322 format compliance
-- Maximum length of 254 characters
-- Valid domain structure
-- Proper character usage
-
-Emails are normalized to lowercase for storage and lookups.
-
-## Security Features
-
-1. **Bcrypt Password Hashing**: Uses industry-standard bcrypt algorithm with cost factor 12
-2. **Salted Hashes**: Each password hash includes a unique salt
-3. **No Plaintext Storage**: Passwords are never stored in plaintext
-4. **Case-Insensitive Email Lookup**: Prevents duplicate accounts with different casing
-5. **Input Validation**: All inputs are validated before processing
-
-## Production Considerations
-
-This implementation uses in-memory storage for simplicity. For production deployment:
-
-1. **Replace UserStorage**: Implement database storage (PostgreSQL, MongoDB, etc.)
-2. **Add Email Verification**: Send verification emails to confirm email ownership
-3. **Rate Limiting**: Implement rate limiting to prevent brute force attacks
-4. **Logging**: Add comprehensive logging for security auditing
-5. **Environment Variables**: Configure bcrypt rounds and other settings via environment
-6. **Session Management**: Implement JWT or session-based authentication
-7. **Account Recovery**: Add password reset functionality
+- **No Hardcoded Secrets**: All sensitive configuration should use environment variables
+- **Password Hashing**: Uses bcrypt with automatic salt generation
+- **In-Memory Storage**: The included `InMemoryUserStorage` is for development/testing only
+- **Production Storage**: Implement a proper database-backed storage for production use
+- **HTTPS Only**: Always use HTTPS in production to protect credentials in transit
+- **Rate Limiting**: Consider implementing rate limiting for registration endpoints
 
 ## API Reference
 
 ### UserRegistration
 
-Main service class for user registration.
+#### `register_user(email: str, password: str) -> Dict[str, Any]`
 
-**Methods:**
+Registers a new user with validation.
 
-- `register_user(email: str, password: str) -> Tuple[bool, str, Optional[User]]`
-  - Register a new user
-  - Returns: (success, message, user)
+**Parameters:**
+- `email`: User's email address
+- `password`: User's password
 
-- `register_user_strict(email: str, password: str) -> User`
-  - Register a new user (raises RegistrationError on failure)
-  - Returns: User object
+**Returns:**
+- Dictionary containing user data (without password hash)
 
-- `get_user_by_email(email: str) -> Optional[User]`
-  - Retrieve user by email address
-  - Returns: User object or None
+**Raises:**
+- `RegistrationError`: If validation fails or email already exists
 
-- `verify_credentials(email: str, password: str) -> Tuple[bool, Optional[User]]`
-  - Verify login credentials
-  - Returns: (is_valid, user)
+#### `validate_registration_data(email: str, password: str) -> Dict[str, Any]`
 
-### EmailValidator
+Validates registration data without actually registering.
 
-Static validator for email addresses.
+**Parameters:**
+- `email`: Email to validate
+- `password`: Password to validate
 
-**Methods:**
+**Returns:**
+- Dictionary with validation results for email, password, and overall validity
 
-- `validate(email: str) -> Tuple[bool, str]`
-  - Returns: (is_valid, error_message)
+## Development
 
-### PasswordValidator
+### Code Quality Standards
 
-Static validator for passwords.
+- Python 3.11+
+- Type hints on all functions
+- Docstrings on all classes and public functions
+- Functions under 30 lines where possible
+- No hardcoded secrets
 
-**Methods:**
+### Contributing
 
-- `validate(password: str) -> Tuple[bool, str]`
-  - Returns: (is_valid, error_message)
-
-### PasswordHasher
-
-Password hashing and verification.
-
-**Methods:**
-
-- `hash_password(password: str) -> str`
-  - Returns: Hashed password string
-
-- `verify_password(plaintext: str, hashed: str) -> bool`
-  - Returns: True if password matches
+1. Create a feature branch
+2. Implement changes with tests
+3. Ensure all tests pass
+4. Submit a pull request
 
 ## License
 
-This module is part of the SDT1-7 project implementation.
-
-## Author
-
-Backend Developer - Virtual Development Team
+Internal use only.
