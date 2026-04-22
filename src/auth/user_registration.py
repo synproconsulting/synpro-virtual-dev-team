@@ -8,7 +8,7 @@ email and password validation, including password hashing using bcrypt.
 import re
 import os
 from typing import Dict, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from passlib.context import CryptContext
 from email_validator import validate_email, EmailNotValidError
 
@@ -192,7 +192,7 @@ class UserRegistration:
             'email': normalized_email,
             'username': username or normalized_email.split('@')[0],
             'password_hash': hashed_password,
-            'created_at': datetime.utcnow().isoformat(),
+            'created_at': datetime.now(timezone.utc).isoformat(),
             'is_active': True
         }
         
