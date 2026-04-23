@@ -1,101 +1,167 @@
-# User Registration Module
+# User Profile Viewing Module
 
-A production-ready Python user registration system with comprehensive email and password validation.
+## Overview
+
+This module provides functionality to view user profile details from a PostgreSQL database. It includes methods to retrieve user profiles by ID or username, get public profile information, and format profile data for display.
 
 ## Features
 
-- **Email Validation**
-  - RFC 5322 compliant email format validation
-  - Duplicate email detection
-  - Case-insensitive email storage
-  - Maximum length enforcement (254 characters)
-
-- **Password Validation**
-  - Configurable minimum length (default: 8 characters)
-  - Maximum length enforcement (default: 128 characters)
-  - Requires uppercase letter
-  - Requires lowercase letter
-  - Requires digit
-  - Requires special character
-  - Comprehensive validation error messages
-
-- **Security**
-  - Bcrypt password hashing with automatic salt generation
-  - Environment variable configuration for password requirements
-  - No hardcoded secrets or credentials
-  - Password hashes never returned in API responses
+- **Retrieve user profile by ID**: Get complete user profile information using user ID
+- **Retrieve user profile by username**: Get complete user profile information using username
+- **Public profile view**: Get public profile information (excludes sensitive data like email)
+- **Profile formatting**: Format profile data for display
+- **Error handling**: Comprehensive error handling with custom exceptions
+- **Type safety**: Full type hints for all functions
+- **Logging**: Built-in logging for debugging and monitoring
 
 ## Installation
+
+1. Clone the repository
+2. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Environment Variables
+3. Set up your database connection by setting the `DATABASE_URL` environment variable:
 
-You can customize password requirements using environment variables:
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
+```
 
-- `MIN_PASSWORD_LENGTH` - Minimum password length (default: 8)
-- `MAX_PASSWORD_LENGTH` - Maximum password length (default: 128)
+## Database Schema
+
+The module expects a `users` table with the following structure:
+
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(255) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    full_name VARCHAR(255),
+    bio TEXT,
+    avatar_url VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP
+);
+```
 
 ## Usage
 
-### Basic Registration
+### Basic Usage
 
 ```python
-from src.auth.registration import register_user, ValidationError
+from src.auth.profile import UserProfile
+
+# Initialize with environment variable DATABASE_URL
+profile_service = UserProfile()
+
+# Or initialize with explicit database URL
+profile_service = UserProfile(database_url="postgresql://user:password@localhost:5432/dbname")
+
+# Get user profile by ID
+try:
+    user = profile_service.get_profile_by_id(1)
+    print(user)
+except UserNotFoundError:
+    print("User not found")
+
+# Get user profile by username
+try:
+    user = profile_service.get_profile_by_username("johndoe")
+    print(user)
+except UserNotFoundError:
+    print("User not found")
+
+# Get public profile (excludes sensitive information)
+public_profile = profile_service.get_public_profile(1)
+print(public_profile)
+
+# Format profile for display
+formatted = profile_service.format_profile_display(user)
+print(formatted)
+```
+
+### Error Handling
+
+The module provides custom exceptions for different error scenarios:
+
+```python
+from src.auth.profile import (
+    UserProfile,
+    UserProfileError,
+    UserNotFoundError,
+    DatabaseConnectionError
+)
+
+profile_service = UserProfile()
 
 try:
-    user = register_user(
-        email="user@example.com",
-        password="SecurePass123!"
-    )
-    print(f"User registered: {user['email']}")
-except ValidationError as e:
-    print(f"Registration failed: {e}")
+    user = profile_service.get_profile_by_id(123)
+except UserNotFoundError as e:
+    print(f"User not found: {e}")
+except DatabaseConnectionError as e:
+    print(f"Database error: {e}")
+except UserProfileError as e:
+    print(f"Profile error: {e}")
 ```
 
-### Using the UserRegistration Class
+## API Reference
 
-```python
-from src.auth.registration import UserRegistration, ValidationError
+### UserProfile Class
 
-registration = UserRegistration()
+#### `__init__(database_url: Optional[str] = None)`
 
-# Register a user
-try:
-    user = registration.register(
-        email="user@example.com",
-        password="SecurePass123!",
-        additional_data={"first_name": "John", "last_name": "Doe"}
-    )
-    print(f"User created at: {user['created_at']}")
-except ValidationError as e:
-    print(f"Error: {e}")
+Initialize the UserProfile instance.
 
-# Retrieve a user
-user_data = registration.get_user("user@example.com")
-if user_data:
-    print(f"Found user: {user_data['email']}")
-```
+- **Parameters:**
+  - `database_url` (str, optional): PostgreSQL connection string. If not provided, reads from `DATABASE_URL` environment variable.
+- **Raises:**
+  - `DatabaseConnectionError`: If database URL is not provided and not found in environment variables.
 
-### Password Verification
+#### `get_profile_by_id(user_id: int) -> Dict[str, Any]`
 
-```python
-from src.auth.registration import UserRegistration
+Retrieve user profile by user ID.
 
-registration = UserRegistration()
+- **Parameters:**
+  - `user_id` (int): The unique identifier of the user.
+- **Returns:** Dictionary containing user profile information.
+- **Raises:**
+  - `UserNotFoundError`: If user with given ID doesn't exist.
+  - `DatabaseConnectionError`: If database operation fails.
 
-# Register user
-registration.register("user@example.com", "SecurePass123!")
+#### `get_profile_by_username(username: str) -> Dict[str, Any]`
 
-# Get user and verify password
-user = registration.get_user("user@example.com")
-is_valid = registration.verify_password("SecurePass123!", user['password_hash'])
-print(f"Password valid: {is_valid}")
-```
+Retrieve user profile by username.
 
-## Running Tests
+- **Parameters:**
+  - `username` (str): The username of the user.
+- **Returns:** Dictionary containing user profile information.
+- **Raises:**
+  - `UserNotFoundError`: If user with given username doesn't exist.
+  - `DatabaseConnectionError`: If database operation fails.
+
+#### `get_public_profile(user_id: int) -> Dict[str, Any]`
+
+Retrieve public user profile information (excludes sensitive data).
+
+- **Parameters:**
+  - `user_id` (int): The unique identifier of the user.
+- **Returns:** Dictionary containing public user profile information (id, username, full_name, bio, avatar_url, created_at).
+- **Raises:**
+  - `UserNotFoundError`: If user with given ID doesn't exist.
+  - `DatabaseConnectionError`: If database operation fails.
+
+#### `format_profile_display(profile: Dict[str, Any]) -> str`
+
+Format user profile for display.
+
+- **Parameters:**
+  - `profile` (dict): Dictionary containing user profile data.
+- **Returns:** Formatted string representation of the profile.
+
+## Testing
 
 Run the test suite using pytest:
 
@@ -107,121 +173,39 @@ pytest
 pytest --cov=src/auth --cov-report=html
 
 # Run specific test file
-pytest tests/test_registration.py
+pytest tests/test_profile.py
 
 # Run with verbose output
 pytest -v
 ```
 
-## Project Structure
-
-```
-.
-├── src/
-│   └── auth/
-│       ├── __init__.py
-│       └── registration.py
-├── tests/
-│   ├── __init__.py
-│   └── test_registration.py
-├── requirements.txt
-└── README.md
-```
-
-## API Reference
-
-### `UserRegistration`
-
-Main class for handling user registration.
-
-#### Methods
-
-- **`validate_email(email: str) -> Tuple[bool, Optional[str]]`**
-  - Validates email format and checks for duplicates
-  - Returns: (is_valid, error_message)
-
-- **`validate_password(password: str) -> Tuple[bool, Optional[str]]`**
-  - Validates password strength requirements
-  - Returns: (is_valid, error_message)
-
-- **`hash_password(password: str) -> str`**
-  - Hashes a password using bcrypt
-  - Returns: Hashed password string
-
-- **`verify_password(plain_password: str, hashed_password: str) -> bool`**
-  - Verifies a password against its hash
-  - Returns: True if password matches, False otherwise
-
-- **`register(email: str, password: str, additional_data: Optional[Dict] = None) -> Dict`**
-  - Registers a new user
-  - Returns: User data dictionary (without password hash)
-  - Raises: ValidationError if validation fails
-
-- **`get_user(email: str) -> Optional[Dict]`**
-  - Retrieves user by email
-  - Returns: User data or None if not found
-
-### `register_user()`
-
-Convenience function for quick user registration.
-
-```python
-def register_user(
-    email: str, 
-    password: str,
-    additional_data: Optional[Dict] = None
-) -> Dict
-```
-
-## Password Requirements
-
-Passwords must meet the following criteria:
-
-1. Minimum 8 characters (configurable)
-2. Maximum 128 characters (configurable)
-3. At least one uppercase letter (A-Z)
-4. At least one lowercase letter (a-z)
-5. At least one digit (0-9)
-6. At least one special character (!@#$%^&*(),.?":{}|<>_-+=[]\/`~;)
-
-## Email Requirements
-
-Emails must:
-
-1. Follow RFC 5322 format (simplified)
-2. Be no longer than 254 characters
-3. Be unique (case-insensitive)
-4. Contain @ symbol with valid domain
-
-## Error Handling
-
-The module raises `ValidationError` for any validation failures:
-
-```python
-from src.auth.registration import ValidationError
-
-try:
-    register_user("invalid-email", "weak")
-except ValidationError as e:
-    print(f"Validation failed: {e}")
-```
-
 ## Security Considerations
 
-- Passwords are hashed using bcrypt with automatic salt generation
-- Password hashes are never exposed in API responses
-- Email addresses are stored in lowercase for consistency
-- No sensitive data is logged or exposed
-- Environment variables are used for configuration
-- Input validation prevents common attack vectors
+- **No hardcoded credentials**: All database credentials must be provided via environment variables
+- **Public profile filtering**: Sensitive information like email addresses are excluded from public profiles
+- **SQL injection protection**: Uses parameterized queries to prevent SQL injection
+- **Error logging**: Database errors are logged for monitoring without exposing sensitive details to users
+
+## Environment Variables
+
+- `DATABASE_URL`: PostgreSQL connection string (required)
+  - Format: `postgresql://username:password@host:port/database`
+
+## Dependencies
+
+- `psycopg2-binary`: PostgreSQL database adapter
+- `pytest`: Testing framework
+- `pytest-cov`: Code coverage plugin for pytest
+- `pytest-mock`: Mocking plugin for pytest
 
 ## License
 
-This module is part of the Synpro Virtual Dev Team project.
+This module is part of the SDT1-15 implementation.
 
 ## Contributing
 
-1. Write clean, type-hinted Python code
-2. Add comprehensive tests for new features
-3. Update documentation as needed
-4. Follow PEP 8 style guidelines
+1. Create a feature branch
+2. Make your changes
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
