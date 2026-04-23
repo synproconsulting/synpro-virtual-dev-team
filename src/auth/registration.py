@@ -1,11 +1,14 @@
 """
-User registration service with email and password validation.
+User registration functionality with secure password handling.
 """
-from typing import Tuple, Optional
-from src.auth.models import User
-from src.auth.validators import EmailValidator, PasswordValidator
-from src.auth.password_hasher import PasswordHasher
-from src.auth.storage import UserStorage
+
+import os
+import hashlib
+import secrets
+from datetime import datetime
+from typing import Dict, Optional
+from passlib.hash import bcrypt
+from .validators import EmailValidator, PasswordValidator
 
 
 class RegistrationError(Exception):
@@ -17,127 +20,153 @@ class UserRegistration:
     """
     Handles user registration with email and password validation.
     
-    Provides methods to register new users with proper validation
-    and secure password hashing.
+    Uses bcrypt for secure password hashing.
     """
-    
-    def __init__(
-        self,
-        storage: Optional[UserStorage] = None,
-        password_hasher: Optional[PasswordHasher] = None,
-    ):
+
+    def __init__(self, storage_backend: Optional[object] = None):
         """
-        Initialize the registration service.
-        
+        Initialize the registration handler.
+
         Args:
-            storage: User storage instance (creates new if not provided)
-            password_hasher: Password hasher instance (creates new if not provided)
+            storage_backend: Optional storage backend for persisting users.
+                           If None, uses in-memory storage (for testing/demo).
         """
-        self.storage = storage or UserStorage()
-        self.password_hasher = password_hasher or PasswordHasher()
+        self.storage = storage_backend or InMemoryUserStorage()
         self.email_validator = EmailValidator()
         self.password_validator = PasswordValidator()
-    
-    def register_user(self, email: str, password: str) -> Tuple[bool, str, Optional[User]]:
+
+    def register_user(
+        self,
+        email: str,
+        password: str,
+        confirm_password: str,
+        additional_data: Optional[Dict[str, str]] = None
+    ) -> Dict[str, str]:
         """
         Register a new user with email and password.
-        
+
         Args:
             email: User's email address
-            password: User's plaintext password
-            
+            password: User's password
+            confirm_password: Password confirmation
+            additional_data: Optional additional user data (e.g., name, phone)
+
         Returns:
-            Tuple of (success, message, user)
-            - success: Boolean indicating if registration succeeded
-            - message: Success or error message
-            - user: User object if successful, None otherwise
+            Dictionary containing user_id and email
+
+        Raises:
+            RegistrationError: If validation fails or user already exists
         """
         # Validate email
         email_valid, email_error = self.email_validator.validate(email)
         if not email_valid:
-            return False, email_error, None
-        
+            raise RegistrationError(email_error)
+
         # Normalize email
-        email = email.strip().lower()
-        
-        # Check if email already exists
-        if self.storage.email_exists(email):
-            return False, "Email address is already registered", None
-        
+        normalized_email = email.strip().lower()
+
+        # Check if user already exists
+        if self.storage.user_exists(normalized_email):
+            raise RegistrationError("User with this email already exists")
+
         # Validate password
         password_valid, password_error = self.password_validator.validate(password)
         if not password_valid:
-            return False, password_error, None
-        
+            raise RegistrationError(password_error)
+
+        # Check password confirmation
+        if password != confirm_password:
+            raise RegistrationError("Passwords do not match")
+
         # Hash password
-        password_hash = self.password_hasher.hash_password(password)
-        
-        # Create user
-        user = User(
-            email=email,
-            password_hash=password_hash,
-        )
-        
-        # Save user
-        self.storage.save_user(user)
-        
-        return True, "User registered successfully", user
-    
-    def register_user_strict(self, email: str, password: str) -> User:
+        password_hash = self._hash_password(password)
+
+        # Generate user ID
+        user_id = self._generate_user_id()
+
+        # Create user data
+        user_data = {
+            "user_id": user_id,
+            "email": normalized_email,
+            "password_hash": password_hash,
+            "created_at": datetime.utcnow().isoformat(),
+            "is_active": True,
+        }
+
+        if additional_data:
+            user_data.update(additional_data)
+
+        # Store user
+        self.storage.save_user(user_data)
+
+        # Return user info (without password hash)
+        return {
+            "user_id": user_id,
+            "email": normalized_email,
+        }
+
+    def _hash_password(self, password: str) -> str:
         """
-        Register a new user with email and password (strict mode).
-        
-        This method raises exceptions on validation errors instead of
-        returning error tuples.
-        
+        Hash a password using bcrypt.
+
         Args:
-            email: User's email address
-            password: User's plaintext password
-            
+            password: Plain text password
+
         Returns:
-            The created User object
-            
-        Raises:
-            RegistrationError: If validation fails or email already exists
+            Hashed password
         """
-        success, message, user = self.register_user(email, password)
-        
-        if not success:
-            raise RegistrationError(message)
-        
-        return user
-    
-    def get_user_by_email(self, email: str) -> Optional[User]:
+        return bcrypt.hash(password)
+
+    def _generate_user_id(self) -> str:
         """
-        Retrieve a user by email address.
-        
+        Generate a unique user ID.
+
+        Returns:
+            Unique user ID string
+        """
+        return secrets.token_hex(16)
+
+
+class InMemoryUserStorage:
+    """
+    Simple in-memory storage for users.
+    For production, replace with a proper database backend.
+    """
+
+    def __init__(self):
+        """Initialize empty user storage."""
+        self.users: Dict[str, Dict[str, str]] = {}
+
+    def user_exists(self, email: str) -> bool:
+        """
+        Check if a user with the given email exists.
+
         Args:
-            email: The user's email address
-            
+            email: Email to check
+
         Returns:
-            User object if found, None otherwise
+            True if user exists, False otherwise
         """
-        return self.storage.get_user_by_email(email)
-    
-    def verify_credentials(self, email: str, password: str) -> Tuple[bool, Optional[User]]:
+        return email in self.users
+
+    def save_user(self, user_data: Dict[str, str]) -> None:
         """
-        Verify user credentials for login.
-        
+        Save user data to storage.
+
         Args:
-            email: User's email address
-            password: User's plaintext password
-            
-        Returns:
-            Tuple of (is_valid, user)
-            - is_valid: True if credentials are correct
-            - user: User object if valid, None otherwise
+            user_data: Dictionary containing user information
         """
-        user = self.storage.get_user_by_email(email)
-        
-        if not user:
-            return False, None
-        
-        if self.password_hasher.verify_password(password, user.password_hash):
-            return True, user
-        
-        return False, None
+        email = user_data["email"]
+        self.users[email] = user_data
+
+    def get_user(self, email: str) -> Optional[Dict[str, str]]:
+        """
+        Retrieve user data by email.
+
+        Args:
+            email: Email of the user
+
+        Returns:
+            User data dictionary or None if not found
+        """
+        return self.users.get(email)
