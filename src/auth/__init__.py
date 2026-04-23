@@ -1,7 +1,13 @@
 """
-Authentication module for JWT token management.
+Authentication module for user registration and validation.
 """
 
-from .jwt_refresh import JWTTokenManager, TokenRefreshError
+from .registration import UserRegistration, RegistrationError
+from .validators import EmailValidator, PasswordValidator
 
-__all__ = ["JWTTokenManager", "TokenRefreshError"]
+__all__ = [
+    "UserRegistration",
+    "RegistrationError",
+    "EmailValidator",
+    "PasswordValidator",
+]
