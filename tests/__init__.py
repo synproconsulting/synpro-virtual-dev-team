@@ -1,3 +1,3 @@
 """
-Tests package for JWT authentication module.
+Tests package initialization.
 """
