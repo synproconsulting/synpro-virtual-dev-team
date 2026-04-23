@@ -1,82 +1,95 @@
 name: Auto Review and Merge
 
 on:
-  # Trigger when all CI checks complete on a PR
-  check_suite:
-    types: [completed]
-  # Also allow manual trigger for testing
+  # Trigger when all checks pass on a PR
+  pull_request:
+    types: [opened, synchronize, reopened]
+  # Allow manual trigger for testing
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'PR number to review (leave blank for all open PRs)'
+        description: 'PR number to review'
         required: false
         default: ''
 
 jobs:
-  auto-review:
-    name: Manager Agent review
+  wait-and-review:
+    name: Wait for CI then review
     runs-on: ubuntu-latest
-    # Only run when checks succeed and it's on a PR branch (not main)
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.check_suite.conclusion == 'success' &&
-       github.event.check_suite.head_branch != 'main')
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Wait for CI checks to complete
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          SHA=${{ github.event.pull_request.head.sha }}
+          echo "Waiting for CI checks on PR #$PR_NUMBER (sha: $SHA)"
+
+          # Wait up to 15 minutes for checks to complete
+          for i in $(seq 1 90); do
+            sleep 10
+
+            # Get all check runs for this commit
+            CHECKS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/commits/$SHA/check-runs")
+
+            TOTAL=$(echo "$CHECKS" | python3 -c "import sys,json; runs=json.load(sys.stdin).get('check_runs',[]); print(len([r for r in runs if r['name'] != 'Wait for CI then review']))")
+            COMPLETED=$(echo "$CHECKS" | python3 -c "import sys,json; runs=json.load(sys.stdin).get('check_runs',[]); print(len([r for r in runs if r['status']=='completed' and r['name'] != 'Wait for CI then review']))")
+            FAILED=$(echo "$CHECKS" | python3 -c "import sys,json; runs=json.load(sys.stdin).get('check_runs',[]); print(len([r for r in runs if r['conclusion'] in ('failure','cancelled','timed_out') and r['name'] != 'Wait for CI then review']))")
+
+            echo "Attempt $i: $COMPLETED/$TOTAL completed, $FAILED failed"
+
+            if [ "$TOTAL" -gt 0 ] && [ "$COMPLETED" -eq "$TOTAL" ]; then
+              if [ "$FAILED" -gt 0 ]; then
+                echo "CI failed â€” skipping Manager Agent review"
+                exit 0
+              fi
+              echo "All CI checks passed â€” proceeding to Manager Agent review"
+              echo "CI_PASSED=true" >> $GITHUB_ENV
+              break
+            fi
+          done
+
+      - name: Set PR number for manual trigger
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "CI_PASSED=true" >> $GITHUB_ENV
+          echo "MANUAL_PR=${{ github.event.inputs.pr_number }}" >> $GITHUB_ENV
+
       - name: Set up Python
+        if: env.CI_PASSED == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
+        if: env.CI_PASSED == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Find PR for this commit
-        id: find_pr
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [ -n "${{ github.event.inputs.pr_number }}" ]; then
-            echo "pr_number=${{ github.event.inputs.pr_number }}" >> $GITHUB_OUTPUT
-            echo "found=true" >> $GITHUB_OUTPUT
-          else
-            # Find open PR matching this branch/commit
-            BRANCH="${{ github.event.check_suite.head_branch }}"
-            PR=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/pulls?state=open&head=${{ github.repository_owner }}:${BRANCH}" \
-              | python3 -c "import sys,json; prs=json.load(sys.stdin); print(prs[0]['number'] if prs else '')")
-            if [ -n "$PR" ]; then
-              echo "pr_number=$PR" >> $GITHUB_OUTPUT
-              echo "found=true" >> $GITHUB_OUTPUT
-              echo "Found PR #$PR for branch $BRANCH"
-            else
-              echo "found=false" >> $GITHUB_OUTPUT
-              echo "No open PR found for branch $BRANCH"
-            fi
-          fi
-
       - name: Run Manager Agent
-        if: steps.find_pr.outputs.found == 'true'
+        if: env.CI_PASSED == 'true'
         env:
-          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
-          JIRA_BASE_URL:      ${{ secrets.JIRA_BASE_URL }}
-          JIRA_EMAIL:         ${{ secrets.JIRA_EMAIL }}
-          JIRA_API_TOKEN:     ${{ secrets.JIRA_API_TOKEN }}
-          JIRA_PROJECT_KEY:   ${{ secrets.JIRA_PROJECT_KEY }}
-          GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_USERNAME:    ${{ github.repository_owner }}
-          GITHUB_REPO:        ${{ github.event.repository.name }}
-          OPENAI_API_KEY:     sk-no-openai-needed
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          JIRA_BASE_URL:     ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL:        ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN:    ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY:  ${{ secrets.JIRA_PROJECT_KEY }}
+          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_USERNAME:   ${{ github.repository_owner }}
+          GITHUB_REPO:       ${{ github.event.repository.name }}
+          OPENAI_API_KEY:    sk-no-openai-needed
         run: |
-          echo "Running Manager Agent on PR #${{ steps.find_pr.outputs.pr_number }}"
-          python main.py --agent manager --task review \
-            --pr ${{ steps.find_pr.outputs.pr_number }}
-
-      - name: Skip â€” no PR found
-        if: steps.find_pr.outputs.found != 'true'
-        run: echo "No open PR found for this commit â€” skipping Manager Agent"
+          if [ -n "$MANUAL_PR" ]; then
+            PR_NUM=$MANUAL_PR
+          else
+            PR_NUM=${{ github.event.pull_request.number }}
+          fi
+          echo "Running Manager Agent on PR #$PR_NUM"
+          python main.py --agent manager --task review --pr $PR_NUM
