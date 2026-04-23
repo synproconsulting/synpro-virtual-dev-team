@@ -1,16 +1,29 @@
-# JWT Token Refresh Mechanism
+# User Registration Module
 
-A secure and production-ready JWT token refresh implementation for Python applications.
+A production-ready Python user registration system with comprehensive email and password validation.
 
 ## Features
 
-- **Access Token Management**: Short-lived access tokens (default: 15 minutes)
-- **Refresh Token Management**: Long-lived refresh tokens (default: 7 days)
-- **Token Validation**: Comprehensive token verification and expiration checking
-- **Token Refresh**: Seamless token renewal without re-authentication
-- **Additional Claims Support**: Include custom claims in tokens (roles, permissions, etc.)
-- **Security Best Practices**: Uses industry-standard libraries (python-jose, passlib)
-- **Environment Variable Configuration**: Secret keys managed via environment variables
+- **Email Validation**
+  - RFC 5322 compliant email format validation
+  - Duplicate email detection
+  - Case-insensitive email storage
+  - Maximum length enforcement (254 characters)
+
+- **Password Validation**
+  - Configurable minimum length (default: 8 characters)
+  - Maximum length enforcement (default: 128 characters)
+  - Requires uppercase letter
+  - Requires lowercase letter
+  - Requires digit
+  - Requires special character
+  - Comprehensive validation error messages
+
+- **Security**
+  - Bcrypt password hashing with automatic salt generation
+  - Environment variable configuration for password requirements
+  - No hardcoded secrets or credentials
+  - Password hashes never returned in API responses
 
 ## Installation
 
@@ -20,128 +33,84 @@ pip install -r requirements.txt
 
 ## Environment Variables
 
-Set the following environment variable for production use:
+You can customize password requirements using environment variables:
 
-```bash
-export JWT_SECRET_KEY="your-secret-key-here"
-```
-
-**Important**: Never commit secret keys to version control. Use environment variables or a secure secrets management system.
+- `MIN_PASSWORD_LENGTH` - Minimum password length (default: 8)
+- `MAX_PASSWORD_LENGTH` - Maximum password length (default: 128)
 
 ## Usage
 
-### Basic Setup
+### Basic Registration
 
 ```python
-from src.auth import JWTTokenManager
+from src.auth.registration import register_user, ValidationError
 
-# Initialize with environment variable
-manager = JWTTokenManager()
-
-# Or initialize with explicit secret (for testing only)
-manager = JWTTokenManager(
-    secret_key="test-secret",
-    access_token_expire_minutes=15,
-    refresh_token_expire_days=7
-)
-```
-
-### Creating Tokens
-
-```python
-# Create a token pair (access + refresh)
-access_token, refresh_token = manager.create_token_pair("user123")
-
-# Create tokens with additional claims
-access_token, refresh_token = manager.create_token_pair(
-    "user123",
-    additional_claims={"role": "admin", "email": "user@example.com"}
-)
-
-# Create individual tokens
-access_token = manager.create_access_token("user123")
-refresh_token = manager.create_refresh_token("user123")
-```
-
-### Validating Tokens
-
-```python
 try:
-    # Decode and validate token
-    payload = manager.decode_token(access_token)
-    user_id = payload["sub"]
-    
-    # Check if token is expired
-    if manager.is_token_expired(access_token):
-        print("Token has expired")
-    
-    # Get token expiration time
-    expiry = manager.get_token_expiry(access_token)
-    
-except TokenRefreshError as e:
-    print(f"Token validation failed: {e}")
+    user = register_user(
+        email="user@example.com",
+        password="SecurePass123!"
+    )
+    print(f"User registered: {user['email']}")
+except ValidationError as e:
+    print(f"Registration failed: {e}")
 ```
 
-### Refreshing Tokens
+### Using the UserRegistration Class
 
 ```python
+from src.auth.registration import UserRegistration, ValidationError
+
+registration = UserRegistration()
+
+# Register a user
 try:
-    # Refresh access token only
-    new_access_token = manager.refresh_access_token(refresh_token)
-    
-    # Refresh both tokens
-    new_access_token, new_refresh_token = manager.refresh_token_pair(
-        refresh_token
+    user = registration.register(
+        email="user@example.com",
+        password="SecurePass123!",
+        additional_data={"first_name": "John", "last_name": "Doe"}
     )
-    
-    # Refresh with new claims
-    new_access_token = manager.refresh_access_token(
-        refresh_token,
-        additional_claims={"role": "editor"}
-    )
-    
-except TokenRefreshError as e:
-    print(f"Token refresh failed: {e}")
+    print(f"User created at: {user['created_at']}")
+except ValidationError as e:
+    print(f"Error: {e}")
+
+# Retrieve a user
+user_data = registration.get_user("user@example.com")
+if user_data:
+    print(f"Found user: {user_data['email']}")
 ```
 
-## API Reference
+### Password Verification
 
-### JWTTokenManager
+```python
+from src.auth.registration import UserRegistration
 
-Main class for managing JWT tokens.
+registration = UserRegistration()
 
-#### Methods
+# Register user
+registration.register("user@example.com", "SecurePass123!")
 
-- `create_access_token(subject, additional_claims=None)` - Create a new access token
-- `create_refresh_token(subject, additional_claims=None)` - Create a new refresh token
-- `create_token_pair(subject, additional_claims=None)` - Create both access and refresh tokens
-- `decode_token(token)` - Decode and validate a token
-- `verify_refresh_token(refresh_token)` - Verify a refresh token and extract subject
-- `refresh_access_token(refresh_token, additional_claims=None)` - Generate new access token
-- `refresh_token_pair(refresh_token, additional_claims=None)` - Generate new token pair
-- `get_token_expiry(token)` - Get token expiration datetime
-- `is_token_expired(token)` - Check if token is expired
+# Get user and verify password
+user = registration.get_user("user@example.com")
+is_valid = registration.verify_password("SecurePass123!", user['password_hash'])
+print(f"Password valid: {is_valid}")
+```
 
-### TokenRefreshError
+## Running Tests
 
-Exception raised when token operations fail (invalid token, expired, wrong type, etc.).
-
-## Testing
-
-Run the test suite:
+Run the test suite using pytest:
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
 # Run all tests
-pytest tests/
+pytest
 
 # Run with coverage
-pytest tests/ --cov=src/auth --cov-report=term-missing
+pytest --cov=src/auth --cov-report=html
 
 # Run specific test file
-pytest tests/test_jwt_refresh.py -v
+pytest tests/test_registration.py
+
+# Run with verbose output
+pytest -v
 ```
 
 ## Project Structure
@@ -151,41 +120,108 @@ pytest tests/test_jwt_refresh.py -v
 ├── src/
 │   └── auth/
 │       ├── __init__.py
-│       └── jwt_refresh.py       # Main JWT token manager implementation
+│       └── registration.py
 ├── tests/
 │   ├── __init__.py
-│   └── test_jwt_refresh.py      # Comprehensive unit tests
-├── requirements.txt              # Project dependencies
-└── README.md                     # This file
+│   └── test_registration.py
+├── requirements.txt
+└── README.md
+```
+
+## API Reference
+
+### `UserRegistration`
+
+Main class for handling user registration.
+
+#### Methods
+
+- **`validate_email(email: str) -> Tuple[bool, Optional[str]]`**
+  - Validates email format and checks for duplicates
+  - Returns: (is_valid, error_message)
+
+- **`validate_password(password: str) -> Tuple[bool, Optional[str]]`**
+  - Validates password strength requirements
+  - Returns: (is_valid, error_message)
+
+- **`hash_password(password: str) -> str`**
+  - Hashes a password using bcrypt
+  - Returns: Hashed password string
+
+- **`verify_password(plain_password: str, hashed_password: str) -> bool`**
+  - Verifies a password against its hash
+  - Returns: True if password matches, False otherwise
+
+- **`register(email: str, password: str, additional_data: Optional[Dict] = None) -> Dict`**
+  - Registers a new user
+  - Returns: User data dictionary (without password hash)
+  - Raises: ValidationError if validation fails
+
+- **`get_user(email: str) -> Optional[Dict]`**
+  - Retrieves user by email
+  - Returns: User data or None if not found
+
+### `register_user()`
+
+Convenience function for quick user registration.
+
+```python
+def register_user(
+    email: str, 
+    password: str,
+    additional_data: Optional[Dict] = None
+) -> Dict
+```
+
+## Password Requirements
+
+Passwords must meet the following criteria:
+
+1. Minimum 8 characters (configurable)
+2. Maximum 128 characters (configurable)
+3. At least one uppercase letter (A-Z)
+4. At least one lowercase letter (a-z)
+5. At least one digit (0-9)
+6. At least one special character (!@#$%^&*(),.?":{}|<>_-+=[]\/`~;)
+
+## Email Requirements
+
+Emails must:
+
+1. Follow RFC 5322 format (simplified)
+2. Be no longer than 254 characters
+3. Be unique (case-insensitive)
+4. Contain @ symbol with valid domain
+
+## Error Handling
+
+The module raises `ValidationError` for any validation failures:
+
+```python
+from src.auth.registration import ValidationError
+
+try:
+    register_user("invalid-email", "weak")
+except ValidationError as e:
+    print(f"Validation failed: {e}")
 ```
 
 ## Security Considerations
 
-1. **Secret Key Management**: Always use strong, randomly generated secret keys
-2. **HTTPS Only**: Only transmit tokens over HTTPS in production
-3. **Token Storage**: Store tokens securely (httpOnly cookies for web, secure storage for mobile)
-4. **Token Expiration**: Use short expiration times for access tokens
-5. **Refresh Token Rotation**: Consider implementing refresh token rotation for enhanced security
-6. **Revocation**: Implement token revocation for logout and security events
-
-## Dependencies
-
-- `python-jose[cryptography]` - JWT encoding/decoding
-- `passlib[bcrypt]` - Password hashing utilities
-- `pytest` - Testing framework
-- `pytest-cov` - Test coverage reporting
-
-## Contributing
-
-When contributing to this project:
-
-1. Follow PEP 8 style guidelines
-2. Add type hints to all functions
-3. Write docstrings for all classes and public methods
-4. Include unit tests for new functionality
-5. Keep functions under 30 lines where possible
-6. Never commit secrets or API keys
+- Passwords are hashed using bcrypt with automatic salt generation
+- Password hashes are never exposed in API responses
+- Email addresses are stored in lowercase for consistency
+- No sensitive data is logged or exposed
+- Environment variables are used for configuration
+- Input validation prevents common attack vectors
 
 ## License
 
-This implementation is part of the Synpro Virtual Dev Team project.
+This module is part of the Synpro Virtual Dev Team project.
+
+## Contributing
+
+1. Write clean, type-hinted Python code
+2. Add comprehensive tests for new features
+3. Update documentation as needed
+4. Follow PEP 8 style guidelines
