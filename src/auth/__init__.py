@@ -1,15 +1,5 @@
-"""
-Authentication module for user management system.
-"""
+"""Authentication module for email notifications."""
 
-from .change_password import (
-    PasswordChangeRequest,
-    PasswordChangeResponse,
-    PasswordChangeService,
-)
+from .email_notifications import EmailNotificationService
 
-__all__ = [
-    "PasswordChangeRequest",
-    "PasswordChangeResponse",
-    "PasswordChangeService",
-]
+__all__ = ["EmailNotificationService"]
