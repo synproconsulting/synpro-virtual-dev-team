@@ -263,6 +263,14 @@ All models use Pydantic for automatic validation:
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
 
-## Sprint Trigger and PR Auto Review
+## PM Agent Chat Interface - Feature Brief Submission
 
-This module provides one-click sprint triggering functionality and automated PR review capabilities. The SprintTrigger class enables teams to quickly initiate sprints with configurable durations and notifications, while PRAutoReview automatically validates pull requests against customizable rules including title conventions, size limits, test coverage, and secret detection.
+Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
+
+## Dependency Management
+
+Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
+
+## Sprint Trigger and Auto Review
+
+One-click sprint triggering system with automated PR review functionality. The `SprintTrigger` class enables teams to instantly start sprints with configurable parameters, while `PRAutoReview` automatically evaluates pull requests based on customizable rules including file count, line changes, and branch naming conventions.
