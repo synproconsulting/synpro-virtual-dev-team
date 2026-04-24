@@ -198,8 +198,14 @@ def review_pr(pr_number, sha=None):
     print(f"\nDecision: {decision}")
     print(f"Summary:  {summary}")
 
+    # Try title first, fall back to branch name (title may be redacted in CI logs)
     ticket_match = re.search(r'\[([A-Z][A-Z0-9]+-\d+)\]', title)
-    ticket_key   = ticket_match.group(1) if ticket_match else None
+    if ticket_match:
+        ticket_key = ticket_match.group(1)
+    else:
+        branch_match = re.search(r'feature/([a-z0-9]+-\d+)-', branch)
+        ticket_key = branch_match.group(1).upper() if branch_match else None
+    print(f"Jira ticket key: {ticket_key}")
 
     if decision == "APPROVE":
         merge_title = review.get("merge_message", title)
