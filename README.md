@@ -1,354 +1,298 @@
-# Profile Management API
+# Profile Page UI/UX Implementation
 
-A comprehensive FastAPI-based profile management system with authentication, authorization, and user profile operations.
+## Overview
+
+This module provides a complete backend implementation for user profile page UI/UX design and layout. It includes profile data management, API endpoints, and UI rendering structures for a modern profile page experience.
 
 ## Features
 
-- **Get Profile**: Retrieve user profile information
-- **Update Profile**: Update user details (name, email, phone, bio, avatar)
-- **Change Password**: Secure password change with validation
-- **Deactivate Profile**: Soft delete user profiles
-- **JWT Authentication**: Bearer token-based authentication
-- **Input Validation**: Comprehensive validation using Pydantic models
-- **Password Security**: Bcrypt hashing with complexity requirements
+- **Profile Data Management**: Comprehensive user profile data models with validation
+- **RESTful API Endpoints**: Complete CRUD operations for user profiles
+- **UI Layout Rendering**: Structured UI components for profile display and editing
+- **Form Generation**: Dynamic profile edit form generation
+- **Preview Functionality**: Preview profile changes before saving
+- **Validation**: Robust input validation for all profile fields
+- **Type Safety**: Full type hints using Python 3.11+ and Pydantic
 
-## Project Structure
+## Architecture
+
+### Components
+
+1. **ProfileData Model**: Pydantic model for user profile data with built-in validation
+2. **ProfileUpdateRequest Model**: Request model for profile updates
+3. **ProfileService**: Service layer for business logic and database operations
+4. **ProfileUIRenderer**: Utility class for generating UI layout structures
+5. **API Routes**: FastAPI routes for all profile operations
+
+### File Structure
 
 ```
-.
-├── src/
-│   └── auth/
-│       ├── __init__.py       # Module exports
-│       ├── profile.py        # Profile models and service layer
-│       └── api.py            # FastAPI endpoints
-├── tests/
-│   ├── __init__.py
-│   ├── test_profile.py       # Profile model and service tests
-│   └── test_api.py           # API endpoint tests
-├── requirements.txt          # Project dependencies
-└── README.md                 # This file
+src/auth/
+├── __init__.py          # Package initialization
+├── profile.py           # Core profile models and service
+└── profile_routes.py    # API route handlers
+
+tests/
+├── __init__.py          # Test package initialization
+├── test_profile.py      # Unit tests for profile module
+└── test_profile_routes.py  # Unit tests for API routes
 ```
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.11+
-- pip
-
-### Setup
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd <repository-directory>
-```
-
-2. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
+1. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Set environment variables:
+2. Set up environment variables (if needed):
 ```bash
-export JWT_SECRET_KEY="your-secret-key-here"
-export JWT_ALGORITHM="HS256"
+export DATABASE_URL="your_database_connection_string"
 ```
 
-## API Endpoints
+## Usage
 
-### Base URL: `/api/v1/profile`
-
-All endpoints require JWT authentication via Bearer token in the `Authorization` header.
-
-### 1. Get Current User Profile
-
-**GET** `/api/v1/profile/me`
-
-Retrieve the authenticated user's profile.
-
-**Response:**
-```json
-{
-  "user_id": "123",
-  "username": "johndoe",
-  "email": "john@example.com",
-  "full_name": "John Doe",
-  "phone_number": "+1234567890",
-  "bio": "Software developer",
-  "avatar_url": "https://example.com/avatar.jpg",
-  "created_at": "2024-01-01T00:00:00",
-  "updated_at": "2024-01-01T00:00:00",
-  "is_active": true
-}
-```
-
-### 2. Update Current User Profile
-
-**PUT** `/api/v1/profile/me`
-
-Update the authenticated user's profile.
-
-**Request Body:**
-```json
-{
-  "email": "newemail@example.com",
-  "full_name": "Jane Doe",
-  "phone_number": "+1234567890",
-  "bio": "Updated bio",
-  "avatar_url": "https://example.com/new-avatar.jpg"
-}
-```
-
-All fields are optional. Only provided fields will be updated.
-
-**Response:** Updated profile object (same as GET)
-
-### 3. Change Password
-
-**POST** `/api/v1/profile/me/change-password`
-
-Change the authenticated user's password.
-
-**Request Body:**
-```json
-{
-  "current_password": "OldPass123",
-  "new_password": "NewPass456",
-  "confirm_password": "NewPass456"
-}
-```
-
-**Password Requirements:**
-- Minimum 8 characters
-- At least one uppercase letter
-- At least one lowercase letter
-- At least one digit
-- Must be different from current password
-
-**Response:**
-```json
-{
-  "message": "Password changed successfully",
-  "changed_at": "2024-01-01T12:00:00"
-}
-```
-
-### 4. Deactivate Profile
-
-**DELETE** `/api/v1/profile/me`
-
-Deactivate (soft delete) the authenticated user's profile.
-
-**Response:**
-```json
-{
-  "message": "Profile deactivated successfully",
-  "deactivated_at": "2024-01-01T12:00:00"
-}
-```
-
-### 5. Get User Profile by ID
-
-**GET** `/api/v1/profile/{user_id}`
-
-Retrieve a specific user's profile. Currently restricted to own profile only (future: admin access).
-
-**Response:** Profile object (same as GET /me)
-
-## Authentication
-
-All endpoints require a JWT token in the Authorization header:
-
-```
-Authorization: Bearer <your-jwt-token>
-```
-
-The JWT token must contain a `sub` (subject) claim with the user ID.
-
-## Running Tests
-
-Run the test suite using pytest:
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test file
-pytest tests/test_profile.py
-
-# Run with verbose output
-pytest -v
-```
-
-## Usage Example
-
-### Using Python requests:
+### Basic Profile Operations
 
 ```python
-import requests
+from src.auth.profile import ProfileService, ProfileUpdateRequest
 
-# Base URL
-base_url = "http://localhost:8000/api/v1/profile"
+# Initialize service (with database connection in production)
+service = ProfileService(database_connection=db)
 
-# JWT token (obtain from authentication endpoint)
-token = "your-jwt-token-here"
-headers = {"Authorization": f"Bearer {token}"}
-
-# Get profile
-response = requests.get(f"{base_url}/me", headers=headers)
-print(response.json())
+# Get user profile
+profile = await service.get_profile("user123")
 
 # Update profile
-update_data = {
-    "full_name": "Jane Smith",
-    "bio": "Python developer"
-}
-response = requests.put(f"{base_url}/me", json=update_data, headers=headers)
-print(response.json())
-
-# Change password
-password_data = {
-    "current_password": "OldPass123",
-    "new_password": "NewPass456",
-    "confirm_password": "NewPass456"
-}
-response = requests.post(f"{base_url}/me/change-password", json=password_data, headers=headers)
-print(response.json())
+update_data = ProfileUpdateRequest(
+    full_name="John Doe",
+    bio="Software developer",
+    location="San Francisco, USA"
+)
+updated_profile = await service.update_profile("user123", update_data)
 ```
 
-### Using curl:
+### UI Rendering
 
-```bash
-# Get profile
-curl -X GET "http://localhost:8000/api/v1/profile/me" \
-  -H "Authorization: Bearer your-jwt-token"
+```python
+from src.auth.profile import ProfileUIRenderer
 
-# Update profile
-curl -X PUT "http://localhost:8000/api/v1/profile/me" \
-  -H "Authorization: Bearer your-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{"full_name": "Jane Smith", "bio": "Python developer"}'
+# Generate profile page layout
+layout = ProfileUIRenderer.render_profile_layout(profile)
 
-# Change password
-curl -X POST "http://localhost:8000/api/v1/profile/me/change-password" \
-  -H "Authorization: Bearer your-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "current_password": "OldPass123",
-    "new_password": "NewPass456",
-    "confirm_password": "NewPass456"
-  }'
+# Generate edit form
+form = ProfileUIRenderer.render_edit_form(profile)
 ```
 
-## Integration with FastAPI Application
-
-To integrate the profile router into your FastAPI application:
+### API Integration
 
 ```python
 from fastapi import FastAPI
 from src.auth import profile_router
 
-app = FastAPI(title="My Application")
-
-# Include the profile management router
+app = FastAPI()
 app.include_router(profile_router)
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
 
-## Database Integration
+## API Endpoints
 
-The current implementation includes placeholder methods that raise `NotImplementedError`. To integrate with a database:
+### GET `/api/profile/{user_id}`
+Get user profile page data and UI layout.
 
-1. **Create database models** (e.g., using SQLAlchemy or your ORM of choice)
-2. **Implement the ProfileService methods** in `src/auth/profile.py`
-3. **Update the dependency** `get_profile_service()` in `src/auth/api.py` to return a service with an actual database connection
-
-Example SQLAlchemy integration:
-
-```python
-from sqlalchemy.ext.asyncio import AsyncSession
-
-async def get_profile_service(db: AsyncSession = Depends(get_db)):
-    return ProfileService(database_connection=db)
+**Response:**
+```json
+{
+  "success": true,
+  "profile": {
+    "user_id": "user123",
+    "username": "johndoe",
+    "email": "john@example.com",
+    "full_name": "John Doe",
+    ...
+  },
+  "ui": {
+    "layout": "profile-page",
+    "sections": [...]
+  }
+}
 ```
+
+### GET `/api/profile/{user_id}/edit`
+Get profile edit form structure (authenticated user only).
+
+**Response:**
+```json
+{
+  "success": true,
+  "profile": {...},
+  "form": {
+    "form": "profile-edit",
+    "fields": [...]
+  }
+}
+```
+
+### PUT `/api/profile/{user_id}`
+Update user profile (authenticated user only).
+
+**Request Body:**
+```json
+{
+  "full_name": "John Doe",
+  "bio": "Software developer",
+  "phone": "+1234567890",
+  "location": "San Francisco, USA",
+  "website": "https://johndoe.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Profile updated successfully",
+  "profile": {...}
+}
+```
+
+### DELETE `/api/profile/{user_id}`
+Delete (deactivate) user profile (authenticated user only).
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Profile deleted successfully"
+}
+```
+
+### GET `/api/profile/{user_id}/preview`
+Preview profile changes without saving.
+
+**Query Parameters:**
+- `full_name` (optional)
+- `bio` (optional)
+- `phone` (optional)
+- `location` (optional)
+- `website` (optional)
+
+## Testing
+
+Run all tests:
+```bash
+pytest
+```
+
+Run with coverage:
+```bash
+pytest --cov=src/auth tests/
+```
+
+Run specific test file:
+```bash
+pytest tests/test_profile.py
+pytest tests/test_profile_routes.py
+```
+
+## Validation Rules
+
+### Username
+- 3-50 characters
+- Alphanumeric, hyphens, and underscores only
+- Automatically converted to lowercase
+
+### Email
+- Valid email format (validated by Pydantic EmailStr)
+
+### Full Name
+- Maximum 100 characters
+
+### Bio
+- Maximum 500 characters
+
+### Phone
+- Maximum 20 characters
+
+### Location
+- Maximum 100 characters
+
+### Website
+- Maximum 200 characters
+- Must start with `http://` or `https://`
+
+## UI Layout Structure
+
+The profile page layout is organized into sections:
+
+1. **Header Section**: Avatar, username, full name, and bio
+2. **Stats Section**: Member since date and last updated date
+3. **Contact Info Section**: Email, phone, location, and website
+4. **Actions Section**: Edit profile button and actions
 
 ## Security Considerations
 
-- **Environment Variables**: Never commit `JWT_SECRET_KEY` to version control
-- **Password Hashing**: Uses bcrypt with automatic salting
-- **JWT Expiration**: Implement token expiration in your authentication system
-- **HTTPS**: Always use HTTPS in production
-- **Rate Limiting**: Consider adding rate limiting to prevent brute force attacks
-- **Input Validation**: All inputs are validated using Pydantic models
+- All profile update/delete operations require authentication
+- Users can only edit their own profiles
+- Soft delete (sets `is_active` to `false`) for profile deletion
+- Input validation on all fields
+- No sensitive data in responses
 
-## Error Handling
+## Database Schema (Recommended)
 
-The API returns standard HTTP status codes:
+```sql
+CREATE TABLE user_profiles (
+    user_id VARCHAR(255) PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    full_name VARCHAR(100),
+    bio VARCHAR(500),
+    avatar_url VARCHAR(500),
+    phone VARCHAR(20),
+    location VARCHAR(100),
+    website VARCHAR(200),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
 
-- **200 OK**: Request successful
-- **400 Bad Request**: Invalid input data
-- **401 Unauthorized**: Missing or invalid authentication token
-- **403 Forbidden**: Not authorized to access resource
-- **404 Not Found**: Resource not found
-- **501 Not Implemented**: Database integration required
-
-Error responses include a detail message:
-
-```json
-{
-  "detail": "Error message describing what went wrong"
-}
+CREATE INDEX idx_username ON user_profiles(username);
+CREATE INDEX idx_email ON user_profiles(email);
+CREATE INDEX idx_is_active ON user_profiles(is_active);
 ```
 
 ## Development
 
-### Code Quality Tools
+### Code Style
+- Python 3.11+
+- Type hints on all functions
+- Docstrings on all classes and public functions
+- PEP 8 compliant (use `black` for formatting)
 
+### Running Linters
 ```bash
-# Format code with black
+# Format code
 black src/ tests/
 
-# Sort imports with isort
-isort src/ tests/
-
-# Lint with flake8
+# Check code quality
 flake8 src/ tests/
 
-# Type check with mypy
+# Type checking
 mypy src/
 ```
 
-### Running the Development Server
+## Future Enhancements
 
-```bash
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-## Contributing
-
-1. Create a feature branch
-2. Write tests for new functionality
-3. Ensure all tests pass
-4. Follow PEP 8 style guidelines
-5. Submit a pull request
+- Avatar upload functionality
+- Profile visibility settings (public/private)
+- Social media links integration
+- Activity history tracking
+- Profile completeness indicator
+- Custom themes/layouts per user
 
 ## License
 
-This project is licensed under the MIT License.
+Internal project - All rights reserved
 
 ## Support
 
-For issues, questions, or contributions, please open an issue on the project repository.
+For issues or questions, contact the development team.
