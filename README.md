@@ -262,3 +262,82 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## Profile Page UI/UX
+
+The profile module provides comprehensive user profile management with customizable UI/UX features.
+
+### Features
+
+- **Profile Data Model**: Complete user profile structure with support for avatars, cover images, bio, location, and social links
+- **Customizable Sections**: Add, remove, and reorder custom sections in user profiles
+- **Privacy Settings**: Granular control over what information is visible (email, last login, activity stats)
+- **Theme Support**: Light, dark, and auto theme options
+- **Visibility Controls**: Public, private, or connections-only profile visibility
+- **Statistics**: Track and display user activity metrics
+- **Profile Service**: Manage profile creation, updates, and section management
+
+### Usage Example
+
+```python
+from src.auth.profile import ProfileService, ProfileSection, ProfileTheme
+
+# Initialize service
+service = ProfileService()
+
+# Create a profile
+profile = service.create_profile(
+    user_id="user123",
+    username="johndoe",
+    email="john@example.com",
+    display_name="John Doe",
+    bio="Software developer passionate about clean code",
+    location="San Francisco, CA"
+)
+
+# Update profile settings
+service.update_settings(
+    user_id="user123",
+    theme=ProfileTheme.DARK,
+    show_email=False
+)
+
+# Add custom sections
+section = ProfileSection(
+    section_id="projects",
+    title="My Projects",
+    content="Check out my latest work...",
+    icon="code",
+    order=1
+)
+service.add_section("user123", section)
+
+# Get profile data for rendering
+profile = service.get_profile("user123")
+profile_dict = profile.to_dict()  # Convert to dict for API response
+```
+
+### Profile Data Structure
+
+The `ProfileData.to_dict()` method returns a dictionary suitable for API responses and frontend rendering:
+
+```python
+{
+    "user_id": "user123",
+    "username": "johndoe",
+    "display_name": "John Doe",
+    "bio": "Software developer...",
+    "avatar_url": "https://...",
+    "cover_image_url": "https://...",
+    "location": "San Francisco, CA",
+    "website": "https://johndoe.com",
+    "joined_date": "2024-01-01T00:00:00",
+    "settings": {
+        "theme": "dark",
+        "visibility": "public"
+    },
+    "sections": [...],
+    "social_links": {...},
+    "stats": {...}
+}
+```
