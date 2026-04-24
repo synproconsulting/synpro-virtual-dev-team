@@ -262,3 +262,7 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## SonarCloud On-Demand Analysis
+
+Provides integration with SonarCloud API for triggering on-demand code analysis and viewing results. The `SonarCloudClient` handles authentication and API communication, while `SonarCloudViewer` formats quality gate status, measures, and analysis summaries into human-readable output. Supports branch-specific analysis and customizable metric retrieval.
