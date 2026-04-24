@@ -1,7 +1,17 @@
 """
-Authentication module for user registration and management.
+Authentication and user management module.
 """
 
-from .registration import UserRegistration, register_user
+from .profile import (
+    UserProfile,
+    UserProfileError,
+    UserNotFoundError,
+    DatabaseConnectionError
+)
 
-__all__ = ["UserRegistration", "register_user"]
+__all__ = [
+    'UserProfile',
+    'UserProfileError',
+    'UserNotFoundError',
+    'DatabaseConnectionError'
+]
