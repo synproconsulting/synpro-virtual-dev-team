@@ -1,3 +1,3 @@
 """
-Tests package for profile management module.
+Test package for profile functionality.
 """
