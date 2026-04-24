@@ -7,3 +7,5 @@ from src.auth.feature_brief_ui import FeatureBriefUI
 from src.auth.feature_brief_ui import FeatureBrief
 from src.auth.feature_brief_ui import Priority
 from src.auth.feature_brief_ui import FeatureStatus
+from src.auth.dependency_graph import DependencyGraph
+from src.auth.dependency_graph import DependencyVisualizer
