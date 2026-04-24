@@ -1,16 +1,20 @@
-# Profile Management API
+# Change Password Functionality - SDT1-14
 
-A comprehensive FastAPI-based profile management system with authentication, authorization, and user profile operations.
+This module implements secure password change functionality for user authentication systems.
 
 ## Features
 
-- **Get Profile**: Retrieve user profile information
-- **Update Profile**: Update user details (name, email, phone, bio, avatar)
-- **Change Password**: Secure password change with validation
-- **Deactivate Profile**: Soft delete user profiles
-- **JWT Authentication**: Bearer token-based authentication
-- **Input Validation**: Comprehensive validation using Pydantic models
-- **Password Security**: Bcrypt hashing with complexity requirements
+- **Secure Password Hashing**: Uses bcrypt for password hashing
+- **Password Strength Validation**: Enforces strong password requirements
+  - Minimum 8 characters
+  - At least one uppercase letter
+  - At least one lowercase letter
+  - At least one digit
+  - At least one special character
+- **Password History**: Prevents reuse of recently used passwords
+- **Current Password Verification**: Requires current password for changes
+- **Password Expiry Detection**: Identifies when passwords need to be changed
+- **Thread-Safe Repository**: In-memory implementation with thread safety
 
 ## Project Structure
 
@@ -18,337 +22,177 @@ A comprehensive FastAPI-based profile management system with authentication, aut
 .
 ├── src/
 │   └── auth/
-│       ├── __init__.py       # Module exports
-│       ├── profile.py        # Profile models and service layer
-│       └── api.py            # FastAPI endpoints
+│       ├── __init__.py              # Module exports
+│       ├── change_password.py       # Core password change logic
+│       └── user_repository.py       # User data persistence interface
 ├── tests/
 │   ├── __init__.py
-│   ├── test_profile.py       # Profile model and service tests
-│   └── test_api.py           # API endpoint tests
-├── requirements.txt          # Project dependencies
-└── README.md                 # This file
+│   └── test_change_password.py      # Comprehensive unit tests
+├── requirements.txt                  # Project dependencies
+└── README.md                         # This file
 ```
 
 ## Installation
 
-### Prerequisites
+1. Clone the repository
+2. Install dependencies:
 
-- Python 3.11+
-- pip
-
-### Setup
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd <repository-directory>
-```
-
-2. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Set environment variables:
+## Usage
+
+### Basic Password Change
+
+```python
+from src.auth.change_password import PasswordChangeService, PasswordChangeRequest
+from src.auth.user_repository import InMemoryUserRepository
+
+# Initialize repository and service
+repository = InMemoryUserRepository()
+service = PasswordChangeService(user_repository=repository)
+
+# Create a user (for testing)
+user_id = "user123"
+initial_password_hash = service.hash_password("OldPassword123!")
+repository.create_user(
+    user_id=user_id,
+    password_hash=initial_password_hash,
+    email="user@example.com"
+)
+
+# Change password
+request = PasswordChangeRequest(
+    user_id=user_id,
+    current_password="OldPassword123!",
+    new_password="NewSecurePass456@",
+    confirm_password="NewSecurePass456@"
+)
+
+response = service.change_password(request)
+
+if response.success:
+    print(f"Password changed successfully at {response.changed_at}")
+else:
+    print(f"Password change failed: {response.message}")
+```
+
+### Check if Password Change is Required
+
+```python
+should_force = service.should_force_password_change(user_id)
+
+if should_force:
+    print("User must change password (expired or never changed)")
+```
+
+## Configuration
+
+The service supports configuration via environment variables:
+
+- `MAX_PASSWORD_AGE_DAYS` (default: 90): Maximum days before password expires
+- `PASSWORD_HISTORY_COUNT` (default: 5): Number of historical passwords to check
+
 ```bash
-export JWT_SECRET_KEY="your-secret-key-here"
-export JWT_ALGORITHM="HS256"
+export MAX_PASSWORD_AGE_DAYS=60
+export PASSWORD_HISTORY_COUNT=10
 ```
 
-## API Endpoints
+## Testing
 
-### Base URL: `/api/v1/profile`
-
-All endpoints require JWT authentication via Bearer token in the `Authorization` header.
-
-### 1. Get Current User Profile
-
-**GET** `/api/v1/profile/me`
-
-Retrieve the authenticated user's profile.
-
-**Response:**
-```json
-{
-  "user_id": "123",
-  "username": "johndoe",
-  "email": "john@example.com",
-  "full_name": "John Doe",
-  "phone_number": "+1234567890",
-  "bio": "Software developer",
-  "avatar_url": "https://example.com/avatar.jpg",
-  "created_at": "2024-01-01T00:00:00",
-  "updated_at": "2024-01-01T00:00:00",
-  "is_active": true
-}
-```
-
-### 2. Update Current User Profile
-
-**PUT** `/api/v1/profile/me`
-
-Update the authenticated user's profile.
-
-**Request Body:**
-```json
-{
-  "email": "newemail@example.com",
-  "full_name": "Jane Doe",
-  "phone_number": "+1234567890",
-  "bio": "Updated bio",
-  "avatar_url": "https://example.com/new-avatar.jpg"
-}
-```
-
-All fields are optional. Only provided fields will be updated.
-
-**Response:** Updated profile object (same as GET)
-
-### 3. Change Password
-
-**POST** `/api/v1/profile/me/change-password`
-
-Change the authenticated user's password.
-
-**Request Body:**
-```json
-{
-  "current_password": "OldPass123",
-  "new_password": "NewPass456",
-  "confirm_password": "NewPass456"
-}
-```
-
-**Password Requirements:**
-- Minimum 8 characters
-- At least one uppercase letter
-- At least one lowercase letter
-- At least one digit
-- Must be different from current password
-
-**Response:**
-```json
-{
-  "message": "Password changed successfully",
-  "changed_at": "2024-01-01T12:00:00"
-}
-```
-
-### 4. Deactivate Profile
-
-**DELETE** `/api/v1/profile/me`
-
-Deactivate (soft delete) the authenticated user's profile.
-
-**Response:**
-```json
-{
-  "message": "Profile deactivated successfully",
-  "deactivated_at": "2024-01-01T12:00:00"
-}
-```
-
-### 5. Get User Profile by ID
-
-**GET** `/api/v1/profile/{user_id}`
-
-Retrieve a specific user's profile. Currently restricted to own profile only (future: admin access).
-
-**Response:** Profile object (same as GET /me)
-
-## Authentication
-
-All endpoints require a JWT token in the Authorization header:
-
-```
-Authorization: Bearer <your-jwt-token>
-```
-
-The JWT token must contain a `sub` (subject) claim with the user ID.
-
-## Running Tests
-
-Run the test suite using pytest:
+Run the test suite with pytest:
 
 ```bash
 # Run all tests
-pytest
+pytest tests/
 
 # Run with coverage
-pytest --cov=src --cov-report=html
+pytest tests/ --cov=src/auth --cov-report=html
 
 # Run specific test file
-pytest tests/test_profile.py
+pytest tests/test_change_password.py
 
 # Run with verbose output
-pytest -v
+pytest tests/ -v
 ```
 
-## Usage Example
+### Test Coverage
 
-### Using Python requests:
+The test suite includes:
+- Password validation tests (strength requirements)
+- Password matching validation
+- Successful password change scenarios
+- Error handling (wrong password, user not found)
+- Password history checks
+- Password expiry detection
+- Repository operations
+- Thread safety (via in-memory implementation)
 
-```python
-import requests
+## API Reference
 
-# Base URL
-base_url = "http://localhost:8000/api/v1/profile"
+### PasswordChangeRequest
 
-# JWT token (obtain from authentication endpoint)
-token = "your-jwt-token-here"
-headers = {"Authorization": f"Bearer {token}"}
+Request model for password change operations.
 
-# Get profile
-response = requests.get(f"{base_url}/me", headers=headers)
-print(response.json())
+**Fields:**
+- `user_id` (str): Unique user identifier
+- `current_password` (str): User's current password
+- `new_password` (str): New password (min 8 chars, must meet strength requirements)
+- `confirm_password` (str): Confirmation of new password
 
-# Update profile
-update_data = {
-    "full_name": "Jane Smith",
-    "bio": "Python developer"
-}
-response = requests.put(f"{base_url}/me", json=update_data, headers=headers)
-print(response.json())
+### PasswordChangeResponse
 
-# Change password
-password_data = {
-    "current_password": "OldPass123",
-    "new_password": "NewPass456",
-    "confirm_password": "NewPass456"
-}
-response = requests.post(f"{base_url}/me/change-password", json=password_data, headers=headers)
-print(response.json())
-```
+Response model for password change operations.
 
-### Using curl:
+**Fields:**
+- `success` (bool): Whether the operation succeeded
+- `message` (str): Human-readable message
+- `changed_at` (datetime, optional): Timestamp of password change
 
-```bash
-# Get profile
-curl -X GET "http://localhost:8000/api/v1/profile/me" \
-  -H "Authorization: Bearer your-jwt-token"
+### PasswordChangeService
 
-# Update profile
-curl -X PUT "http://localhost:8000/api/v1/profile/me" \
-  -H "Authorization: Bearer your-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{"full_name": "Jane Smith", "bio": "Python developer"}'
+Service class for password change operations.
 
-# Change password
-curl -X POST "http://localhost:8000/api/v1/profile/me/change-password" \
-  -H "Authorization: Bearer your-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "current_password": "OldPass123",
-    "new_password": "NewPass456",
-    "confirm_password": "NewPass456"
-  }'
-```
-
-## Integration with FastAPI Application
-
-To integrate the profile router into your FastAPI application:
-
-```python
-from fastapi import FastAPI
-from src.auth import profile_router
-
-app = FastAPI(title="My Application")
-
-# Include the profile management router
-app.include_router(profile_router)
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-```
-
-## Database Integration
-
-The current implementation includes placeholder methods that raise `NotImplementedError`. To integrate with a database:
-
-1. **Create database models** (e.g., using SQLAlchemy or your ORM of choice)
-2. **Implement the ProfileService methods** in `src/auth/profile.py`
-3. **Update the dependency** `get_profile_service()` in `src/auth/api.py` to return a service with an actual database connection
-
-Example SQLAlchemy integration:
-
-```python
-from sqlalchemy.ext.asyncio import AsyncSession
-
-async def get_profile_service(db: AsyncSession = Depends(get_db)):
-    return ProfileService(database_connection=db)
-```
+**Methods:**
+- `hash_password(password: str) -> str`: Hash a plaintext password
+- `verify_password(plain_password: str, hashed_password: str) -> bool`: Verify password
+- `change_password(request: PasswordChangeRequest) -> PasswordChangeResponse`: Change user password
+- `check_password_in_history(user_id: str, new_password: str) -> bool`: Check if password was recently used
+- `should_force_password_change(user_id: str) -> bool`: Check if password change should be forced
 
 ## Security Considerations
 
-- **Environment Variables**: Never commit `JWT_SECRET_KEY` to version control
-- **Password Hashing**: Uses bcrypt with automatic salting
-- **JWT Expiration**: Implement token expiration in your authentication system
-- **HTTPS**: Always use HTTPS in production
-- **Rate Limiting**: Consider adding rate limiting to prevent brute force attacks
-- **Input Validation**: All inputs are validated using Pydantic models
+1. **Password Storage**: Passwords are hashed using bcrypt with automatic salt generation
+2. **No Plain Text**: Plain text passwords are never stored
+3. **History Protection**: Prevents reuse of recent passwords
+4. **Strength Requirements**: Enforces strong password policies
+5. **Current Password Verification**: Requires knowledge of current password
+6. **No Secrets in Code**: Configuration via environment variables
 
-## Error Handling
+## Integration with Databases
 
-The API returns standard HTTP status codes:
+The `InMemoryUserRepository` is provided for development and testing. For production use, implement the `UserRepositoryInterface` with your database backend:
 
-- **200 OK**: Request successful
-- **400 Bad Request**: Invalid input data
-- **401 Unauthorized**: Missing or invalid authentication token
-- **403 Forbidden**: Not authorized to access resource
-- **404 Not Found**: Resource not found
-- **501 Not Implemented**: Database integration required
+```python
+from src.auth.user_repository import UserRepositoryInterface
 
-Error responses include a detail message:
-
-```json
-{
-  "detail": "Error message describing what went wrong"
-}
+class PostgresUserRepository(UserRepositoryInterface):
+    def __init__(self, connection_string):
+        # Initialize database connection
+        pass
+    
+    def get_user_by_id(self, user_id: str):
+        # Query database
+        pass
+    
+    # Implement other methods...
 ```
-
-## Development
-
-### Code Quality Tools
-
-```bash
-# Format code with black
-black src/ tests/
-
-# Sort imports with isort
-isort src/ tests/
-
-# Lint with flake8
-flake8 src/ tests/
-
-# Type check with mypy
-mypy src/
-```
-
-### Running the Development Server
-
-```bash
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-## Contributing
-
-1. Create a feature branch
-2. Write tests for new functionality
-3. Ensure all tests pass
-4. Follow PEP 8 style guidelines
-5. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License.
+Internal project - All rights reserved
 
-## Support
+## Contributing
 
-For issues, questions, or contributions, please open an issue on the project repository.
+This is part of SDT1-14 Jira ticket implementation. For questions or issues, contact the development team.

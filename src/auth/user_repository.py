@@ -1,195 +1,205 @@
 """
-User repository for data persistence operations.
+User repository interface for password management.
 
-This module provides a repository pattern implementation for user data management.
+This module provides an abstract interface and in-memory implementation
+for user data operations related to password management.
 """
 
-from typing import Optional, Dict, Any
+from abc import ABC, abstractmethod
+from typing import Optional, Dict, List, Any
 from datetime import datetime
+from threading import Lock
 
 
-class InMemoryUserRepository:
-    """
-    In-memory implementation of user repository.
+class UserRepositoryInterface(ABC):
+    """Abstract interface for user data operations."""
     
-    This is a simple implementation for demonstration purposes.
-    In production, this would connect to a real database.
-    """
+    @abstractmethod
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve user by ID.
+        
+        Args:
+            user_id: Unique user identifier
+            
+        Returns:
+            User dictionary or None if not found
+        """
+        pass
+    
+    @abstractmethod
+    def update_password(
+        self, 
+        user_id: str, 
+        password_hash: str, 
+        changed_at: datetime
+    ) -> bool:
+        """
+        Update user password.
+        
+        Args:
+            user_id: Unique user identifier
+            password_hash: New hashed password
+            changed_at: Timestamp of password change
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        pass
+    
+    @abstractmethod
+    def get_password_history(
+        self, 
+        user_id: str, 
+        limit: int = 5
+    ) -> List[str]:
+        """
+        Get password history for a user.
+        
+        Args:
+            user_id: Unique user identifier
+            limit: Maximum number of historical passwords to return
+            
+        Returns:
+            List of historical password hashes
+        """
+        pass
+    
+    @abstractmethod
+    def add_to_password_history(
+        self, 
+        user_id: str, 
+        password_hash: str
+    ) -> None:
+        """
+        Add password to user's password history.
+        
+        Args:
+            user_id: Unique user identifier
+            password_hash: Hashed password to add to history
+        """
+        pass
+
+
+class InMemoryUserRepository(UserRepositoryInterface):
+    """In-memory implementation of user repository for testing/development."""
     
     def __init__(self):
-        """Initialize the repository with an empty user store."""
-        self.users: Dict[int, Dict[str, Any]] = {}
-        self.next_id = 1
+        """Initialize the in-memory repository."""
+        self._users: Dict[str, Dict[str, Any]] = {}
+        self._password_history: Dict[str, List[str]] = {}
+        self._lock = Lock()
     
-    def create(self, username: str, email: str, hashed_password: str) -> Dict[str, Any]:
+    def create_user(
+        self, 
+        user_id: str, 
+        password_hash: str, 
+        email: str,
+        **kwargs
+    ) -> Dict[str, Any]:
         """
         Create a new user.
         
         Args:
-            username: User's username
-            email: User's email address
-            hashed_password: Hashed password
+            user_id: Unique user identifier
+            password_hash: Hashed password
+            email: User email address
+            **kwargs: Additional user attributes
             
         Returns:
-            Dictionary containing created user information
+            Created user dictionary
         """
-        user_id = self.next_id
-        self.next_id += 1
-        
-        user = {
-            "id": user_id,
-            "username": username,
-            "email": email,
-            "hashed_password": hashed_password,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
-        }
-        
-        self.users[user_id] = user
-        return user
+        with self._lock:
+            user = {
+                "user_id": user_id,
+                "email": email,
+                "password_hash": password_hash,
+                "password_changed_at": datetime.utcnow(),
+                "created_at": datetime.utcnow(),
+                **kwargs
+            }
+            self._users[user_id] = user
+            self._password_history[user_id] = [password_hash]
+            return user.copy()
     
-    def get_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get user by ID.
+        Retrieve user by ID.
         
         Args:
-            user_id: User ID to search for
+            user_id: Unique user identifier
             
         Returns:
-            User dictionary if found, None otherwise
+            User dictionary or None if not found
         """
-        return self.users.get(user_id)
+        with self._lock:
+            user = self._users.get(user_id)
+            return user.copy() if user else None
     
-    def get_by_username(self, username: str) -> Optional[Dict[str, Any]]:
-        """
-        Get user by username.
-        
-        Args:
-            username: Username to search for
-            
-        Returns:
-            User dictionary if found, None otherwise
-        """
-        for user in self.users.values():
-            if user["username"] == username:
-                return user
-        return None
-    
-    def get_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        """
-        Get user by email.
-        
-        Args:
-            email: Email address to search for
-            
-        Returns:
-            User dictionary if found, None otherwise
-        """
-        for user in self.users.values():
-            if user["email"] == email:
-                return user
-        return None
-    
-    def update_username(self, user_id: int, new_username: str) -> Dict[str, Any]:
-        """
-        Update user's username.
-        
-        Args:
-            user_id: ID of user to update
-            new_username: New username value
-            
-        Returns:
-            Updated user dictionary
-            
-        Raises:
-            ValueError: If user not found
-        """
-        user = self.users.get(user_id)
-        if not user:
-            raise ValueError(f"User with ID {user_id} not found")
-        
-        user["username"] = new_username
-        user["updated_at"] = datetime.utcnow().isoformat()
-        
-        return user
-    
-    def update_email(self, user_id: int, new_email: str) -> Dict[str, Any]:
-        """
-        Update user's email.
-        
-        Args:
-            user_id: ID of user to update
-            new_email: New email value
-            
-        Returns:
-            Updated user dictionary
-            
-        Raises:
-            ValueError: If user not found
-        """
-        user = self.users.get(user_id)
-        if not user:
-            raise ValueError(f"User with ID {user_id} not found")
-        
-        user["email"] = new_email
-        user["updated_at"] = datetime.utcnow().isoformat()
-        
-        return user
-    
-    def update_profile(
+    def update_password(
         self, 
-        user_id: int, 
-        username: Optional[str] = None, 
-        email: Optional[str] = None
-    ) -> Dict[str, Any]:
+        user_id: str, 
+        password_hash: str, 
+        changed_at: datetime
+    ) -> bool:
         """
-        Update user profile fields.
+        Update user password.
         
         Args:
-            user_id: ID of user to update
-            username: New username (optional)
-            email: New email (optional)
+            user_id: Unique user identifier
+            password_hash: New hashed password
+            changed_at: Timestamp of password change
             
         Returns:
-            Updated user dictionary
+            True if successful, False otherwise
+        """
+        with self._lock:
+            if user_id not in self._users:
+                return False
             
-        Raises:
-            ValueError: If user not found
-        """
-        user = self.users.get(user_id)
-        if not user:
-            raise ValueError(f"User with ID {user_id} not found")
-        
-        if username is not None:
-            user["username"] = username
-        
-        if email is not None:
-            user["email"] = email
-        
-        user["updated_at"] = datetime.utcnow().isoformat()
-        
-        return user
-    
-    def delete(self, user_id: int) -> bool:
-        """
-        Delete a user.
-        
-        Args:
-            user_id: ID of user to delete
-            
-        Returns:
-            True if user was deleted, False if not found
-        """
-        if user_id in self.users:
-            del self.users[user_id]
+            self._users[user_id]["password_hash"] = password_hash
+            self._users[user_id]["password_changed_at"] = changed_at
             return True
-        return False
     
-    def list_all(self) -> list[Dict[str, Any]]:
+    def get_password_history(
+        self, 
+        user_id: str, 
+        limit: int = 5
+    ) -> List[str]:
         """
-        List all users.
+        Get password history for a user.
         
+        Args:
+            user_id: Unique user identifier
+            limit: Maximum number of historical passwords to return
+            
         Returns:
-            List of all user dictionaries
+            List of historical password hashes
         """
-        return list(self.users.values())
+        with self._lock:
+            history = self._password_history.get(user_id, [])
+            return history[-limit:] if limit > 0 else history
+    
+    def add_to_password_history(
+        self, 
+        user_id: str, 
+        password_hash: str
+    ) -> None:
+        """
+        Add password to user's password history.
+        
+        Args:
+            user_id: Unique user identifier
+            password_hash: Hashed password to add to history
+        """
+        with self._lock:
+            if user_id not in self._password_history:
+                self._password_history[user_id] = []
+            
+            self._password_history[user_id].append(password_hash)
+    
+    def clear(self) -> None:
+        """Clear all data from repository (for testing)."""
+        with self._lock:
+            self._users.clear()
+            self._password_history.clear()

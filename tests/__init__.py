@@ -1,3 +1,3 @@
 """
-Tests package for profile management module.
+Tests package for authentication module.
 """
