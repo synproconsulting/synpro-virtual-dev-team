@@ -262,3 +262,70 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## Profile Management
+
+The profile management module provides user profile functionality with in-memory storage.
+
+### Features
+
+- **Profile Creation**: Create user profiles with email and display name
+- **Display Name Management**: Update user display names with validation
+- **Avatar Support**: Automatic Gravatar integration based on email addresses
+- **Profile Retrieval**: Get profile information by user ID
+- **Profile Listing**: List all registered profiles
+
+### Usage
+
+```python
+from src.auth.profile import ProfileManager
+
+# Initialize the profile manager
+manager = ProfileManager()
+
+# Create a new profile
+profile = manager.create_profile(
+    user_id="user123",
+    email="user@example.com",
+    display_name="John Doe"
+)
+
+# Get a user profile
+profile = manager.get_profile("user123")
+print(profile.display_name)  # "John Doe"
+
+# Update display name
+manager.update_display_name("user123", "Jane Doe")
+
+# Get avatar URL (Gravatar)
+avatar_url = manager.get_avatar_url("user123")
+
+# Update avatar URL
+manager.update_avatar_url("user123", "https://example.com/avatar.png")
+
+# List all profiles
+all_profiles = manager.list_profiles()
+
+# Delete a profile
+manager.delete_profile("user123")
+```
+
+### ProfileManager Methods
+
+- `create_profile(user_id, email, display_name=None)`: Create a new user profile
+- `get_profile(user_id)`: Retrieve a profile by user ID
+- `update_display_name(user_id, display_name)`: Update the display name
+- `get_avatar_url(user_id)`: Get the avatar URL for a user
+- `update_avatar_url(user_id, avatar_url)`: Update the avatar URL
+- `delete_profile(user_id)`: Delete a user profile
+- `list_profiles()`: List all user profiles
+
+### Profile Data Structure
+
+Each `UserProfile` contains:
+- `user_id`: Unique user identifier
+- `email`: User's email address
+- `display_name`: User's display name
+- `avatar_url`: URL to user's avatar image (auto-generated from Gravatar)
+- `created_at`: Profile creation timestamp
+- `updated_at`: Last update timestamp
