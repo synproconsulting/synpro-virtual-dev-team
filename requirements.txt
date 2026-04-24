@@ -1,4 +1,14 @@
-psycopg2-binary==2.9.9
-pytest==7.4.3
-pytest-cov==4.1.0
-pytest-mock==3.12.0
+# Core dependencies
+python-jose[cryptography]==3.3.0  # JWT token handling
+passlib[bcrypt]==1.7.4            # Password hashing
+python-multipart==0.0.6           # Form data parsing
+
+# Testing dependencies
+pytest==7.4.3                     # Testing framework
+pytest-cov==4.1.0                 # Test coverage
+pytest-asyncio==0.21.1            # Async test support
+
+# Development dependencies
+black==23.12.1                    # Code formatting
+flake8==6.1.0                     # Linting
+mypy==1.7.1                       # Type checking

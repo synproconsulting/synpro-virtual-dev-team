@@ -1,3 +1,3 @@
 """
-Tests package initialization.
+Tests package for authentication module.
 """
