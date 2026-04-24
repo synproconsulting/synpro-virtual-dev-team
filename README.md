@@ -262,3 +262,7 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## PM Agent Chat Interface - AI Sprint Planning
+
+AI-powered sprint planning agent with interactive chat interface for Product Managers. Features automated task estimation, capacity planning, and approval workflows. The system generates sprint plans from backlog items using AI inference, provides confidence scores for estimates, and implements a complete approval/rejection workflow for PM oversight.
