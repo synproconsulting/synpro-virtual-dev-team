@@ -1,17 +1,29 @@
 """
-Authentication and user management module.
+Authentication module for user management.
+
+This module provides user authentication, registration, and profile update functionality.
 """
 
-from .profile import (
-    UserProfile,
-    UserProfileError,
+from .update_user import (
+    UserUpdateService,
+    UserUpdateError,
+    ValidationError,
+    AuthenticationError,
     UserNotFoundError,
-    DatabaseConnectionError
+    validate_email,
+    validate_username,
+    verify_token,
 )
+from .user_repository import InMemoryUserRepository
 
 __all__ = [
-    'UserProfile',
-    'UserProfileError',
-    'UserNotFoundError',
-    'DatabaseConnectionError'
+    "UserUpdateService",
+    "UserUpdateError",
+    "ValidationError",
+    "AuthenticationError",
+    "UserNotFoundError",
+    "validate_email",
+    "validate_username",
+    "verify_token",
+    "InMemoryUserRepository",
 ]
