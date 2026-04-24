@@ -1,222 +1,290 @@
 """
-Profile management module for user profile operations.
+Profile page module for user profile management.
 
-This module provides functions for managing user profiles including
-retrieval, updates, and password changes.
+This module provides the backend functionality for rendering and managing
+user profile pages, including profile data retrieval, updates, and validation.
 """
 
-from typing import Optional, Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, validator
-from passlib.context import CryptContext
+import os
 
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-class ProfileBase(BaseModel):
-    """Base profile model with common fields."""
+class ProfileData(BaseModel):
+    """User profile data model."""
     
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = Field(None, min_length=1, max_length=100)
-    phone_number: Optional[str] = Field(None, min_length=10, max_length=20)
+    user_id: str = Field(..., description="Unique user identifier")
+    username: str = Field(..., min_length=3, max_length=50)
+    email: EmailStr
+    full_name: Optional[str] = Field(None, max_length=100)
     bio: Optional[str] = Field(None, max_length=500)
     avatar_url: Optional[str] = None
-    
-    @validator('phone_number')
-    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        """Validate phone number format."""
-        if v is not None:
-            # Remove spaces and dashes for validation
-            cleaned = v.replace(' ', '').replace('-', '')
-            if not cleaned.replace('+', '').isdigit():
-                raise ValueError('Phone number must contain only digits, spaces, dashes, and optional + prefix')
-        return v
-
-
-class ProfileUpdate(ProfileBase):
-    """Model for profile update requests."""
-    pass
-
-
-class ProfileResponse(ProfileBase):
-    """Model for profile response with additional metadata."""
-    
-    user_id: str
-    username: str
+    phone: Optional[str] = Field(None, max_length=20)
+    location: Optional[str] = Field(None, max_length=100)
+    website: Optional[str] = Field(None, max_length=200)
     created_at: datetime
     updated_at: datetime
-    is_active: bool
+    is_active: bool = True
     
-    class Config:
-        """Pydantic configuration."""
-        from_attributes = True
-
-
-class PasswordChangeRequest(BaseModel):
-    """Model for password change requests."""
+    @validator('username')
+    def validate_username(cls, v: str) -> str:
+        """Validate username format."""
+        if not v.replace('_', '').replace('-', '').isalnum():
+            raise ValueError('Username must contain only alphanumeric characters, hyphens, and underscores')
+        return v.lower()
     
-    current_password: str = Field(..., min_length=8)
-    new_password: str = Field(..., min_length=8)
-    confirm_password: str = Field(..., min_length=8)
-    
-    @validator('new_password')
-    def validate_new_password(cls, v: str, values: Dict[str, Any]) -> str:
-        """Validate new password requirements."""
-        if 'current_password' in values and v == values['current_password']:
-            raise ValueError('New password must be different from current password')
-        
-        # Check password complexity
-        if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain at least one digit')
-        
+    @validator('website')
+    def validate_website(cls, v: Optional[str]) -> Optional[str]:
+        """Validate website URL format."""
+        if v and not (v.startswith('http://') or v.startswith('https://')):
+            raise ValueError('Website must be a valid URL starting with http:// or https://')
         return v
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Request model for profile updates."""
     
-    @validator('confirm_password')
-    def passwords_match(cls, v: str, values: Dict[str, Any]) -> str:
-        """Validate that passwords match."""
-        if 'new_password' in values and v != values['new_password']:
-            raise ValueError('Passwords do not match')
+    full_name: Optional[str] = Field(None, max_length=100)
+    bio: Optional[str] = Field(None, max_length=500)
+    phone: Optional[str] = Field(None, max_length=20)
+    location: Optional[str] = Field(None, max_length=100)
+    website: Optional[str] = Field(None, max_length=200)
+    
+    @validator('website')
+    def validate_website(cls, v: Optional[str]) -> Optional[str]:
+        """Validate website URL format."""
+        if v and not (v.startswith('http://') or v.startswith('https://')):
+            raise ValueError('Website must be a valid URL starting with http:// or https://')
         return v
 
 
 class ProfileService:
     """Service class for profile management operations."""
     
-    def __init__(self, database_connection: Any):
+    def __init__(self, database_connection: Any = None):
         """
-        Initialize the profile service.
+        Initialize the ProfileService.
         
         Args:
-            database_connection: Database connection or session object
+            database_connection: Database connection instance
         """
         self.db = database_connection
     
-    async def get_profile(self, user_id: str) -> Optional[ProfileResponse]:
+    async def get_profile(self, user_id: str) -> Optional[ProfileData]:
         """
         Retrieve user profile by user ID.
         
         Args:
-            user_id: The unique identifier of the user
+            user_id: Unique user identifier
             
         Returns:
-            ProfileResponse object if found, None otherwise
+            ProfileData object if found, None otherwise
         """
-        # In a real implementation, this would query the database
-        # Example: user = await self.db.query(User).filter(User.id == user_id).first()
-        raise NotImplementedError("Database integration required")
+        # In production, this would query the database
+        # For now, returning a mock implementation structure
+        if not self.db:
+            return None
+        
+        # Example query structure
+        query = "SELECT * FROM user_profiles WHERE user_id = %s AND is_active = TRUE"
+        result = await self._execute_query(query, (user_id,))
+        
+        if result:
+            return ProfileData(**result)
+        return None
     
     async def update_profile(
         self, 
         user_id: str, 
-        profile_data: ProfileUpdate
-    ) -> ProfileResponse:
+        update_data: ProfileUpdateRequest
+    ) -> Optional[ProfileData]:
         """
-        Update user profile with provided data.
+        Update user profile information.
         
         Args:
-            user_id: The unique identifier of the user
-            profile_data: Profile update data
+            user_id: Unique user identifier
+            update_data: Profile update data
             
         Returns:
-            Updated ProfileResponse object
-            
-        Raises:
-            ValueError: If user not found
+            Updated ProfileData object if successful, None otherwise
         """
-        # In a real implementation, this would update the database
-        # Example:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # for field, value in profile_data.dict(exclude_unset=True).items():
-        #     setattr(user, field, value)
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return ProfileResponse.from_orm(user)
-        raise NotImplementedError("Database integration required")
+        if not self.db:
+            return None
+        
+        update_fields = update_data.dict(exclude_unset=True)
+        if not update_fields:
+            return await self.get_profile(user_id)
+        
+        update_fields['updated_at'] = datetime.utcnow()
+        
+        # Build dynamic update query
+        set_clause = ", ".join([f"{key} = %s" for key in update_fields.keys()])
+        query = f"UPDATE user_profiles SET {set_clause} WHERE user_id = %s"
+        values = list(update_fields.values()) + [user_id]
+        
+        await self._execute_query(query, tuple(values))
+        
+        return await self.get_profile(user_id)
     
-    async def change_password(
-        self, 
-        user_id: str, 
-        password_change: PasswordChangeRequest
-    ) -> bool:
+    async def delete_profile(self, user_id: str) -> bool:
         """
-        Change user password after validating current password.
+        Soft delete user profile (set is_active to False).
         
         Args:
-            user_id: The unique identifier of the user
-            password_change: Password change request data
+            user_id: Unique user identifier
             
         Returns:
-            True if password changed successfully
-            
-        Raises:
-            ValueError: If current password is incorrect or user not found
+            True if successful, False otherwise
         """
-        # In a real implementation:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # if not verify_password(password_change.current_password, user.hashed_password):
-        #     raise ValueError("Current password is incorrect")
-        # user.hashed_password = hash_password(password_change.new_password)
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return True
-        raise NotImplementedError("Database integration required")
+        if not self.db:
+            return False
+        
+        query = "UPDATE user_profiles SET is_active = FALSE, updated_at = %s WHERE user_id = %s"
+        result = await self._execute_query(query, (datetime.utcnow(), user_id))
+        
+        return result is not None
     
-    async def deactivate_profile(self, user_id: str) -> bool:
+    async def _execute_query(self, query: str, params: tuple) -> Optional[Dict[str, Any]]:
         """
-        Deactivate user profile (soft delete).
+        Execute database query.
         
         Args:
-            user_id: The unique identifier of the user
+            query: SQL query string
+            params: Query parameters
             
         Returns:
-            True if profile deactivated successfully
-            
-        Raises:
-            ValueError: If user not found
+            Query result as dictionary or None
         """
-        # In a real implementation:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # user.is_active = False
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return True
-        raise NotImplementedError("Database integration required")
+        # Placeholder for actual database execution
+        # In production, this would use actual database connection
+        pass
 
 
-def hash_password(password: str) -> str:
-    """
-    Hash a password using bcrypt.
+class ProfileUIRenderer:
+    """Handles profile page UI rendering and layout structure."""
     
-    Args:
-        password: Plain text password
+    @staticmethod
+    def render_profile_layout(profile: ProfileData) -> Dict[str, Any]:
+        """
+        Generate profile page layout structure.
         
-    Returns:
-        Hashed password string
-    """
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify a password against a hash.
+        Args:
+            profile: ProfileData object
+            
+        Returns:
+            Dictionary containing UI layout structure
+        """
+        return {
+            "layout": "profile-page",
+            "sections": [
+                {
+                    "type": "header",
+                    "data": {
+                        "avatar": profile.avatar_url or "/static/default-avatar.png",
+                        "username": profile.username,
+                        "full_name": profile.full_name or profile.username,
+                        "bio": profile.bio or "",
+                    }
+                },
+                {
+                    "type": "stats",
+                    "data": {
+                        "member_since": profile.created_at.strftime("%B %Y"),
+                        "last_updated": profile.updated_at.strftime("%B %d, %Y"),
+                    }
+                },
+                {
+                    "type": "contact_info",
+                    "data": {
+                        "email": profile.email,
+                        "phone": profile.phone,
+                        "location": profile.location,
+                        "website": profile.website,
+                    }
+                },
+                {
+                    "type": "actions",
+                    "data": {
+                        "can_edit": True,
+                        "edit_url": f"/profile/{profile.user_id}/edit",
+                    }
+                }
+            ],
+            "theme": "modern",
+            "responsive": True
+        }
     
-    Args:
-        plain_password: Plain text password to verify
-        hashed_password: Hashed password to compare against
+    @staticmethod
+    def render_edit_form(profile: ProfileData) -> Dict[str, Any]:
+        """
+        Generate profile edit form structure.
         
-    Returns:
-        True if password matches, False otherwise
-    """
-    return pwd_context.verify(plain_password, hashed_password)
+        Args:
+            profile: ProfileData object
+            
+        Returns:
+            Dictionary containing edit form structure
+        """
+        return {
+            "form": "profile-edit",
+            "method": "POST",
+            "action": f"/api/profile/{profile.user_id}",
+            "fields": [
+                {
+                    "name": "full_name",
+                    "type": "text",
+                    "label": "Full Name",
+                    "value": profile.full_name or "",
+                    "placeholder": "Enter your full name",
+                    "maxlength": 100,
+                    "required": False
+                },
+                {
+                    "name": "bio",
+                    "type": "textarea",
+                    "label": "Bio",
+                    "value": profile.bio or "",
+                    "placeholder": "Tell us about yourself",
+                    "maxlength": 500,
+                    "rows": 4,
+                    "required": False
+                },
+                {
+                    "name": "phone",
+                    "type": "tel",
+                    "label": "Phone Number",
+                    "value": profile.phone or "",
+                    "placeholder": "+1 (555) 123-4567",
+                    "maxlength": 20,
+                    "required": False
+                },
+                {
+                    "name": "location",
+                    "type": "text",
+                    "label": "Location",
+                    "value": profile.location or "",
+                    "placeholder": "City, Country",
+                    "maxlength": 100,
+                    "required": False
+                },
+                {
+                    "name": "website",
+                    "type": "url",
+                    "label": "Website",
+                    "value": profile.website or "",
+                    "placeholder": "https://example.com",
+                    "maxlength": 200,
+                    "required": False
+                }
+            ],
+            "submit_button": {
+                "text": "Save Changes",
+                "style": "primary"
+            },
+            "cancel_button": {
+                "text": "Cancel",
+                "url": f"/profile/{profile.user_id}",
+                "style": "secondary"
+            }
+        }
