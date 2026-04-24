@@ -1,59 +1,167 @@
 """
-Unit tests for user models.
+Unit tests for notification models.
 """
+
 import pytest
 from datetime import datetime
-from src.auth.models import User
+from src.notifications.models import (
+    Notification,
+    NotificationStatus,
+    NotificationType,
+)
 
 
-class TestUser:
-    """Test cases for User model."""
+def test_notification_creation():
+    """Test creating a notification instance."""
+    notification = Notification(
+        id="test-123",
+        user_id="user-456",
+        type=NotificationType.EMAIL,
+        status=NotificationStatus.PENDING,
+        title="Test Notification",
+        message="This is a test message",
+    )
     
-    def test_user_creation(self):
-        """Test basic user creation."""
-        user = User(
-            email="test@example.com",
-            password_hash="hashed_password"
-        )
-        
-        assert user.email == "test@example.com"
-        assert user.password_hash == "hashed_password"
-        assert user.id is not None
-        assert user.is_active is True
-        assert user.is_verified is False
+    assert notification.id == "test-123"
+    assert notification.user_id == "user-456"
+    assert notification.type == NotificationType.EMAIL
+    assert notification.status == NotificationStatus.PENDING
+    assert notification.title == "Test Notification"
+    assert notification.message == "This is a test message"
+    assert notification.metadata == {}
+    assert notification.error_message is None
+
+
+def test_notification_mark_as_sent():
+    """Test marking notification as sent."""
+    notification = Notification(
+        id="test-123",
+        user_id="user-456",
+        type=NotificationType.SMS,
+        status=NotificationStatus.PENDING,
+        title="Test",
+        message="Test message",
+    )
     
-    def test_user_unique_ids(self):
-        """Test that each user gets a unique ID."""
-        user1 = User(email="user1@example.com", password_hash="hash1")
-        user2 = User(email="user2@example.com", password_hash="hash2")
-        
-        assert user1.id != user2.id
+    assert notification.sent_at is None
+    notification.mark_as_sent()
     
-    def test_user_created_at_timestamp(self):
-        """Test that created_at is set automatically."""
-        user = User(email="test@example.com", password_hash="hashed_password")
-        
-        assert user.created_at is not None
-        assert isinstance(user.created_at, datetime)
+    assert notification.status == NotificationStatus.SENT
+    assert notification.sent_at is not None
+    assert isinstance(notification.sent_at, datetime)
+
+
+def test_notification_mark_as_delivered():
+    """Test marking notification as delivered."""
+    notification = Notification(
+        id="test-123",
+        user_id="user-456",
+        type=NotificationType.PUSH,
+        status=NotificationStatus.SENT,
+        title="Test",
+        message="Test message",
+    )
     
-    def test_user_to_dict(self):
-        """Test converting user to dictionary."""
-        user = User(email="test@example.com", password_hash="hashed_password")
-        user_dict = user.to_dict()
-        
-        assert "id" in user_dict
-        assert "email" in user_dict
-        assert "created_at" in user_dict
-        assert "is_active" in user_dict
-        assert "is_verified" in user_dict
-        assert "password_hash" not in user_dict  # Should not expose password
+    notification.mark_as_delivered()
     
-    def test_user_to_dict_values(self):
-        """Test that to_dict returns correct values."""
-        user = User(email="test@example.com", password_hash="hashed_password")
-        user_dict = user.to_dict()
-        
-        assert user_dict["email"] == "test@example.com"
-        assert user_dict["id"] == user.id
-        assert user_dict["is_active"] is True
-        assert user_dict["is_verified"] is False
+    assert notification.status == NotificationStatus.DELIVERED
+    assert notification.delivered_at is not None
+
+
+def test_notification_mark_as_read():
+    """Test marking notification as read."""
+    notification = Notification(
+        id="test-123",
+        user_id="user-456",
+        type=NotificationType.IN_APP,
+        status=NotificationStatus.DELIVERED,
+        title="Test",
+        message="Test message",
+    )
+    
+    notification.mark_as_read()
+    
+    assert notification.status == NotificationStatus.READ
+    assert notification.read_at is not None
+
+
+def test_notification_mark_as_failed():
+    """Test marking notification as failed."""
+    notification = Notification(
+        id="test-123",
+        user_id="user-456",
+        type=NotificationType.EMAIL,
+        status=NotificationStatus.PENDING,
+        title="Test",
+        message="Test message",
+    )
+    
+    error_msg = "SMTP server connection failed"
+    notification.mark_as_failed(error_msg)
+    
+    assert notification.status == NotificationStatus.FAILED
+    assert notification.error_message == error_msg
+
+
+def test_notification_to_dict():
+    """Test converting notification to dictionary."""
+    notification = Notification(
+        id="test-123",
+        user_id="user-456",
+        type=NotificationType.EMAIL,
+        status=NotificationStatus.PENDING,
+        title="Test Notification",
+        message="This is a test message",
+        metadata={"priority": "high"},
+    )
+    
+    notification_dict = notification.to_dict()
+    
+    assert notification_dict["id"] == "test-123"
+    assert notification_dict["user_id"] == "user-456"
+    assert notification_dict["type"] == "email"
+    assert notification_dict["status"] == "pending"
+    assert notification_dict["title"] == "Test Notification"
+    assert notification_dict["message"] == "This is a test message"
+    assert notification_dict["metadata"] == {"priority": "high"}
+
+
+def test_notification_status_enum():
+    """Test NotificationStatus enum values."""
+    assert NotificationStatus.PENDING.value == "pending"
+    assert NotificationStatus.SENT.value == "sent"
+    assert NotificationStatus.DELIVERED.value == "delivered"
+    assert NotificationStatus.FAILED.value == "failed"
+    assert NotificationStatus.READ.value == "read"
+
+
+def test_notification_type_enum():
+    """Test NotificationType enum values."""
+    assert NotificationType.EMAIL.value == "email"
+    assert NotificationType.SMS.value == "sms"
+    assert NotificationType.PUSH.value == "push"
+    assert NotificationType.IN_APP.value == "in_app"
+    assert NotificationType.WEBHOOK.value == "webhook"
+
+
+def test_notification_with_metadata():
+    """Test notification with custom metadata."""
+    metadata = {
+        "campaign_id": "camp-123",
+        "priority": "high",
+        "tags": ["urgent", "security"],
+    }
+    
+    notification = Notification(
+        id="test-123",
+        user_id="user-456",
+        type=NotificationType.EMAIL,
+        status=NotificationStatus.PENDING,
+        title="Security Alert",
+        message="Your account was accessed from a new device",
+        metadata=metadata,
+    )
+    
+    assert notification.metadata == metadata
+    assert notification.metadata["campaign_id"] == "camp-123"
+    assert "urgent" in notification.metadata["tags"]
