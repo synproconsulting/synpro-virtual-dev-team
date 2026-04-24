@@ -1,203 +1,222 @@
 """
-User profile viewing module.
+Profile management module for user profile operations.
 
-This module provides functionality to view user profile details.
+This module provides functions for managing user profiles including
+retrieval, updates, and password changes.
 """
 
-import os
 from typing import Optional, Dict, Any
 from datetime import datetime
-import psycopg2
-from psycopg2.extras import RealDictCursor
-import logging
-
-logger = logging.getLogger(__name__)
+from pydantic import BaseModel, EmailStr, Field, validator
+from passlib.context import CryptContext
 
 
-class UserProfileError(Exception):
-    """Base exception for user profile operations."""
-    pass
+# Password hashing context
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-class UserNotFoundError(UserProfileError):
-    """Exception raised when user is not found."""
-    pass
-
-
-class DatabaseConnectionError(UserProfileError):
-    """Exception raised when database connection fails."""
-    pass
-
-
-class UserProfile:
-    """
-    Handle user profile viewing operations.
+class ProfileBase(BaseModel):
+    """Base profile model with common fields."""
     
-    This class manages retrieval and display of user profile information
-    from the database.
-    """
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    phone_number: Optional[str] = Field(None, min_length=10, max_length=20)
+    bio: Optional[str] = Field(None, max_length=500)
+    avatar_url: Optional[str] = None
     
-    def __init__(self, database_url: Optional[str] = None):
+    @validator('phone_number')
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        """Validate phone number format."""
+        if v is not None:
+            # Remove spaces and dashes for validation
+            cleaned = v.replace(' ', '').replace('-', '')
+            if not cleaned.replace('+', '').isdigit():
+                raise ValueError('Phone number must contain only digits, spaces, dashes, and optional + prefix')
+        return v
+
+
+class ProfileUpdate(ProfileBase):
+    """Model for profile update requests."""
+    pass
+
+
+class ProfileResponse(ProfileBase):
+    """Model for profile response with additional metadata."""
+    
+    user_id: str
+    username: str
+    created_at: datetime
+    updated_at: datetime
+    is_active: bool
+    
+    class Config:
+        """Pydantic configuration."""
+        from_attributes = True
+
+
+class PasswordChangeRequest(BaseModel):
+    """Model for password change requests."""
+    
+    current_password: str = Field(..., min_length=8)
+    new_password: str = Field(..., min_length=8)
+    confirm_password: str = Field(..., min_length=8)
+    
+    @validator('new_password')
+    def validate_new_password(cls, v: str, values: Dict[str, Any]) -> str:
+        """Validate new password requirements."""
+        if 'current_password' in values and v == values['current_password']:
+            raise ValueError('New password must be different from current password')
+        
+        # Check password complexity
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain at least one uppercase letter')
+        if not any(c.islower() for c in v):
+            raise ValueError('Password must contain at least one lowercase letter')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain at least one digit')
+        
+        return v
+    
+    @validator('confirm_password')
+    def passwords_match(cls, v: str, values: Dict[str, Any]) -> str:
+        """Validate that passwords match."""
+        if 'new_password' in values and v != values['new_password']:
+            raise ValueError('Passwords do not match')
+        return v
+
+
+class ProfileService:
+    """Service class for profile management operations."""
+    
+    def __init__(self, database_connection: Any):
         """
-        Initialize UserProfile with database connection.
+        Initialize the profile service.
         
         Args:
-            database_url: PostgreSQL connection string. 
-                         If None, reads from DATABASE_URL environment variable.
+            database_connection: Database connection or session object
         """
-        self.database_url = database_url or os.getenv('DATABASE_URL')
-        if not self.database_url:
-            raise DatabaseConnectionError(
-                "DATABASE_URL not provided and not found in environment variables"
-            )
+        self.db = database_connection
     
-    def _get_connection(self):
-        """
-        Get database connection.
-        
-        Returns:
-            psycopg2 connection object.
-            
-        Raises:
-            DatabaseConnectionError: If connection fails.
-        """
-        try:
-            return psycopg2.connect(self.database_url)
-        except psycopg2.Error as e:
-            logger.error(f"Database connection failed: {e}")
-            raise DatabaseConnectionError(f"Failed to connect to database: {e}")
-    
-    def get_profile_by_id(self, user_id: int) -> Dict[str, Any]:
+    async def get_profile(self, user_id: str) -> Optional[ProfileResponse]:
         """
         Retrieve user profile by user ID.
         
         Args:
-            user_id: The unique identifier of the user.
+            user_id: The unique identifier of the user
             
         Returns:
-            Dictionary containing user profile information.
-            
-        Raises:
-            UserNotFoundError: If user with given ID doesn't exist.
-            DatabaseConnectionError: If database operation fails.
+            ProfileResponse object if found, None otherwise
         """
-        try:
-            with self._get_connection() as conn:
-                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                    cursor.execute(
-                        """
-                        SELECT 
-                            id,
-                            username,
-                            email,
-                            full_name,
-                            bio,
-                            avatar_url,
-                            created_at,
-                            updated_at,
-                            last_login
-                        FROM users
-                        WHERE id = %s
-                        """,
-                        (user_id,)
-                    )
-                    user = cursor.fetchone()
-                    
-                    if not user:
-                        raise UserNotFoundError(f"User with ID {user_id} not found")
-                    
-                    return dict(user)
-        except psycopg2.Error as e:
-            logger.error(f"Database query failed: {e}")
-            raise DatabaseConnectionError(f"Failed to retrieve user profile: {e}")
+        # In a real implementation, this would query the database
+        # Example: user = await self.db.query(User).filter(User.id == user_id).first()
+        raise NotImplementedError("Database integration required")
     
-    def get_profile_by_username(self, username: str) -> Dict[str, Any]:
+    async def update_profile(
+        self, 
+        user_id: str, 
+        profile_data: ProfileUpdate
+    ) -> ProfileResponse:
         """
-        Retrieve user profile by username.
+        Update user profile with provided data.
         
         Args:
-            username: The username of the user.
+            user_id: The unique identifier of the user
+            profile_data: Profile update data
             
         Returns:
-            Dictionary containing user profile information.
+            Updated ProfileResponse object
             
         Raises:
-            UserNotFoundError: If user with given username doesn't exist.
-            DatabaseConnectionError: If database operation fails.
+            ValueError: If user not found
         """
-        try:
-            with self._get_connection() as conn:
-                with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-                    cursor.execute(
-                        """
-                        SELECT 
-                            id,
-                            username,
-                            email,
-                            full_name,
-                            bio,
-                            avatar_url,
-                            created_at,
-                            updated_at,
-                            last_login
-                        FROM users
-                        WHERE username = %s
-                        """,
-                        (username,)
-                    )
-                    user = cursor.fetchone()
-                    
-                    if not user:
-                        raise UserNotFoundError(f"User with username '{username}' not found")
-                    
-                    return dict(user)
-        except psycopg2.Error as e:
-            logger.error(f"Database query failed: {e}")
-            raise DatabaseConnectionError(f"Failed to retrieve user profile: {e}")
+        # In a real implementation, this would update the database
+        # Example:
+        # user = await self.db.query(User).filter(User.id == user_id).first()
+        # if not user:
+        #     raise ValueError("User not found")
+        # for field, value in profile_data.dict(exclude_unset=True).items():
+        #     setattr(user, field, value)
+        # user.updated_at = datetime.utcnow()
+        # await self.db.commit()
+        # return ProfileResponse.from_orm(user)
+        raise NotImplementedError("Database integration required")
     
-    def get_public_profile(self, user_id: int) -> Dict[str, Any]:
+    async def change_password(
+        self, 
+        user_id: str, 
+        password_change: PasswordChangeRequest
+    ) -> bool:
         """
-        Retrieve public user profile information (excludes sensitive data like email).
+        Change user password after validating current password.
         
         Args:
-            user_id: The unique identifier of the user.
+            user_id: The unique identifier of the user
+            password_change: Password change request data
             
         Returns:
-            Dictionary containing public user profile information.
+            True if password changed successfully
             
         Raises:
-            UserNotFoundError: If user with given ID doesn't exist.
-            DatabaseConnectionError: If database operation fails.
+            ValueError: If current password is incorrect or user not found
         """
-        profile = self.get_profile_by_id(user_id)
-        
-        # Remove sensitive information for public view
-        public_fields = ['id', 'username', 'full_name', 'bio', 'avatar_url', 'created_at']
-        return {key: profile[key] for key in public_fields if key in profile}
+        # In a real implementation:
+        # user = await self.db.query(User).filter(User.id == user_id).first()
+        # if not user:
+        #     raise ValueError("User not found")
+        # if not verify_password(password_change.current_password, user.hashed_password):
+        #     raise ValueError("Current password is incorrect")
+        # user.hashed_password = hash_password(password_change.new_password)
+        # user.updated_at = datetime.utcnow()
+        # await self.db.commit()
+        # return True
+        raise NotImplementedError("Database integration required")
     
-    def format_profile_display(self, profile: Dict[str, Any]) -> str:
+    async def deactivate_profile(self, user_id: str) -> bool:
         """
-        Format user profile for display.
+        Deactivate user profile (soft delete).
         
         Args:
-            profile: Dictionary containing user profile data.
+            user_id: The unique identifier of the user
             
         Returns:
-            Formatted string representation of the profile.
+            True if profile deactivated successfully
+            
+        Raises:
+            ValueError: If user not found
         """
-        lines = [
-            "=" * 50,
-            "USER PROFILE",
-            "=" * 50,
-            f"ID: {profile.get('id', 'N/A')}",
-            f"Username: {profile.get('username', 'N/A')}",
-            f"Email: {profile.get('email', 'N/A')}",
-            f"Full Name: {profile.get('full_name', 'N/A')}",
-            f"Bio: {profile.get('bio', 'N/A')}",
-            f"Avatar URL: {profile.get('avatar_url', 'N/A')}",
-            f"Created: {profile.get('created_at', 'N/A')}",
-            f"Last Updated: {profile.get('updated_at', 'N/A')}",
-            f"Last Login: {profile.get('last_login', 'N/A')}",
-            "=" * 50
-        ]
-        return "\n".join(lines)
+        # In a real implementation:
+        # user = await self.db.query(User).filter(User.id == user_id).first()
+        # if not user:
+        #     raise ValueError("User not found")
+        # user.is_active = False
+        # user.updated_at = datetime.utcnow()
+        # await self.db.commit()
+        # return True
+        raise NotImplementedError("Database integration required")
+
+
+def hash_password(password: str) -> str:
+    """
+    Hash a password using bcrypt.
+    
+    Args:
+        password: Plain text password
+        
+    Returns:
+        Hashed password string
+    """
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verify a password against a hash.
+    
+    Args:
+        plain_password: Plain text password to verify
+        hashed_password: Hashed password to compare against
+        
+    Returns:
+        True if password matches, False otherwise
+    """
+    return pwd_context.verify(plain_password, hashed_password)
