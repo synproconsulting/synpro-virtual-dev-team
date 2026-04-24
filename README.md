@@ -1,198 +1,221 @@
-# Change Password Functionality - SDT1-14
+# Email Notifications for Authentication Events
 
-This module implements secure password change functionality for user authentication systems.
+## Overview
+
+This module provides email notification functionality for authentication-related events, including:
+- Password reset requests
+- Login alerts
+- Password change confirmations
 
 ## Features
 
-- **Secure Password Hashing**: Uses bcrypt for password hashing
-- **Password Strength Validation**: Enforces strong password requirements
-  - Minimum 8 characters
-  - At least one uppercase letter
-  - At least one lowercase letter
-  - At least one digit
-  - At least one special character
-- **Password History**: Prevents reuse of recently used passwords
-- **Current Password Verification**: Requires current password for changes
-- **Password Expiry Detection**: Identifies when passwords need to be changed
-- **Thread-Safe Repository**: In-memory implementation with thread safety
-
-## Project Structure
-
-```
-.
-├── src/
-│   └── auth/
-│       ├── __init__.py              # Module exports
-│       ├── change_password.py       # Core password change logic
-│       └── user_repository.py       # User data persistence interface
-├── tests/
-│   ├── __init__.py
-│   └── test_change_password.py      # Comprehensive unit tests
-├── requirements.txt                  # Project dependencies
-└── README.md                         # This file
-```
+- **Password Reset Emails**: Send secure password reset links with expiration warnings
+- **Login Alerts**: Notify users of new logins with device and location information
+- **Password Changed Notifications**: Confirm password changes with security warnings
+- **HTML and Plain Text**: All emails sent in both formats for maximum compatibility
+- **Configurable SMTP**: Easy configuration via environment variables or constructor parameters
 
 ## Installation
 
-1. Clone the repository
-2. Install dependencies:
-
+1. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Usage
-
-### Basic Password Change
-
-```python
-from src.auth.change_password import PasswordChangeService, PasswordChangeRequest
-from src.auth.user_repository import InMemoryUserRepository
-
-# Initialize repository and service
-repository = InMemoryUserRepository()
-service = PasswordChangeService(user_repository=repository)
-
-# Create a user (for testing)
-user_id = "user123"
-initial_password_hash = service.hash_password("OldPassword123!")
-repository.create_user(
-    user_id=user_id,
-    password_hash=initial_password_hash,
-    email="user@example.com"
-)
-
-# Change password
-request = PasswordChangeRequest(
-    user_id=user_id,
-    current_password="OldPassword123!",
-    new_password="NewSecurePass456@",
-    confirm_password="NewSecurePass456@"
-)
-
-response = service.change_password(request)
-
-if response.success:
-    print(f"Password changed successfully at {response.changed_at}")
-else:
-    print(f"Password change failed: {response.message}")
+2. Configure environment variables:
+```bash
+export SMTP_HOST=smtp.example.com
+export SMTP_PORT=587
+export SMTP_USERNAME=your_username
+export SMTP_PASSWORD=your_password
+export FROM_EMAIL=noreply@example.com
+export PASSWORD_RESET_URL=https://yourapp.com/reset-password
 ```
 
-### Check if Password Change is Required
+## Usage
+
+### Basic Example
 
 ```python
-should_force = service.should_force_password_change(user_id)
+from src.auth.email_notifications import EmailNotificationService
 
-if should_force:
-    print("User must change password (expired or never changed)")
+# Initialize the service
+email_service = EmailNotificationService(
+    smtp_host="smtp.gmail.com",
+    smtp_port=587,
+    smtp_username="your_email@gmail.com",
+    smtp_password="your_app_password",
+    from_email="noreply@yourapp.com"
+)
+
+# Send password reset email
+success = email_service.send_password_reset_email(
+    to_email="user@example.com",
+    reset_token="secure_random_token_here",
+    reset_url_base="https://yourapp.com/reset-password"
+)
+
+# Send login alert
+from datetime import datetime
+
+success = email_service.send_login_alert_email(
+    to_email="user@example.com",
+    login_time=datetime.utcnow(),
+    ip_address="192.168.1.1",
+    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    location="New York, USA"
+)
+
+# Send password changed confirmation
+success = email_service.send_password_changed_email(
+    to_email="user@example.com"
+)
+```
+
+### Using Environment Variables
+
+```python
+from src.auth.email_notifications import EmailNotificationService
+
+# Service will automatically use environment variables
+email_service = EmailNotificationService()
+
+# Use the service
+email_service.send_password_reset_email(
+    to_email="user@example.com",
+    reset_token="token123"
+)
 ```
 
 ## Configuration
 
-The service supports configuration via environment variables:
+### Environment Variables
 
-- `MAX_PASSWORD_AGE_DAYS` (default: 90): Maximum days before password expires
-- `PASSWORD_HISTORY_COUNT` (default: 5): Number of historical passwords to check
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SMTP_HOST` | SMTP server hostname | `localhost` |
+| `SMTP_PORT` | SMTP server port | `587` |
+| `SMTP_USERNAME` | SMTP authentication username | `""` |
+| `SMTP_PASSWORD` | SMTP authentication password | `""` |
+| `FROM_EMAIL` | Sender email address | `noreply@example.com` |
+| `PASSWORD_RESET_URL` | Base URL for password reset | `https://example.com/reset-password` |
 
-```bash
-export MAX_PASSWORD_AGE_DAYS=60
-export PASSWORD_HISTORY_COUNT=10
-```
+### Security Considerations
+
+- **Never commit credentials**: Always use environment variables for sensitive data
+- **Use app-specific passwords**: For Gmail and similar services, use app-specific passwords
+- **Enable TLS**: The service uses STARTTLS for secure connections
+- **Token expiration**: Password reset tokens should expire (mentioned in email, implement server-side)
+- **Rate limiting**: Implement rate limiting on the application side to prevent abuse
 
 ## Testing
 
-Run the test suite with pytest:
+Run the test suite:
 
 ```bash
 # Run all tests
 pytest tests/
 
 # Run with coverage
-pytest tests/ --cov=src/auth --cov-report=html
+pytest --cov=src tests/
 
 # Run specific test file
-pytest tests/test_change_password.py
+pytest tests/test_email_notifications.py
 
 # Run with verbose output
-pytest tests/ -v
+pytest -v tests/
 ```
 
-### Test Coverage
+## Email Templates
 
-The test suite includes:
-- Password validation tests (strength requirements)
-- Password matching validation
-- Successful password change scenarios
-- Error handling (wrong password, user not found)
-- Password history checks
-- Password expiry detection
-- Repository operations
-- Thread safety (via in-memory implementation)
+All emails include:
+- Professional HTML templates with inline CSS
+- Plain text fallback versions
+- Clear call-to-action buttons (in HTML version)
+- Security warnings and instructions
+- Consistent branding elements
+
+### Customization
+
+To customize email templates, modify the HTML and text content in the respective methods:
+- `send_password_reset_email()` - Password reset template
+- `send_login_alert_email()` - Login alert template  
+- `send_password_changed_email()` - Password changed template
+
+## Error Handling
+
+The service includes comprehensive error handling:
+- All methods return `bool` indicating success/failure
+- Errors are logged using Python's logging module
+- SMTP exceptions are caught and logged
+- Failed emails return `False` without raising exceptions
 
 ## API Reference
 
-### PasswordChangeRequest
+### EmailNotificationService
 
-Request model for password change operations.
+#### `__init__(smtp_host, smtp_port, smtp_username, smtp_password, from_email)`
+Initialize the email notification service with SMTP configuration.
 
-**Fields:**
-- `user_id` (str): Unique user identifier
-- `current_password` (str): User's current password
-- `new_password` (str): New password (min 8 chars, must meet strength requirements)
-- `confirm_password` (str): Confirmation of new password
+#### `send_password_reset_email(to_email, reset_token, reset_url_base) -> bool`
+Send a password reset email with a secure reset link.
 
-### PasswordChangeResponse
+#### `send_login_alert_email(to_email, login_time, ip_address, user_agent, location) -> bool`
+Send a login alert notification with login details.
 
-Response model for password change operations.
+#### `send_password_changed_email(to_email) -> bool`
+Send a confirmation email after password change.
 
-**Fields:**
-- `success` (bool): Whether the operation succeeded
-- `message` (str): Human-readable message
-- `changed_at` (datetime, optional): Timestamp of password change
+## Integration Examples
 
-### PasswordChangeService
-
-Service class for password change operations.
-
-**Methods:**
-- `hash_password(password: str) -> str`: Hash a plaintext password
-- `verify_password(plain_password: str, hashed_password: str) -> bool`: Verify password
-- `change_password(request: PasswordChangeRequest) -> PasswordChangeResponse`: Change user password
-- `check_password_in_history(user_id: str, new_password: str) -> bool`: Check if password was recently used
-- `should_force_password_change(user_id: str) -> bool`: Check if password change should be forced
-
-## Security Considerations
-
-1. **Password Storage**: Passwords are hashed using bcrypt with automatic salt generation
-2. **No Plain Text**: Plain text passwords are never stored
-3. **History Protection**: Prevents reuse of recent passwords
-4. **Strength Requirements**: Enforces strong password policies
-5. **Current Password Verification**: Requires knowledge of current password
-6. **No Secrets in Code**: Configuration via environment variables
-
-## Integration with Databases
-
-The `InMemoryUserRepository` is provided for development and testing. For production use, implement the `UserRepositoryInterface` with your database backend:
+### Flask Integration
 
 ```python
-from src.auth.user_repository import UserRepositoryInterface
+from flask import Flask, request
+from src.auth.email_notifications import EmailNotificationService
 
-class PostgresUserRepository(UserRepositoryInterface):
-    def __init__(self, connection_string):
-        # Initialize database connection
-        pass
+app = Flask(__name__)
+email_service = EmailNotificationService()
+
+@app.route('/api/auth/forgot-password', methods=['POST'])
+def forgot_password():
+    email = request.json.get('email')
+    # Generate reset token (implement your token generation)
+    reset_token = generate_reset_token(email)
     
-    def get_user_by_id(self, user_id: str):
-        # Query database
-        pass
+    # Send email
+    success = email_service.send_password_reset_email(
+        to_email=email,
+        reset_token=reset_token
+    )
     
-    # Implement other methods...
+    if success:
+        return {'message': 'Password reset email sent'}, 200
+    return {'error': 'Failed to send email'}, 500
+```
+
+### Django Integration
+
+```python
+from django.contrib.auth.signals import user_logged_in
+from django.dispatch import receiver
+from src.auth.email_notifications import EmailNotificationService
+
+email_service = EmailNotificationService()
+
+@receiver(user_logged_in)
+def send_login_notification(sender, request, user, **kwargs):
+    email_service.send_login_alert_email(
+        to_email=user.email,
+        ip_address=request.META.get('REMOTE_ADDR'),
+        user_agent=request.META.get('HTTP_USER_AGENT'),
+    )
 ```
 
 ## License
 
-Internal project - All rights reserved
+MIT License - See LICENSE file for details
 
-## Contributing
+## Support
 
-This is part of SDT1-14 Jira ticket implementation. For questions or issues, contact the development team.
+For issues, questions, or contributions, please contact the development team.
