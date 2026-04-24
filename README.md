@@ -1,130 +1,189 @@
-# Email Notifications for Account Registration
+# In-App Notification Storage and Data Model
 
-This module provides email notification functionality for account registration events. It sends automated welcome emails to new users and optional notifications to administrators.
+This module provides a complete implementation for in-app notification storage and data models with support for multiple storage backends.
 
 ## Features
 
-- **Welcome Emails**: Automated welcome emails sent to newly registered users
-- **Admin Notifications**: Optional notifications to administrators about new registrations
-- **HTML & Plain Text**: Emails support both HTML and plain text formats
-- **Configurable**: SMTP settings configurable via environment variables or code
-- **Logging**: Comprehensive logging of email sending operations
-- **Type Safe**: Full type hints for better IDE support and type checking
+- **Comprehensive Data Models**: Well-defined notification models using Pydantic with validation
+- **Flexible Storage Layer**: Abstract storage interface with in-memory implementation
+- **Database Support**: SQLAlchemy models for persistent storage (PostgreSQL, SQLite)
+- **Status Management**: Track notification states (unread, read, archived)
+- **Type Classification**: Multiple notification types (info, success, warning, error, system, user_action, reminder)
+- **Expiration Support**: Time-sensitive notifications with automatic expiration
+- **Rich Metadata**: Extensible metadata field for custom data
+- **Pagination**: Built-in support for paginated queries
+- **Full Test Coverage**: Comprehensive unit tests using pytest
+
+## Project Structure
+
+```
+src/
+  notifications/
+    __init__.py           # Package initialization
+    models.py             # Pydantic data models
+    storage.py            # Storage layer implementation
+    database.py           # SQLAlchemy database models
+tests/
+  test_notification_models.py    # Model unit tests
+  test_notification_storage.py   # Storage unit tests
+requirements.txt          # Project dependencies
+README.md                # This file
+```
 
 ## Installation
 
-1. Install dependencies:
+Install the required dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configure environment variables (optional):
-```bash
-export SMTP_HOST="smtp.gmail.com"
-export SMTP_PORT="587"
-export SMTP_USERNAME="your-email@gmail.com"
-export SMTP_PASSWORD="your-app-password"
-export FROM_EMAIL="noreply@yourcompany.com"
-export FROM_NAME="Your Company"
-```
-
 ## Usage
 
-### Basic Usage
-
-Send a welcome email to a newly registered user:
+### Creating Notifications
 
 ```python
-from src.auth.email_notifications import send_registration_notification
+from src.notifications.models import NotificationCreate, NotificationType
+from src.notifications.storage import NotificationStorage
 
-# Send welcome email to user only
-results = send_registration_notification(
-    user_name="John Doe",
-    user_email="john.doe@example.com"
+# Initialize storage
+storage = NotificationStorage()
+
+# Create a notification
+notification_data = NotificationCreate(
+    user_id="user_123",
+    notification_type=NotificationType.INFO,
+    title="Welcome!",
+    message="Thank you for joining our platform",
+    metadata={"source": "onboarding"},
+    action_url="https://example.com/getting-started"
 )
 
-print(results["user_email"])  # True if successful
+notification = await storage.create_notification(notification_data)
 ```
 
-### With Admin Notification
-
-Send welcome email to user and notification to admin:
+### Retrieving Notifications
 
 ```python
-from src.auth.email_notifications import send_registration_notification
+# Get a specific notification
+notification = await storage.get_notification(notification_id)
 
-results = send_registration_notification(
-    user_name="John Doe",
-    user_email="john.doe@example.com",
-    admin_email="admin@yourcompany.com"
+# Get all notifications for a user
+notifications = await storage.get_user_notifications("user_123")
+
+# Get unread notifications only
+unread = await storage.get_user_notifications(
+    "user_123",
+    status=NotificationStatus.UNREAD
 )
 
-print(results["user_email"])   # True if user email sent
-print(results["admin_email"])  # True if admin email sent
-```
-
-### Advanced Usage
-
-Use the service class directly for more control:
-
-```python
-from datetime import datetime
-from src.auth.email_notifications import RegistrationEmailService, EmailConfig
-
-# Custom configuration
-config = EmailConfig(
-    smtp_host="smtp.example.com",
-    smtp_port=587,
-    smtp_username="notifications@example.com",
-    smtp_password="secure-password",
-    from_email="noreply@example.com",
-    from_name="Example Platform"
-)
-
-# Create service
-service = RegistrationEmailService(config)
-
-# Send welcome email
-success = service.send_welcome_email(
-    user_name="Jane Smith",
-    user_email="jane@example.com",
-    registration_date=datetime.utcnow()
-)
-
-# Send admin notification
-admin_success = service.send_admin_notification(
-    user_name="Jane Smith",
-    user_email="jane@example.com",
-    registration_date=datetime.utcnow(),
-    admin_email="admin@example.com"
+# Get with pagination
+page1 = await storage.get_user_notifications(
+    "user_123",
+    limit=10,
+    offset=0
 )
 ```
 
-## Configuration
+### Managing Notification Status
 
-### Environment Variables
+```python
+# Mark a notification as read
+await storage.mark_notification_as_read(notification_id)
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SMTP_HOST` | SMTP server hostname | `localhost` |
-| `SMTP_PORT` | SMTP server port | `587` |
-| `SMTP_USERNAME` | SMTP authentication username | `""` |
-| `SMTP_PASSWORD` | SMTP authentication password | `""` |
-| `FROM_EMAIL` | Sender email address | `noreply@example.com` |
-| `FROM_NAME` | Sender display name | `Registration Service` |
+# Mark all user notifications as read
+count = await storage.mark_all_user_notifications_as_read("user_123")
 
-### Using Gmail
+# Get unread count
+unread_count = await storage.get_user_unread_count("user_123")
+```
 
-To use Gmail as your SMTP server:
+### Updating and Deleting
 
-1. Enable 2-factor authentication on your Google account
-2. Generate an app-specific password
-3. Set environment variables:
+```python
+from src.notifications.models import NotificationUpdate, NotificationStatus
+
+# Update a notification
+update_data = NotificationUpdate(
+    title="Updated Title",
+    status=NotificationStatus.ARCHIVED
+)
+updated = await storage.update_notification(notification_id, update_data)
+
+# Delete a notification
+deleted = await storage.delete_notification(notification_id)
+```
+
+### Cleanup Expired Notifications
+
+```python
+# Delete all expired notifications
+deleted_count = await storage.cleanup_expired_notifications()
+```
+
+## Data Models
+
+### Notification
+
+The main notification model with the following fields:
+
+- `id` (UUID): Unique identifier
+- `user_id` (str): User who receives the notification
+- `notification_type` (NotificationType): Type of notification
+- `title` (str): Notification title (max 200 chars)
+- `message` (str): Notification content (max 1000 chars)
+- `status` (NotificationStatus): Current status (default: unread)
+- `created_at` (datetime): Creation timestamp
+- `read_at` (datetime, optional): When marked as read
+- `archived_at` (datetime, optional): When archived
+- `metadata` (dict): Custom metadata
+- `action_url` (str, optional): URL for action button
+- `expires_at` (datetime, optional): Expiration timestamp
+
+### NotificationStatus Enum
+
+- `UNREAD`: Notification hasn't been read
+- `READ`: Notification has been read
+- `ARCHIVED`: Notification has been archived
+
+### NotificationType Enum
+
+- `INFO`: Informational notification
+- `SUCCESS`: Success message
+- `WARNING`: Warning message
+- `ERROR`: Error notification
+- `SYSTEM`: System notification
+- `USER_ACTION`: User action required
+- `REMINDER`: Reminder notification
+
+## Database Setup
+
+### Using SQLite (Development)
+
+SQLite is used by default:
+
+```python
+from src.notifications.database import create_database_engine, create_tables
+
+engine = create_database_engine()
+create_tables(engine)
+```
+
+### Using PostgreSQL (Production)
+
+Set the `DATABASE_URL` environment variable:
+
 ```bash
-export SMTP_HOST="smtp.gmail.com"
-export SMTP_PORT="587"
-export SMTP_USERNAME="your-email@gmail.com"
-export SMTP_PASSWORD="your-app-password"
+export DATABASE_URL="postgresql://user:password@localhost:5432/notifications"
+```
+
+Then create the tables:
+
+```python
+from src.notifications.database import create_database_engine, create_tables
+
+engine = create_database_engine()
+create_tables(engine)
 ```
 
 ## Testing
@@ -136,75 +195,126 @@ Run the test suite:
 pytest
 
 # Run with coverage
-pytest --cov=src/auth --cov-report=html
+pytest --cov=src/notifications
 
 # Run specific test file
-pytest tests/test_email_notifications.py
+pytest tests/test_notification_models.py
 
 # Run with verbose output
 pytest -v
 ```
 
-## Email Templates
+## Environment Variables
 
-### Welcome Email
-
-The welcome email includes:
-- Personalized greeting with user's name
-- Account confirmation message
-- Account details (email, registration date)
-- Security notice
-- Company branding
-
-### Admin Notification
-
-The admin notification includes:
-- New user's name and email
-- Registration timestamp
-- Clean, professional formatting
-
-## Error Handling
-
-The service handles errors gracefully:
-- Returns `True` on successful send, `False` on failure
-- Logs all errors for debugging
-- Does not raise exceptions (uses return values)
-- Continues processing even if one notification fails
-
-## Security Considerations
-
-- **Never commit credentials**: Use environment variables for sensitive data
-- **Use app passwords**: Don't use your main email password
-- **Enable TLS**: The service uses STARTTLS for secure connections
-- **Validate inputs**: Ensure email addresses are validated before passing to this service
-- **Rate limiting**: Consider implementing rate limiting in production
+- `DATABASE_URL`: Database connection string (default: `sqlite:///./notifications.db`)
+- `DATABASE_ECHO`: Enable SQLAlchemy SQL logging (default: `false`)
 
 ## Architecture
 
-```
-src/auth/
-├── __init__.py                  # Module exports
-└── email_notifications.py       # Email notification service
+### Storage Layer
 
-tests/
-├── __init__.py
-└── test_email_notifications.py  # Comprehensive unit tests
-```
+The storage layer uses an abstract interface pattern, allowing for multiple backend implementations:
 
-## Dependencies
+- **InMemoryNotificationStorage**: For development and testing
+- **Database Storage** (future): For production use with SQLAlchemy
 
-- Python 3.11+
-- Standard library modules: `smtplib`, `email`, `logging`
-- Dev dependencies: `pytest`, `pytest-cov`, `pytest-mock`
+### Data Validation
 
-## Contributing
+All models use Pydantic for automatic validation:
+- Type checking
+- Field constraints (min/max length)
+- Required vs optional fields
+- Default values
 
-1. Write clean, type-hinted code
-2. Add docstrings to all public functions
-3. Include unit tests for new features
-4. Run tests before committing
-5. Follow PEP 8 style guidelines
+## API Methods
+
+### NotificationStorage
+
+- `create_notification(data)`: Create a new notification
+- `get_notification(id)`: Get notification by ID
+- `get_user_notifications(user_id, status, limit, offset)`: Get user's notifications
+- `update_notification(id, data)`: Update a notification
+- `delete_notification(id)`: Delete a notification
+- `mark_notification_as_read(id)`: Mark as read
+- `mark_all_user_notifications_as_read(user_id)`: Mark all as read
+- `get_user_unread_count(user_id)`: Get unread count
+- `cleanup_expired_notifications()`: Delete expired notifications
+
+## Best Practices
+
+1. **Never hardcode user IDs**: Always use IDs from authentication system
+2. **Set expiration for time-sensitive notifications**: Use `expires_at` field
+3. **Use appropriate notification types**: Choose the right type for better UI rendering
+4. **Add meaningful metadata**: Store additional context for processing
+5. **Regular cleanup**: Schedule periodic cleanup of expired notifications
+6. **Handle pagination**: Use limit/offset for large notification lists
+
+## Future Enhancements
+
+- WebSocket real-time notification delivery
+- Email/SMS notification channels
+- Notification templates
+- Bulk operations
+- Advanced filtering and search
+- Notification preferences per user
+- Read receipts and delivery confirmation
 
 ## License
 
-Copyright © 2024. All rights reserved.
+This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## Email Notifications for Account Registration
+
+The `EmailNotificationService` provides email notification functionality for account registration events.
+
+### Features
+
+- Send welcome emails to newly registered users
+- Send admin notifications when new users register
+- Support for both plain text and HTML email formats
+- Configurable SMTP settings via environment variables or constructor parameters
+- TLS/SSL encryption support
+- Comprehensive logging for debugging
+
+### Configuration
+
+Configure the email service using environment variables:
+
+```bash
+export SMTP_HOST="smtp.gmail.com"
+export SMTP_PORT="587"
+export SMTP_USERNAME="your-email@gmail.com"
+export SMTP_PASSWORD="your-app-password"
+export FROM_EMAIL="noreply@yourdomain.com"
+```
+
+### Usage
+
+```python
+from src.auth.email_notifications import EmailNotificationService
+
+# Initialize the service (uses environment variables)
+notification_service = EmailNotificationService()
+
+# Send registration confirmation to user
+notification_service.send_registration_email(
+    user_email="user@example.com",
+    user_name="John Doe",
+    additional_data={"plan": "premium"}
+)
+
+# Notify admin about new registration
+notification_service.send_registration_notification_to_admin(
+    admin_email="admin@example.com",
+    user_email="user@example.com",
+    user_name="John Doe",
+    user_id="user_12345"
+)
+```
+
+### Security Notes
+
+- Never hardcode SMTP credentials in your code
+- Use environment variables or secure secret management systems
+- Enable TLS encryption for production environments
+- Consider using app-specific passwords for email providers that support them
