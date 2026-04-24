@@ -14,6 +14,10 @@ jobs:
   wait-and-review:
     name: Manager Agent review
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
 
     steps:
       - name: Checkout code
