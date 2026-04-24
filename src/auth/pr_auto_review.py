@@ -1,162 +1,163 @@
-"""Automatic PR review functionality with configurable rules."""
+"""Auto review functionality for pull requests."""
 
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, field
-from enum import Enum
 import logging
-import re
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 
 class ReviewStatus(Enum):
     """PR review status enumeration."""
+    PENDING = "pending"
     APPROVED = "approved"
     CHANGES_REQUESTED = "changes_requested"
-    PENDING = "pending"
     COMMENTED = "commented"
 
 
 @dataclass
-class ReviewRule:
-    """Configuration for automated review rules."""
-    
-    name: str
-    description: str
-    enabled: bool = True
-    severity: str = "warning"  # info, warning, error
-
-
-@dataclass
-class PRData:
-    """Pull request data structure."""
-    
-    pr_number: int
+class PRMetadata:
+    """Pull request metadata."""
+    pr_id: str
     title: str
-    description: str
-    files_changed: List[str]
-    lines_added: int
-    lines_removed: int
     author: str
     branch: str
+    target_branch: str
+    files_changed: int
+    lines_added: int
+    lines_removed: int
 
 
 class PRAutoReview:
-    """Automated PR review system with configurable rules."""
-    
-    def __init__(self, rules: Optional[List[ReviewRule]] = None):
-        """Initialize auto review with rules.
+    """Automated pull request review system."""
+
+    def __init__(self, team_id: str, review_rules: Optional[Dict[str, Any]] = None) -> None:
+        """Initialize PR auto review system.
         
         Args:
-            rules: List of review rules to apply
+            team_id: Team identifier
+            review_rules: Optional review rules configuration
         """
-        self.rules = rules or self._default_rules()
-        self._review_cache: Dict[int, Dict[str, Any]] = {}
-        logger.info(f"PRAutoReview initialized with {len(self.rules)} rules")
-    
-    def _default_rules(self) -> List[ReviewRule]:
-        """Get default review rules.
-        
-        Returns:
-            List of default ReviewRule objects
-        """
-        return [
-            ReviewRule("pr_title", "PR title must follow convention"),
-            ReviewRule("pr_size", "PR should not exceed 500 lines"),
-            ReviewRule("test_coverage", "Tests must be included"),
-            ReviewRule("no_secrets", "No hardcoded secrets allowed", severity="error")
-        ]
-    
-    async def review_pr(self, pr_data: PRData) -> Dict[str, Any]:
-        """Perform automated review on a pull request.
+        self.team_id = team_id
+        self.review_rules = review_rules or self._default_rules()
+        self._review_history: List[Dict[str, Any]] = []
+
+    def review_pr(self, pr_metadata: PRMetadata) -> Dict[str, Any]:
+        """Perform automated review of a pull request.
         
         Args:
-            pr_data: Pull request data to review
+            pr_metadata: Pull request metadata
             
         Returns:
-            Dictionary containing review results and comments
+            Dictionary containing review results
         """
-        comments: List[Dict[str, str]] = []
-        violations: List[str] = []
-        status = ReviewStatus.APPROVED
+        logger.info(f"Starting auto review for PR: {pr_metadata.pr_id}")
         
-        # Apply each enabled rule
-        for rule in self.rules:
-            if not rule.enabled:
-                continue
-            
-            result = await self._apply_rule(rule, pr_data)
-            if not result["passed"]:
-                violations.append(rule.name)
-                comments.append({
-                    "rule": rule.name,
-                    "message": result["message"],
-                    "severity": rule.severity
-                })
-                
-                if rule.severity == "error":
-                    status = ReviewStatus.CHANGES_REQUESTED
-                elif status == ReviewStatus.APPROVED:
-                    status = ReviewStatus.COMMENTED
+        checks = self._run_checks(pr_metadata)
+        status = self._determine_status(checks)
+        comments = self._generate_comments(checks)
         
         review_result = {
-            "pr_number": pr_data.pr_number,
+            "pr_id": pr_metadata.pr_id,
             "status": status.value,
+            "checks": checks,
             "comments": comments,
-            "violations": violations,
-            "reviewed_at": "now"
+            "reviewed_at": self._get_timestamp()
         }
         
-        self._review_cache[pr_data.pr_number] = review_result
-        logger.info(f"PR #{pr_data.pr_number} reviewed: {status.value}")
+        self._review_history.append(review_result)
+        logger.info(f"Auto review completed for PR {pr_metadata.pr_id}: {status.value}")
         
         return review_result
-    
-    async def _apply_rule(self, rule: ReviewRule, pr_data: PRData) -> Dict[str, Any]:
-        """Apply a single review rule to PR data.
+
+    def _run_checks(self, pr_metadata: PRMetadata) -> Dict[str, bool]:
+        """Run automated checks on PR.
         
         Args:
-            rule: Rule to apply
-            pr_data: PR data to check
+            pr_metadata: Pull request metadata
             
         Returns:
-            Dictionary with passed status and message
+            Dictionary of check results
         """
-        if rule.name == "pr_title":
-            return self._check_title(pr_data.title)
-        elif rule.name == "pr_size":
-            return self._check_size(pr_data.lines_added + pr_data.lines_removed)
-        elif rule.name == "test_coverage":
-            return self._check_tests(pr_data.files_changed)
-        elif rule.name == "no_secrets":
-            return self._check_secrets(pr_data.description)
+        max_files = self.review_rules.get("max_files_changed", 50)
+        max_lines = self.review_rules.get("max_lines_changed", 1000)
         
-        return {"passed": True, "message": ""}
-    
-    def _check_title(self, title: str) -> Dict[str, Any]:
-        """Check if PR title follows convention."""
-        pattern = r"^\[\w+-\d+\]"
-        if re.match(pattern, title):
-            return {"passed": True, "message": ""}
-        return {"passed": False, "message": "PR title should start with [TICKET-ID]"}
-    
-    def _check_size(self, total_lines: int) -> Dict[str, Any]:
-        """Check if PR size is reasonable."""
-        if total_lines <= 500:
-            return {"passed": True, "message": ""}
-        return {"passed": False, "message": f"PR too large: {total_lines} lines (max 500)"}
-    
-    def _check_tests(self, files: List[str]) -> Dict[str, Any]:
-        """Check if tests are included."""
-        has_tests = any("test_" in f for f in files)
-        if has_tests:
-            return {"passed": True, "message": ""}
-        return {"passed": False, "message": "No test files found in PR"}
-    
-    def _check_secrets(self, description: str) -> Dict[str, Any]:
-        """Check for potential hardcoded secrets."""
-        secret_patterns = [r"api[_-]?key", r"password\s*=", r"secret\s*="]
-        for pattern in secret_patterns:
-            if re.search(pattern, description, re.IGNORECASE):
-                return {"passed": False, "message": "Potential hardcoded secret detected"}
-        return {"passed": True, "message": ""}
+        total_lines = pr_metadata.lines_added + pr_metadata.lines_removed
+        
+        return {
+            "size_check": pr_metadata.files_changed <= max_files,
+            "lines_check": total_lines <= max_lines,
+            "branch_name_check": self._validate_branch_name(pr_metadata.branch),
+            "target_branch_check": pr_metadata.target_branch in ["main", "master", "develop"]
+        }
+
+    def _determine_status(self, checks: Dict[str, bool]) -> ReviewStatus:
+        """Determine review status based on checks.
+        
+        Args:
+            checks: Dictionary of check results
+            
+        Returns:
+            Review status
+        """
+        if all(checks.values()):
+            return ReviewStatus.APPROVED
+        elif checks["size_check"] and checks["lines_check"]:
+            return ReviewStatus.COMMENTED
+        else:
+            return ReviewStatus.CHANGES_REQUESTED
+
+    def _generate_comments(self, checks: Dict[str, bool]) -> List[str]:
+        """Generate review comments based on check results.
+        
+        Args:
+            checks: Dictionary of check results
+            
+        Returns:
+            List of comment strings
+        """
+        comments = []
+        
+        if not checks["size_check"]:
+            comments.append("PR contains too many files. Consider breaking it down.")
+        if not checks["lines_check"]:
+            comments.append("PR has too many line changes. Consider smaller PRs.")
+        if not checks["branch_name_check"]:
+            comments.append("Branch name doesn't follow naming conventions.")
+        if not checks["target_branch_check"]:
+            comments.append("Target branch should be main, master, or develop.")
+            
+        return comments
+
+    def _validate_branch_name(self, branch: str) -> bool:
+        """Validate branch naming convention.
+        
+        Args:
+            branch: Branch name
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        valid_prefixes = ["feature/", "bugfix/", "hotfix/", "release/"]
+        return any(branch.startswith(prefix) for prefix in valid_prefixes)
+
+    def _default_rules(self) -> Dict[str, Any]:
+        """Get default review rules."""
+        return {
+            "max_files_changed": 50,
+            "max_lines_changed": 1000
+        }
+
+    def _get_timestamp(self) -> str:
+        """Get current timestamp."""
+        from datetime import datetime
+        return datetime.utcnow().isoformat()
+
+    def get_review_history(self) -> List[Dict[str, Any]]:
+        """Get review history.
+        
+        Returns:
+            List of review results
+        """
+        return self._review_history.copy()
