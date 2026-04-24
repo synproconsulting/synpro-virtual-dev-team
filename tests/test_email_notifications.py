@@ -5,249 +5,275 @@ Unit tests for email notification service.
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
-from src.auth.email_notifications import EmailNotificationService
+from src.auth.email_notifications import (
+    EmailConfig,
+    RegistrationEmailService,
+    send_registration_notification,
+)
 
 
-class TestEmailNotificationService:
-    """Test suite for EmailNotificationService."""
-
-    @pytest.fixture
-    def email_service(self):
-        """Create an EmailNotificationService instance for testing."""
-        return EmailNotificationService(
-            smtp_host="smtp.test.com",
-            smtp_port=587,
-            smtp_username="test@test.com",
-            smtp_password="testpass",
-            from_email="noreply@test.com",
-        )
-
-    @pytest.fixture
-    def mock_smtp(self):
-        """Mock SMTP server."""
-        with patch("src.auth.email_notifications.smtplib.SMTP") as mock:
-            smtp_instance = MagicMock()
-            mock.return_value.__enter__.return_value = smtp_instance
-            yield smtp_instance
-
-    def test_init_with_parameters(self):
-        """Test initialization with explicit parameters."""
-        service = EmailNotificationService(
-            smtp_host="custom.smtp.com",
+class TestEmailConfig:
+    """Tests for EmailConfig class."""
+    
+    def test_default_initialization(self):
+        """Test EmailConfig initialization with defaults."""
+        config = EmailConfig()
+        assert config.smtp_host == "localhost"
+        assert config.smtp_port == 587
+        assert config.from_email == "noreply@example.com"
+        assert config.from_name == "Registration Service"
+    
+    def test_custom_initialization(self):
+        """Test EmailConfig initialization with custom values."""
+        config = EmailConfig(
+            smtp_host="smtp.example.com",
             smtp_port=465,
             smtp_username="user@example.com",
             smtp_password="password123",
-            from_email="sender@example.com",
+            from_email="info@example.com",
+            from_name="Custom Service",
         )
+        assert config.smtp_host == "smtp.example.com"
+        assert config.smtp_port == 465
+        assert config.smtp_username == "user@example.com"
+        assert config.smtp_password == "password123"
+        assert config.from_email == "info@example.com"
+        assert config.from_name == "Custom Service"
+    
+    @patch.dict("os.environ", {
+        "SMTP_HOST": "env.smtp.com",
+        "SMTP_PORT": "2525",
+        "SMTP_USERNAME": "env_user",
+        "SMTP_PASSWORD": "env_pass",
+        "FROM_EMAIL": "env@example.com",
+        "FROM_NAME": "Env Service",
+    })
+    def test_environment_variable_initialization(self):
+        """Test EmailConfig reads from environment variables."""
+        config = EmailConfig()
+        assert config.smtp_host == "env.smtp.com"
+        assert config.smtp_port == 2525
+        assert config.smtp_username == "env_user"
+        assert config.smtp_password == "env_pass"
+        assert config.from_email == "env@example.com"
+        assert config.from_name == "Env Service"
 
-        assert service.smtp_host == "custom.smtp.com"
-        assert service.smtp_port == 465
-        assert service.smtp_username == "user@example.com"
-        assert service.smtp_password == "password123"
-        assert service.from_email == "sender@example.com"
 
-    def test_init_with_environment_variables(self):
-        """Test initialization with environment variables."""
-        with patch.dict(
-            "os.environ",
-            {
-                "SMTP_HOST": "env.smtp.com",
-                "SMTP_PORT": "2525",
-                "SMTP_USERNAME": "env_user",
-                "SMTP_PASSWORD": "env_pass",
-                "FROM_EMAIL": "env@example.com",
-            },
-        ):
-            service = EmailNotificationService()
-
-            assert service.smtp_host == "env.smtp.com"
-            assert service.smtp_port == 2525
-            assert service.smtp_username == "env_user"
-            assert service.smtp_password == "env_pass"
-            assert service.from_email == "env@example.com"
-
-    def test_send_password_reset_email_success(self, email_service, mock_smtp):
-        """Test successful password reset email sending."""
-        result = email_service.send_password_reset_email(
-            to_email="user@example.com",
-            reset_token="abc123token",
-            reset_url_base="https://example.com/reset",
+class TestRegistrationEmailService:
+    """Tests for RegistrationEmailService class."""
+    
+    @pytest.fixture
+    def email_service(self):
+        """Create email service instance for testing."""
+        config = EmailConfig(
+            smtp_host="smtp.test.com",
+            smtp_port=587,
+            smtp_username="test@example.com",
+            smtp_password="testpass",
+            from_email="noreply@test.com",
+            from_name="Test Service",
         )
-
+        return RegistrationEmailService(config)
+    
+    @pytest.fixture
+    def mock_smtp(self):
+        """Create mock SMTP object."""
+        with patch("src.auth.email_notifications.smtplib.SMTP") as mock:
+            smtp_instance = MagicMock()
+            mock.return_value = smtp_instance
+            yield smtp_instance
+    
+    def test_initialization(self, email_service):
+        """Test RegistrationEmailService initialization."""
+        assert email_service.config.smtp_host == "smtp.test.com"
+        assert email_service.config.smtp_port == 587
+    
+    def test_generate_welcome_email_text(self, email_service):
+        """Test plain text welcome email generation."""
+        user_name = "John Doe"
+        user_email = "john@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        text = email_service._generate_welcome_email_text(
+            user_name, user_email, reg_date
+        )
+        
+        assert "John Doe" in text
+        assert "john@example.com" in text
+        assert "2024-01-15" in text
+        assert "Welcome to Our Platform!" in text
+    
+    def test_generate_welcome_email_html(self, email_service):
+        """Test HTML welcome email generation."""
+        user_name = "John Doe"
+        user_email = "john@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        html = email_service._generate_welcome_email_html(
+            user_name, user_email, reg_date
+        )
+        
+        assert "John Doe" in html
+        assert "john@example.com" in html
+        assert "2024-01-15" in html
+        assert "<html>" in html
+        assert "</html>" in html
+    
+    def test_send_welcome_email_success(self, email_service, mock_smtp):
+        """Test successful welcome email sending."""
+        user_name = "Jane Smith"
+        user_email = "jane@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        result = email_service.send_welcome_email(
+            user_name, user_email, reg_date
+        )
+        
         assert result is True
         mock_smtp.starttls.assert_called_once()
-        mock_smtp.login.assert_called_once_with("test@test.com", "testpass")
-        mock_smtp.sendmail.assert_called_once()
-
-        # Verify sendmail was called with correct parameters
-        call_args = mock_smtp.sendmail.call_args[0]
-        assert call_args[0] == "noreply@test.com"
-        assert call_args[1] == "user@example.com"
-        assert "abc123token" in call_args[2]
-
-    def test_send_password_reset_email_contains_token(self, email_service, mock_smtp):
-        """Test that password reset email contains the reset token."""
-        reset_token = "unique_reset_token_123"
-        email_service.send_password_reset_email(
-            to_email="user@example.com",
-            reset_token=reset_token,
+        mock_smtp.login.assert_called_once_with("test@example.com", "testpass")
+        mock_smtp.send_message.assert_called_once()
+    
+    def test_send_welcome_email_with_default_date(self, email_service, mock_smtp):
+        """Test welcome email sending with default registration date."""
+        user_name = "Jane Smith"
+        user_email = "jane@example.com"
+        
+        result = email_service.send_welcome_email(user_name, user_email)
+        
+        assert result is True
+        mock_smtp.send_message.assert_called_once()
+    
+    def test_send_welcome_email_failure(self, email_service, mock_smtp):
+        """Test welcome email sending failure handling."""
+        mock_smtp.send_message.side_effect = Exception("SMTP error")
+        
+        user_name = "Jane Smith"
+        user_email = "jane@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        result = email_service.send_welcome_email(
+            user_name, user_email, reg_date
         )
-
-        call_args = mock_smtp.sendmail.call_args[0]
-        email_content = call_args[2]
-        assert reset_token in email_content
-
-    def test_send_password_reset_email_failure(self, email_service, mock_smtp):
-        """Test password reset email sending failure."""
-        mock_smtp.sendmail.side_effect = Exception("SMTP error")
-
-        result = email_service.send_password_reset_email(
-            to_email="user@example.com",
-            reset_token="abc123token",
-        )
-
+        
         assert result is False
-
-    def test_send_login_alert_email_success(self, email_service, mock_smtp):
-        """Test successful login alert email sending."""
-        login_time = datetime(2024, 1, 15, 10, 30, 0)
-        result = email_service.send_login_alert_email(
-            to_email="user@example.com",
-            login_time=login_time,
-            ip_address="192.168.1.1",
-            user_agent="Mozilla/5.0",
-            location="New York, USA",
+    
+    def test_send_admin_notification_success(self, email_service, mock_smtp):
+        """Test successful admin notification sending."""
+        user_name = "New User"
+        user_email = "newuser@example.com"
+        admin_email = "admin@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        result = email_service.send_admin_notification(
+            user_name, user_email, reg_date, admin_email
         )
-
+        
         assert result is True
         mock_smtp.starttls.assert_called_once()
-        mock_smtp.login.assert_called_once_with("test@test.com", "testpass")
-        mock_smtp.sendmail.assert_called_once()
-
-        # Verify content
-        call_args = mock_smtp.sendmail.call_args[0]
-        email_content = call_args[2]
-        assert "192.168.1.1" in email_content
-        assert "New York, USA" in email_content
-        assert "Mozilla/5.0" in email_content
-
-    def test_send_login_alert_email_with_defaults(self, email_service, mock_smtp):
-        """Test login alert email with default values."""
-        result = email_service.send_login_alert_email(
-            to_email="user@example.com"
+        mock_smtp.send_message.assert_called_once()
+    
+    def test_send_admin_notification_failure(self, email_service, mock_smtp):
+        """Test admin notification sending failure handling."""
+        mock_smtp.send_message.side_effect = Exception("SMTP error")
+        
+        user_name = "New User"
+        user_email = "newuser@example.com"
+        admin_email = "admin@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        result = email_service.send_admin_notification(
+            user_name, user_email, reg_date, admin_email
         )
-
-        assert result is True
-        call_args = mock_smtp.sendmail.call_args[0]
-        email_content = call_args[2]
-        assert "Unknown" in email_content
-
-    def test_send_login_alert_email_failure(self, email_service, mock_smtp):
-        """Test login alert email sending failure."""
-        mock_smtp.sendmail.side_effect = Exception("SMTP error")
-
-        result = email_service.send_login_alert_email(
-            to_email="user@example.com",
-            ip_address="192.168.1.1",
-        )
-
+        
         assert result is False
-
-    def test_send_password_changed_email_success(self, email_service, mock_smtp):
-        """Test successful password changed email sending."""
-        result = email_service.send_password_changed_email(
-            to_email="user@example.com"
-        )
-
-        assert result is True
-        mock_smtp.starttls.assert_called_once()
-        mock_smtp.login.assert_called_once_with("test@test.com", "testpass")
-        mock_smtp.sendmail.assert_called_once()
-
-        # Verify content
-        call_args = mock_smtp.sendmail.call_args[0]
-        email_content = call_args[2]
-        assert "password has been changed" in email_content.lower()
-
-    def test_send_password_changed_email_failure(self, email_service, mock_smtp):
-        """Test password changed email sending failure."""
-        mock_smtp.sendmail.side_effect = Exception("SMTP error")
-
-        result = email_service.send_password_changed_email(
-            to_email="user@example.com"
-        )
-
-        assert result is False
-
-    def test_email_format_multipart(self, email_service, mock_smtp):
-        """Test that emails are sent in multipart format (text and HTML)."""
-        email_service.send_password_reset_email(
-            to_email="user@example.com",
-            reset_token="token123",
-        )
-
-        call_args = mock_smtp.sendmail.call_args[0]
-        email_content = call_args[2]
-
-        # Check for multipart indicators
-        assert "Content-Type: multipart/alternative" in email_content
-        assert "Content-Type: text/plain" in email_content
-        assert "Content-Type: text/html" in email_content
-
-    def test_smtp_connection_without_credentials(self, mock_smtp):
-        """Test SMTP connection without username and password."""
-        service = EmailNotificationService(
+    
+    def test_connection_without_credentials(self):
+        """Test SMTP connection without authentication credentials."""
+        config = EmailConfig(
             smtp_host="smtp.test.com",
             smtp_port=587,
             smtp_username="",
             smtp_password="",
-            from_email="noreply@test.com",
         )
+        service = RegistrationEmailService(config)
+        
+        with patch("src.auth.email_notifications.smtplib.SMTP") as mock_smtp_class:
+            mock_smtp = MagicMock()
+            mock_smtp_class.return_value = mock_smtp
+            
+            connection = service._create_connection()
+            
+            mock_smtp.starttls.assert_called_once()
+            mock_smtp.login.assert_not_called()
 
-        service.send_password_reset_email(
-            to_email="user@example.com",
-            reset_token="token123",
+
+class TestSendRegistrationNotification:
+    """Tests for send_registration_notification convenience function."""
+    
+    @pytest.fixture
+    def mock_smtp(self):
+        """Create mock SMTP object."""
+        with patch("src.auth.email_notifications.smtplib.SMTP") as mock:
+            smtp_instance = MagicMock()
+            mock.return_value = smtp_instance
+            yield smtp_instance
+    
+    def test_send_user_email_only(self, mock_smtp):
+        """Test sending notification to user only."""
+        user_name = "Test User"
+        user_email = "test@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        results = send_registration_notification(
+            user_name, user_email, registration_date=reg_date
         )
-
-        mock_smtp.starttls.assert_called_once()
-        mock_smtp.login.assert_not_called()
-
-    def test_password_reset_url_from_environment(self, email_service, mock_smtp):
-        """Test password reset URL taken from environment variable."""
-        with patch.dict(
-            "os.environ",
-            {"PASSWORD_RESET_URL": "https://custom.com/reset-pwd"},
-        ):
-            email_service.send_password_reset_email(
-                to_email="user@example.com",
-                reset_token="token123",
-            )
-
-            call_args = mock_smtp.sendmail.call_args[0]
-            email_content = call_args[2]
-            assert "https://custom.com/reset-pwd" in email_content
-
-    def test_email_headers(self, email_service, mock_smtp):
-        """Test that emails have proper headers."""
-        email_service.send_login_alert_email(
-            to_email="recipient@example.com"
+        
+        assert "user_email" in results
+        assert results["user_email"] is True
+        assert "admin_email" not in results
+        assert mock_smtp.send_message.call_count == 1
+    
+    def test_send_user_and_admin_emails(self, mock_smtp):
+        """Test sending notifications to both user and admin."""
+        user_name = "Test User"
+        user_email = "test@example.com"
+        admin_email = "admin@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        results = send_registration_notification(
+            user_name, user_email, admin_email, reg_date
         )
-
-        call_args = mock_smtp.sendmail.call_args[0]
-        email_content = call_args[2]
-
-        assert "From: noreply@test.com" in email_content
-        assert "To: recipient@example.com" in email_content
-        assert "Subject: New Login Alert" in email_content
-
-    def test_login_alert_time_formatting(self, email_service, mock_smtp):
-        """Test that login time is properly formatted."""
-        login_time = datetime(2024, 3, 15, 14, 30, 45)
-        email_service.send_login_alert_email(
-            to_email="user@example.com",
-            login_time=login_time,
+        
+        assert "user_email" in results
+        assert results["user_email"] is True
+        assert "admin_email" in results
+        assert results["admin_email"] is True
+        assert mock_smtp.send_message.call_count == 2
+    
+    def test_send_with_default_date(self, mock_smtp):
+        """Test sending notification with default registration date."""
+        user_name = "Test User"
+        user_email = "test@example.com"
+        
+        results = send_registration_notification(user_name, user_email)
+        
+        assert results["user_email"] is True
+        mock_smtp.send_message.assert_called_once()
+    
+    def test_partial_failure(self, mock_smtp):
+        """Test handling partial failure when one email fails."""
+        user_name = "Test User"
+        user_email = "test@example.com"
+        admin_email = "admin@example.com"
+        reg_date = datetime(2024, 1, 15, 10, 30, 0)
+        
+        # Make the second call (admin email) fail
+        mock_smtp.send_message.side_effect = [None, Exception("SMTP error")]
+        
+        results = send_registration_notification(
+            user_name, user_email, admin_email, reg_date
         )
-
-        call_args = mock_smtp.sendmail.call_args[0]
-        email_content = call_args[2]
-        assert "2024-03-15 14:30:45 UTC" in email_content
+        
+        assert results["user_email"] is True
+        assert results["admin_email"] is False
