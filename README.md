@@ -1,19 +1,15 @@
-# Email Notifications for Authentication Events
+# Email Notifications for Account Registration
 
-## Overview
-
-This module provides email notification functionality for authentication-related events, including:
-- Password reset requests
-- Login alerts
-- Password change confirmations
+This module provides email notification functionality for account registration events. It sends automated welcome emails to new users and optional notifications to administrators.
 
 ## Features
 
-- **Password Reset Emails**: Send secure password reset links with expiration warnings
-- **Login Alerts**: Notify users of new logins with device and location information
-- **Password Changed Notifications**: Confirm password changes with security warnings
-- **HTML and Plain Text**: All emails sent in both formats for maximum compatibility
-- **Configurable SMTP**: Easy configuration via environment variables or constructor parameters
+- **Welcome Emails**: Automated welcome emails sent to newly registered users
+- **Admin Notifications**: Optional notifications to administrators about new registrations
+- **HTML & Plain Text**: Emails support both HTML and plain text formats
+- **Configurable**: SMTP settings configurable via environment variables or code
+- **Logging**: Comprehensive logging of email sending operations
+- **Type Safe**: Full type hints for better IDE support and type checking
 
 ## Installation
 
@@ -22,68 +18,85 @@ This module provides email notification functionality for authentication-related
 pip install -r requirements.txt
 ```
 
-2. Configure environment variables:
+2. Configure environment variables (optional):
 ```bash
-export SMTP_HOST=smtp.example.com
-export SMTP_PORT=587
-export SMTP_USERNAME=your_username
-export SMTP_PASSWORD=your_password
-export FROM_EMAIL=noreply@example.com
-export PASSWORD_RESET_URL=https://yourapp.com/reset-password
+export SMTP_HOST="smtp.gmail.com"
+export SMTP_PORT="587"
+export SMTP_USERNAME="your-email@gmail.com"
+export SMTP_PASSWORD="your-app-password"
+export FROM_EMAIL="noreply@yourcompany.com"
+export FROM_NAME="Your Company"
 ```
 
 ## Usage
 
-### Basic Example
+### Basic Usage
+
+Send a welcome email to a newly registered user:
 
 ```python
-from src.auth.email_notifications import EmailNotificationService
+from src.auth.email_notifications import send_registration_notification
 
-# Initialize the service
-email_service = EmailNotificationService(
-    smtp_host="smtp.gmail.com",
-    smtp_port=587,
-    smtp_username="your_email@gmail.com",
-    smtp_password="your_app_password",
-    from_email="noreply@yourapp.com"
+# Send welcome email to user only
+results = send_registration_notification(
+    user_name="John Doe",
+    user_email="john.doe@example.com"
 )
 
-# Send password reset email
-success = email_service.send_password_reset_email(
-    to_email="user@example.com",
-    reset_token="secure_random_token_here",
-    reset_url_base="https://yourapp.com/reset-password"
-)
-
-# Send login alert
-from datetime import datetime
-
-success = email_service.send_login_alert_email(
-    to_email="user@example.com",
-    login_time=datetime.utcnow(),
-    ip_address="192.168.1.1",
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    location="New York, USA"
-)
-
-# Send password changed confirmation
-success = email_service.send_password_changed_email(
-    to_email="user@example.com"
-)
+print(results["user_email"])  # True if successful
 ```
 
-### Using Environment Variables
+### With Admin Notification
+
+Send welcome email to user and notification to admin:
 
 ```python
-from src.auth.email_notifications import EmailNotificationService
+from src.auth.email_notifications import send_registration_notification
 
-# Service will automatically use environment variables
-email_service = EmailNotificationService()
+results = send_registration_notification(
+    user_name="John Doe",
+    user_email="john.doe@example.com",
+    admin_email="admin@yourcompany.com"
+)
 
-# Use the service
-email_service.send_password_reset_email(
-    to_email="user@example.com",
-    reset_token="token123"
+print(results["user_email"])   # True if user email sent
+print(results["admin_email"])  # True if admin email sent
+```
+
+### Advanced Usage
+
+Use the service class directly for more control:
+
+```python
+from datetime import datetime
+from src.auth.email_notifications import RegistrationEmailService, EmailConfig
+
+# Custom configuration
+config = EmailConfig(
+    smtp_host="smtp.example.com",
+    smtp_port=587,
+    smtp_username="notifications@example.com",
+    smtp_password="secure-password",
+    from_email="noreply@example.com",
+    from_name="Example Platform"
+)
+
+# Create service
+service = RegistrationEmailService(config)
+
+# Send welcome email
+success = service.send_welcome_email(
+    user_name="Jane Smith",
+    user_email="jane@example.com",
+    registration_date=datetime.utcnow()
+)
+
+# Send admin notification
+admin_success = service.send_admin_notification(
+    user_name="Jane Smith",
+    user_email="jane@example.com",
+    registration_date=datetime.utcnow(),
+    admin_email="admin@example.com"
 )
 ```
 
@@ -98,15 +111,21 @@ email_service.send_password_reset_email(
 | `SMTP_USERNAME` | SMTP authentication username | `""` |
 | `SMTP_PASSWORD` | SMTP authentication password | `""` |
 | `FROM_EMAIL` | Sender email address | `noreply@example.com` |
-| `PASSWORD_RESET_URL` | Base URL for password reset | `https://example.com/reset-password` |
+| `FROM_NAME` | Sender display name | `Registration Service` |
 
-### Security Considerations
+### Using Gmail
 
-- **Never commit credentials**: Always use environment variables for sensitive data
-- **Use app-specific passwords**: For Gmail and similar services, use app-specific passwords
-- **Enable TLS**: The service uses STARTTLS for secure connections
-- **Token expiration**: Password reset tokens should expire (mentioned in email, implement server-side)
-- **Rate limiting**: Implement rate limiting on the application side to prevent abuse
+To use Gmail as your SMTP server:
+
+1. Enable 2-factor authentication on your Google account
+2. Generate an app-specific password
+3. Set environment variables:
+```bash
+export SMTP_HOST="smtp.gmail.com"
+export SMTP_PORT="587"
+export SMTP_USERNAME="your-email@gmail.com"
+export SMTP_PASSWORD="your-app-password"
+```
 
 ## Testing
 
@@ -114,108 +133,78 @@ Run the test suite:
 
 ```bash
 # Run all tests
-pytest tests/
+pytest
 
 # Run with coverage
-pytest --cov=src tests/
+pytest --cov=src/auth --cov-report=html
 
 # Run specific test file
 pytest tests/test_email_notifications.py
 
 # Run with verbose output
-pytest -v tests/
+pytest -v
 ```
 
 ## Email Templates
 
-All emails include:
-- Professional HTML templates with inline CSS
-- Plain text fallback versions
-- Clear call-to-action buttons (in HTML version)
-- Security warnings and instructions
-- Consistent branding elements
+### Welcome Email
 
-### Customization
+The welcome email includes:
+- Personalized greeting with user's name
+- Account confirmation message
+- Account details (email, registration date)
+- Security notice
+- Company branding
 
-To customize email templates, modify the HTML and text content in the respective methods:
-- `send_password_reset_email()` - Password reset template
-- `send_login_alert_email()` - Login alert template  
-- `send_password_changed_email()` - Password changed template
+### Admin Notification
+
+The admin notification includes:
+- New user's name and email
+- Registration timestamp
+- Clean, professional formatting
 
 ## Error Handling
 
-The service includes comprehensive error handling:
-- All methods return `bool` indicating success/failure
-- Errors are logged using Python's logging module
-- SMTP exceptions are caught and logged
-- Failed emails return `False` without raising exceptions
+The service handles errors gracefully:
+- Returns `True` on successful send, `False` on failure
+- Logs all errors for debugging
+- Does not raise exceptions (uses return values)
+- Continues processing even if one notification fails
 
-## API Reference
+## Security Considerations
 
-### EmailNotificationService
+- **Never commit credentials**: Use environment variables for sensitive data
+- **Use app passwords**: Don't use your main email password
+- **Enable TLS**: The service uses STARTTLS for secure connections
+- **Validate inputs**: Ensure email addresses are validated before passing to this service
+- **Rate limiting**: Consider implementing rate limiting in production
 
-#### `__init__(smtp_host, smtp_port, smtp_username, smtp_password, from_email)`
-Initialize the email notification service with SMTP configuration.
+## Architecture
 
-#### `send_password_reset_email(to_email, reset_token, reset_url_base) -> bool`
-Send a password reset email with a secure reset link.
+```
+src/auth/
+├── __init__.py                  # Module exports
+└── email_notifications.py       # Email notification service
 
-#### `send_login_alert_email(to_email, login_time, ip_address, user_agent, location) -> bool`
-Send a login alert notification with login details.
-
-#### `send_password_changed_email(to_email) -> bool`
-Send a confirmation email after password change.
-
-## Integration Examples
-
-### Flask Integration
-
-```python
-from flask import Flask, request
-from src.auth.email_notifications import EmailNotificationService
-
-app = Flask(__name__)
-email_service = EmailNotificationService()
-
-@app.route('/api/auth/forgot-password', methods=['POST'])
-def forgot_password():
-    email = request.json.get('email')
-    # Generate reset token (implement your token generation)
-    reset_token = generate_reset_token(email)
-    
-    # Send email
-    success = email_service.send_password_reset_email(
-        to_email=email,
-        reset_token=reset_token
-    )
-    
-    if success:
-        return {'message': 'Password reset email sent'}, 200
-    return {'error': 'Failed to send email'}, 500
+tests/
+├── __init__.py
+└── test_email_notifications.py  # Comprehensive unit tests
 ```
 
-### Django Integration
+## Dependencies
 
-```python
-from django.contrib.auth.signals import user_logged_in
-from django.dispatch import receiver
-from src.auth.email_notifications import EmailNotificationService
+- Python 3.11+
+- Standard library modules: `smtplib`, `email`, `logging`
+- Dev dependencies: `pytest`, `pytest-cov`, `pytest-mock`
 
-email_service = EmailNotificationService()
+## Contributing
 
-@receiver(user_logged_in)
-def send_login_notification(sender, request, user, **kwargs):
-    email_service.send_login_alert_email(
-        to_email=user.email,
-        ip_address=request.META.get('REMOTE_ADDR'),
-        user_agent=request.META.get('HTTP_USER_AGENT'),
-    )
-```
+1. Write clean, type-hinted code
+2. Add docstrings to all public functions
+3. Include unit tests for new features
+4. Run tests before committing
+5. Follow PEP 8 style guidelines
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues, questions, or contributions, please contact the development team.
+Copyright © 2024. All rights reserved.
