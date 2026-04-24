@@ -262,3 +262,7 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## PM Agent Chat Interface - Feature Brief Submission
+
+Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
