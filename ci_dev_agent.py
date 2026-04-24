@@ -150,7 +150,6 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
     except json.JSONDecodeError as e:
         print(f"JSON parse error: {e}")
         # Try to salvage partial JSON by extracting files array
-        import re
         files_match = re.findall(
             r'\{"path":\s*"([^"]+)",\s*"content":\s*"((?:[^"\\]|\\.)*)"\s*\}',
             raw
