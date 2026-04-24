@@ -1,12 +1,15 @@
 # Core dependencies
+python-dotenv==1.0.0
+
+# Testing dependencies
 pytest==7.4.3
 pytest-cov==4.1.0
 pytest-mock==3.12.0
 
-# Email sending - standard library modules are used (smtplib, email)
-# No additional dependencies required for core functionality
+# Type checking
+mypy==1.7.1
 
-# Development dependencies
+# Code quality
 black==23.12.1
-flake8==7.0.0
-mypy==1.8.0
+flake8==6.1.0
+isort==5.13.2
