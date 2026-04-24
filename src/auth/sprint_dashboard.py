@@ -6,12 +6,12 @@ from enum import Enum
 from typing import Protocol, Any
 
 
-class IntegrationStatus(Enum):
-    """Status enumeration for integration checks."""
+class StatusType(Enum):
+    """Status types for dashboard items."""
     SUCCESS = "success"
-    FAILURE = "failure"
     PENDING = "pending"
-    UNKNOWN = "unknown"
+    FAILED = "failed"
+    IN_PROGRESS = "in_progress"
 
 
 @dataclass
@@ -21,7 +21,7 @@ class JiraTicket:
     summary: str
     status: str
     assignee: str | None
-    story_points: int | None
+    story_points: int | None = None
 
 
 @dataclass
@@ -30,137 +30,130 @@ class PullRequest:
     id: str
     title: str
     author: str
-    status: str
+    status: StatusType
     jira_keys: list[str]
-    created_at: datetime
+    url: str
 
 
 @dataclass
 class CIBuild:
     """CI build information."""
-    id: str
-    status: IntegrationStatus
+    build_id: str
+    status: StatusType
     pr_id: str | None
-    branch: str
     started_at: datetime
+    completed_at: datetime | None = None
 
 
 @dataclass
-class SprintStatus:
-    """Aggregated sprint status data."""
-    sprint_name: str
-    tickets: list[JiraTicket]
-    pull_requests: list[PullRequest]
-    ci_builds: list[CIBuild]
-    completion_percentage: float
-    health_score: float
+class SprintMetrics:
+    """Aggregated sprint metrics."""
+    total_tickets: int
+    completed_tickets: int
+    total_story_points: int
+    completed_story_points: int
+    open_prs: int
+    merged_prs: int
+    failed_builds: int
+    success_rate: float
 
 
 class DataProvider(Protocol):
     """Protocol for data providers (Jira, GitHub, CI)."""
-
-    def fetch_data(self, **kwargs: Any) -> Any:
-        """Fetch data from the integration source."""
+    
+    def fetch_data(self, **kwargs: Any) -> list[Any]:
+        """Fetch data from the provider."""
         ...
 
 
 class SprintDashboard:
-    """Main dashboard class for sprint status visualization."""
-
+    """Sprint status dashboard with multi-source integration."""
+    
     def __init__(
         self,
         jira_provider: DataProvider,
         pr_provider: DataProvider,
-        ci_provider: DataProvider,
+        ci_provider: DataProvider
     ) -> None:
         """Initialize dashboard with data providers.
-
+        
         Args:
             jira_provider: Provider for Jira data
             pr_provider: Provider for PR data
             ci_provider: Provider for CI data
         """
-        self.jira_provider = jira_provider
-        self.pr_provider = pr_provider
-        self.ci_provider = ci_provider
-
-    def get_sprint_status(self, sprint_id: str) -> SprintStatus:
-        """Fetch and aggregate sprint status from all sources.
-
+        self._jira = jira_provider
+        self._pr = pr_provider
+        self._ci = ci_provider
+        self._tickets: list[JiraTicket] = []
+        self._prs: list[PullRequest] = []
+        self._builds: list[CIBuild] = []
+    
+    def refresh_data(self, sprint_id: str) -> None:
+        """Refresh all dashboard data for a sprint.
+        
         Args:
-            sprint_id: Sprint identifier
-
-        Returns:
-            SprintStatus object with aggregated data
+            sprint_id: The sprint identifier
         """
-        tickets = self._fetch_jira_tickets(sprint_id)
-        pull_requests = self._fetch_pull_requests(sprint_id)
-        ci_builds = self._fetch_ci_builds(sprint_id)
-
-        completion = self._calculate_completion(tickets)
-        health = self._calculate_health_score(tickets, pull_requests, ci_builds)
-
-        return SprintStatus(
-            sprint_name=sprint_id,
-            tickets=tickets,
-            pull_requests=pull_requests,
-            ci_builds=ci_builds,
-            completion_percentage=completion,
-            health_score=health,
+        self._tickets = self._jira.fetch_data(sprint_id=sprint_id)
+        self._prs = self._pr.fetch_data(sprint_id=sprint_id)
+        self._builds = self._ci.fetch_data(sprint_id=sprint_id)
+    
+    def get_metrics(self) -> SprintMetrics:
+        """Calculate sprint metrics from current data.
+        
+        Returns:
+            Aggregated sprint metrics
+        """
+        completed_tickets = [t for t in self._tickets if t.status.lower() == "done"]
+        total_points = sum(t.story_points or 0 for t in self._tickets)
+        completed_points = sum(t.story_points or 0 for t in completed_tickets)
+        
+        open_prs = [p for p in self._prs if p.status == StatusType.PENDING]
+        merged_prs = [p for p in self._prs if p.status == StatusType.SUCCESS]
+        
+        failed_builds = [b for b in self._builds if b.status == StatusType.FAILED]
+        total_builds = len(self._builds)
+        success_rate = 1.0 - (len(failed_builds) / total_builds) if total_builds > 0 else 0.0
+        
+        return SprintMetrics(
+            total_tickets=len(self._tickets),
+            completed_tickets=len(completed_tickets),
+            total_story_points=total_points,
+            completed_story_points=completed_points,
+            open_prs=len(open_prs),
+            merged_prs=len(merged_prs),
+            failed_builds=len(failed_builds),
+            success_rate=success_rate
         )
-
-    def _fetch_jira_tickets(self, sprint_id: str) -> list[JiraTicket]:
-        """Fetch Jira tickets for the sprint."""
-        data = self.jira_provider.fetch_data(sprint_id=sprint_id)
-        return [JiraTicket(**ticket) for ticket in data]
-
-    def _fetch_pull_requests(self, sprint_id: str) -> list[PullRequest]:
-        """Fetch pull requests related to the sprint."""
-        data = self.pr_provider.fetch_data(sprint_id=sprint_id)
-        return [PullRequest(**pr) for pr in data]
-
-    def _fetch_ci_builds(self, sprint_id: str) -> list[CIBuild]:
-        """Fetch CI builds for the sprint."""
-        data = self.ci_provider.fetch_data(sprint_id=sprint_id)
-        return [CIBuild(**build) for build in data]
-
-    def _calculate_completion(self, tickets: list[JiraTicket]) -> float:
-        """Calculate sprint completion percentage."""
-        if not tickets:
-            return 0.0
-        completed = sum(1 for t in tickets if t.status.lower() in ["done", "closed"])
-        return (completed / len(tickets)) * 100
-
-    def _calculate_health_score(self n        self,
-        tickets: list[JiraTicket],
-        pull_requests: list[PullRequest],
-        ci_builds: list[CIBuild],
-    ) -> float:
-        """Calculate overall sprint health score (0-100)."""
-        if not tickets:
-            return 0.0
-
-        # Weight factors
-        ticket_weight = 0.4
-        pr_weight = 0.3
-        ci_weight = 0.3
-
-        # Ticket score: percentage in progress or done
-        active_tickets = sum(
-            1 for t in tickets if t.status.lower() not in ["to do", "backlog"]
-        )
-        ticket_score = (active_tickets / len(tickets)) * 100 if tickets else 0
-
-        # PR score: percentage merged or approved
-        good_prs = sum(1 for pr in pull_requests if pr.status in ["merged", "approved"])
-        pr_score = (good_prs / len(pull_requests)) * 100 if pull_requests else 50
-
-        # CI score: percentage successful builds
-        successful_builds = sum(
-            1 for b in ci_builds if b.status == IntegrationStatus.SUCCESS
-        )
-        ci_score = (successful_builds / len(ci_builds)) * 100 if ci_builds else 50
-
-        return (
-            ticket_score * ticket_weight + pr_score * pr_weight + ci_score * ci_weight
-        )
+    
+    def get_ticket_status(self, jira_key: str) -> dict[str, Any]:
+        """Get comprehensive status for a specific ticket.
+        
+        Args:
+            jira_key: Jira ticket key
+            
+        Returns:
+            Dictionary with ticket, PRs, and CI status
+        """
+        ticket = next((t for t in self._tickets if t.key == jira_key), None)
+        related_prs = [p for p in self._prs if jira_key in p.jira_keys]
+        pr_ids = [p.id for p in related_prs]
+        related_builds = [b for b in self._builds if b.pr_id in pr_ids]
+        
+        return {
+            "ticket": ticket,
+            "prs": related_prs,
+            "builds": related_builds,
+            "overall_status": self._compute_overall_status(ticket, related_prs, related_builds)
+        }
+    
+    def _compute_overall_status(self, ticket: JiraTicket | None, prs: list[PullRequest], builds: list[CIBuild]) -> StatusType:
+        """Compute overall status from components."""
+        if not ticket:
+            return StatusType.FAILED
+        if any(b.status == StatusType.FAILED for b in builds):
+            return StatusType.FAILED
+        if ticket.status.lower() == "done" and all(p.status == StatusType.SUCCESS for p in prs):
+            return StatusType.SUCCESS
+        return StatusType.IN_PROGRESS
