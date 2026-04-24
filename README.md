@@ -1,211 +1,298 @@
-# User Profile Viewing Module
+# User Update Module - Username and Email
 
-## Overview
-
-This module provides functionality to view user profile details from a PostgreSQL database. It includes methods to retrieve user profiles by ID or username, get public profile information, and format profile data for display.
+This module provides secure functionality for updating user profile information, specifically username and email addresses, with proper authentication and validation.
 
 ## Features
 
-- **Retrieve user profile by ID**: Get complete user profile information using user ID
-- **Retrieve user profile by username**: Get complete user profile information using username
-- **Public profile view**: Get public profile information (excludes sensitive data like email)
-- **Profile formatting**: Format profile data for display
-- **Error handling**: Comprehensive error handling with custom exceptions
-- **Type safety**: Full type hints for all functions
-- **Logging**: Built-in logging for debugging and monitoring
+- **Username Update**: Update user's username with validation
+- **Email Update**: Update user's email address with validation  
+- **Profile Update**: Update both username and email in a single operation
+- **JWT Authentication**: Secure token-based authentication
+- **Input Validation**: Comprehensive validation for usernames and emails
+- **Duplicate Detection**: Prevents duplicate usernames and emails
+- **Authorization**: Users can only update their own profiles
+
+## Project Structure
+
+```
+.
+├── src/
+│   └── auth/
+│       ├── __init__.py           # Module exports
+│       ├── update_user.py        # Core update functionality
+│       └── user_repository.py    # Data persistence layer
+├── tests/
+│   ├── __init__.py
+│   ├── test_update_user.py       # Update service tests
+│   └── test_user_repository.py   # Repository tests
+├── requirements.txt              # Python dependencies
+└── README.md                     # This file
+```
 
 ## Installation
 
-1. Clone the repository
-2. Install dependencies:
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd <repository-name>
+```
 
+2. Create a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Set up your database connection by setting the `DATABASE_URL` environment variable:
+## Configuration
+
+Set the following environment variables for production use:
+
+- `JWT_SECRET_KEY`: Secret key for JWT token signing (required for production)
+
+**Important**: Never use the default secret key in production!
 
 ```bash
-export DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
-```
-
-## Database Schema
-
-The module expects a `users` table with the following structure:
-
-```sql
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(255) UNIQUE NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    full_name VARCHAR(255),
-    bio TEXT,
-    avatar_url VARCHAR(500),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_login TIMESTAMP
-);
+export JWT_SECRET_KEY="your-secure-random-secret-key-here"
 ```
 
 ## Usage
 
-### Basic Usage
+### Basic Example
 
 ```python
-from src.auth.profile import UserProfile
+from src.auth import UserUpdateService, InMemoryUserRepository
 
-# Initialize with environment variable DATABASE_URL
-profile_service = UserProfile()
+# Initialize repository and service
+repository = InMemoryUserRepository()
+service = UserUpdateService(repository)
 
-# Or initialize with explicit database URL
-profile_service = UserProfile(database_url="postgresql://user:password@localhost:5432/dbname")
-
-# Get user profile by ID
-try:
-    user = profile_service.get_profile_by_id(1)
-    print(user)
-except UserNotFoundError:
-    print("User not found")
-
-# Get user profile by username
-try:
-    user = profile_service.get_profile_by_username("johndoe")
-    print(user)
-except UserNotFoundError:
-    print("User not found")
-
-# Get public profile (excludes sensitive information)
-public_profile = profile_service.get_public_profile(1)
-print(public_profile)
-
-# Format profile for display
-formatted = profile_service.format_profile_display(user)
-print(formatted)
-```
-
-### Error Handling
-
-The module provides custom exceptions for different error scenarios:
-
-```python
-from src.auth.profile import (
-    UserProfile,
-    UserProfileError,
-    UserNotFoundError,
-    DatabaseConnectionError
+# Create a test user
+user = repository.create(
+    username="johndoe",
+    email="john@example.com",
+    hashed_password="hashed_password_here"
 )
 
-profile_service = UserProfile()
+# Generate a JWT token for the user (in production, this comes from login)
+import jwt
+from datetime import datetime, timedelta
 
-try:
-    user = profile_service.get_profile_by_id(123)
-except UserNotFoundError as e:
-    print(f"User not found: {e}")
-except DatabaseConnectionError as e:
-    print(f"Database error: {e}")
-except UserProfileError as e:
-    print(f"Profile error: {e}")
+token = jwt.encode(
+    {
+        "sub": str(user["id"]),
+        "username": user["username"],
+        "exp": datetime.utcnow() + timedelta(minutes=30)
+    },
+    "your-secret-key",
+    algorithm="HS256"
+)
+
+# Update username
+result = service.update_username(
+    user_id=user["id"],
+    new_username="john_doe_updated",
+    token=token
+)
+print(f"Updated username: {result['username']}")
+
+# Update email
+result = service.update_email(
+    user_id=user["id"],
+    new_email="john.doe@example.com",
+    token=token
+)
+print(f"Updated email: {result['email']}")
+
+# Update both at once
+result = service.update_user_profile(
+    user_id=user["id"],
+    username="johndoe2024",
+    email="johndoe2024@example.com",
+    token=token
+)
+print(f"Updated profile: {result}")
 ```
+
+### Validation Rules
+
+**Username:**
+- 3-30 characters in length
+- Only alphanumeric characters, underscores (_), and hyphens (-)
+- Must be unique across all users
+
+**Email:**
+- Valid email format (e.g., user@example.com)
+- Must be unique across all users
 
 ## API Reference
 
-### UserProfile Class
+### UserUpdateService
 
-#### `__init__(database_url: Optional[str] = None)`
+#### `update_username(user_id: int, new_username: str, token: str) -> Dict[str, Any]`
 
-Initialize the UserProfile instance.
+Update a user's username.
 
-- **Parameters:**
-  - `database_url` (str, optional): PostgreSQL connection string. If not provided, reads from `DATABASE_URL` environment variable.
-- **Raises:**
-  - `DatabaseConnectionError`: If database URL is not provided and not found in environment variables.
+**Parameters:**
+- `user_id`: ID of the user to update
+- `new_username`: New username to set
+- `token`: Valid JWT authentication token
 
-#### `get_profile_by_id(user_id: int) -> Dict[str, Any]`
+**Returns:** Dictionary with updated user information
 
-Retrieve user profile by user ID.
+**Raises:**
+- `ValidationError`: If username format is invalid
+- `AuthenticationError`: If token is invalid or unauthorized
+- `UserNotFoundError`: If user doesn't exist
+- `UserUpdateError`: If username is already taken
 
-- **Parameters:**
-  - `user_id` (int): The unique identifier of the user.
-- **Returns:** Dictionary containing user profile information.
-- **Raises:**
-  - `UserNotFoundError`: If user with given ID doesn't exist.
-  - `DatabaseConnectionError`: If database operation fails.
+#### `update_email(user_id: int, new_email: str, token: str) -> Dict[str, Any]`
 
-#### `get_profile_by_username(username: str) -> Dict[str, Any]`
+Update a user's email address.
 
-Retrieve user profile by username.
+**Parameters:**
+- `user_id`: ID of the user to update
+- `new_email`: New email address to set
+- `token`: Valid JWT authentication token
 
-- **Parameters:**
-  - `username` (str): The username of the user.
-- **Returns:** Dictionary containing user profile information.
-- **Raises:**
-  - `UserNotFoundError`: If user with given username doesn't exist.
-  - `DatabaseConnectionError`: If database operation fails.
+**Returns:** Dictionary with updated user information
 
-#### `get_public_profile(user_id: int) -> Dict[str, Any]`
+**Raises:**
+- `ValidationError`: If email format is invalid
+- `AuthenticationError`: If token is invalid or unauthorized
+- `UserNotFoundError`: If user doesn't exist
+- `UserUpdateError`: If email is already taken
 
-Retrieve public user profile information (excludes sensitive data).
+#### `update_user_profile(user_id: int, username: Optional[str], email: Optional[str], token: str) -> Dict[str, Any]`
 
-- **Parameters:**
-  - `user_id` (int): The unique identifier of the user.
-- **Returns:** Dictionary containing public user profile information (id, username, full_name, bio, avatar_url, created_at).
-- **Raises:**
-  - `UserNotFoundError`: If user with given ID doesn't exist.
-  - `DatabaseConnectionError`: If database operation fails.
+Update user profile (username and/or email).
 
-#### `format_profile_display(profile: Dict[str, Any]) -> str`
+**Parameters:**
+- `user_id`: ID of the user to update
+- `username`: New username (optional)
+- `email`: New email address (optional)
+- `token`: Valid JWT authentication token
 
-Format user profile for display.
+**Returns:** Dictionary with updated user information
 
-- **Parameters:**
-  - `profile` (dict): Dictionary containing user profile data.
-- **Returns:** Formatted string representation of the profile.
+**Raises:**
+- `ValidationError`: If any field format is invalid or both fields are None
+- `AuthenticationError`: If token is invalid or unauthorized
+- `UserNotFoundError`: If user doesn't exist
+- `UserUpdateError`: If username or email is already taken
+
+### Helper Functions
+
+#### `validate_email(email: str) -> bool`
+
+Validate email format.
+
+#### `validate_username(username: str) -> bool`
+
+Validate username format.
+
+#### `verify_token(token: str) -> Dict[str, Any]`
+
+Verify JWT token and extract user information.
 
 ## Testing
 
-Run the test suite using pytest:
+Run the test suite:
 
 ```bash
 # Run all tests
 pytest
 
 # Run with coverage
-pytest --cov=src/auth --cov-report=html
+pytest --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/test_profile.py
+pytest tests/test_update_user.py
 
 # Run with verbose output
 pytest -v
 ```
 
+### Test Coverage
+
+The test suite includes:
+- Email validation tests
+- Username validation tests
+- JWT token verification tests
+- Username update tests (success, validation, authorization)
+- Email update tests (success, validation, authorization)
+- Profile update tests (combined updates)
+- Repository CRUD operations
+- Error handling and edge cases
+
 ## Security Considerations
 
-- **No hardcoded credentials**: All database credentials must be provided via environment variables
-- **Public profile filtering**: Sensitive information like email addresses are excluded from public profiles
-- **SQL injection protection**: Uses parameterized queries to prevent SQL injection
-- **Error logging**: Database errors are logged for monitoring without exposing sensitive details to users
+1. **JWT Secret Key**: Always use a strong, random secret key in production
+2. **Token Expiration**: Tokens expire after 30 minutes by default
+3. **Authorization**: Users can only update their own profiles
+4. **Password Hashing**: Uses bcrypt for secure password hashing
+5. **Input Validation**: All inputs are validated before processing
+6. **No Sensitive Data in Responses**: Hashed passwords are never returned
 
-## Environment Variables
+## Error Handling
 
-- `DATABASE_URL`: PostgreSQL connection string (required)
-  - Format: `postgresql://username:password@host:port/database`
+The module provides specific exception types:
 
-## Dependencies
+- `UserUpdateError`: Base exception for update-related errors
+- `ValidationError`: Invalid input format
+- `AuthenticationError`: Invalid or expired token, unauthorized access
+- `UserNotFoundError`: User doesn't exist
 
-- `psycopg2-binary`: PostgreSQL database adapter
-- `pytest`: Testing framework
-- `pytest-cov`: Code coverage plugin for pytest
-- `pytest-mock`: Mocking plugin for pytest
+## Production Considerations
+
+**Database Integration:**
+
+The current implementation uses an in-memory repository for demonstration. For production:
+
+1. Replace `InMemoryUserRepository` with a proper database implementation (PostgreSQL, MySQL, etc.)
+2. Use SQLAlchemy or another ORM for database operations
+3. Implement proper transaction handling
+4. Add database migrations (e.g., Alembic)
+
+**Example PostgreSQL Repository:**
+
+```python
+from sqlalchemy.orm import Session
+from .models import User
+
+class PostgreSQLUserRepository:
+    def __init__(self, db_session: Session):
+        self.db = db_session
+    
+    def update_username(self, user_id: int, new_username: str):
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise ValueError(f"User with ID {user_id} not found")
+        user.username = new_username
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+    
+    # ... implement other methods
+```
 
 ## License
 
-This module is part of the SDT1-15 implementation.
+MIT
 
 ## Contributing
 
-1. Create a feature branch
-2. Make your changes
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Ensure all tests pass
+6. Submit a pull request
+
+## Support
+
+For issues and questions, please open an issue on GitHub.
