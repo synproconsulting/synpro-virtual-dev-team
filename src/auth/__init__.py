@@ -1,15 +1,9 @@
 """
-Authentication module for user management system.
+Authentication module.
+
+This module provides authentication and authorization functionality.
 """
 
-from .change_password import (
-    PasswordChangeRequest,
-    PasswordChangeResponse,
-    PasswordChangeService,
-)
+from src.auth.register import UserRegistration, RegistrationError
 
-__all__ = [
-    "PasswordChangeRequest",
-    "PasswordChangeResponse",
-    "PasswordChangeService",
-]
+__all__ = ["UserRegistration", "RegistrationError"]
