@@ -266,3 +266,7 @@ This implementation is part of the SDT1-22 ticket for in-app notification storag
 ## PM Agent Chat Interface - Feature Brief Submission
 
 Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
+
+## Dependency Management
+
+Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
