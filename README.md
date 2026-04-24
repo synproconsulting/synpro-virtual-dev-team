@@ -263,6 +263,14 @@ All models use Pydantic for automatic validation:
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
 
+## PM Agent Chat Interface - Feature Brief Submission
+
+Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
+
+## Dependency Management
+
+Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
+
 ## GitHub Actions Workflow Monitor
 
-Real-time monitoring of GitHub Actions workflows with status tracking and streaming updates. The `GitHubWorkflowMonitor` class provides async methods to fetch workflow run details, list recent runs, and watch workflows in real-time with automatic status polling. Supports all GitHub Actions workflow statuses and conclusions with type-safe enumerations.
+Real-time monitoring of GitHub Actions workflows with status tracking and polling. The `GitHubWorkflowMonitor` provides async methods to fetch workflow runs, watch specific runs for status changes, and receive real-time updates as workflows progress from queued to in-progress to completed states.
