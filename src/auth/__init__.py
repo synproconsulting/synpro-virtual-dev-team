@@ -1,30 +1,17 @@
 """
-Authentication and profile management module.
+Authentication and user profile management module.
 
-This module provides authentication, authorization, and profile management
-functionality for the application.
+This package provides authentication, authorization, and user profile
+management functionality.
 """
 
-from .profile import (
-    ProfileBase,
-    ProfileUpdate,
-    ProfileResponse,
-    PasswordChangeRequest,
-    ProfileService,
-    hash_password,
-    verify_password,
-)
-
-from .api import router as profile_router
-
+from .profile import ProfileService, ProfileData, ProfileUpdateRequest, ProfileUIRenderer
+from .profile_routes import router as profile_router
 
 __all__ = [
-    "ProfileBase",
-    "ProfileUpdate",
-    "ProfileResponse",
-    "PasswordChangeRequest",
     "ProfileService",
-    "hash_password",
-    "verify_password",
+    "ProfileData", 
+    "ProfileUpdateRequest",
+    "ProfileUIRenderer",
     "profile_router",
 ]
