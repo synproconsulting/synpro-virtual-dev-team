@@ -1,5 +1,20 @@
-"""Authentication module for email notifications."""
+"""
+Authentication and profile management package.
 
-from .email_notifications import EmailNotificationService
+This package provides authentication, authorization, and user profile
+management functionality.
+"""
 
-__all__ = ["EmailNotificationService"]
+from src.auth.profile import (
+    UserProfile,
+    ProfileUpdateRequest,
+    ProfileService,
+    ProfileUIRenderer
+)
+
+__all__ = [
+    'UserProfile',
+    'ProfileUpdateRequest',
+    'ProfileService',
+    'ProfileUIRenderer'
+]
