@@ -263,6 +263,10 @@ All models use Pydantic for automatic validation:
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
 
+## PM Agent Chat Interface - Feature Brief Submission
+
+Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
+
 ## Sprint Status Dashboard
 
-The Sprint Status Dashboard provides a unified view of sprint progress by integrating data from Jira tickets, GitHub pull requests, and CI/CD builds. It calculates completion percentages and health scores to give teams real-time visibility into sprint status, including ticket progress, PR merge status, and build success rates across all integrated systems.
+Provides a unified dashboard view integrating Jira tickets, GitHub pull requests, and CI build statuses for sprint tracking. The `SprintDashboard` class aggregates data from multiple providers to calculate sprint metrics, track ticket progress, and correlate development artifacts across platforms with comprehensive status reporting.
