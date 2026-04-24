@@ -1,89 +1,79 @@
-"""Pull request data provider implementation."""
+"""Pull request data provider for sprint dashboard."""
 
 import os
 import re
-from datetime import datetime
 from typing import Any
 import requests
+from src.auth.sprint_dashboard import PullRequest, StatusType
 
 
 class PRProvider:
     """Provider for fetching pull request data from GitHub."""
-
-    def __init__(self, token: str | None = None, repository: str | None = None) -> None:
+    
+    def __init__(self, token: str | None = None, repo: str | None = None) -> None:
         """Initialize PR provider.
-
-        Args:
-            token: GitHub API token (from env if not provided)
-            repository: Repository in format 'owner/repo' (from env if not provided)
-        """
-        self.token = token or os.getenv("GITHUB_TOKEN", "")
-        self.repository = repository or os.getenv("GITHUB_REPOSITORY", "")
-        self.base_url = "https://api.github.com"
-        self.session = requests.Session()
         
-        if self.token:
-            self.session.headers.update({"Authorization": f"Bearer {self.token}"})
-
-    def fetch_data(self, **kwargs: Any) -> list[dict[str, Any]]:
-        """Fetch pull requests for a sprint.
-
         Args:
-            **kwargs: Must include 'sprint_id'
-
-        Returns:
-            List of pull request dictionaries
+            token: GitHub API token (defaults to GITHUB_TOKEN env var)
+            repo: Repository in format 'owner/repo' (defaults to GITHUB_REPO env var)
         """
-        sprint_id = kwargs.get("sprint_id")
-        if not sprint_id or not self.repository:
-            return []
-
-        url = f"{self.base_url}/repos/{self.repository}/pulls"
-        params = {"state": "all", "per_page": 100}
-
-        try:
-            response = self.session.get(url, params=params, timeout=30)
-            response.raise_for_status()
-            prs = response.json()
-            return self._parse_prs(prs, sprint_id)
-        except requests.RequestException:
-            return []
-
-    def _parse_prs(self, prs: list[dict[str, Any]], sprint_id: str) -> list[dict[str, Any]]:
-        """Parse GitHub API response into PR format."""
-        parsed_prs = []
-        for pr in prs:
-            title = pr.get("title", "")
-            body = pr.get("body", "")
-            jira_keys = self._extract_jira_keys(f"{title} {body}")
+        self._token = token or os.getenv("GITHUB_TOKEN", "")
+        self._repo = repo or os.getenv("GITHUB_REPO", "")
+        self._session = requests.Session()
+        
+        if self._token:
+            self._session.headers.update({"Authorization": f"Bearer {self._token}"})
+    
+    def fetch_data(self, **kwargs: Any) -> list[PullRequest]:
+        """Fetch pull requests for a sprint.
+        
+        Args:
+            **kwargs: May include 'sprint_id' for filtering
             
-            # Filter PRs related to sprint (basic heuristic)
-            if sprint_id.lower() in title.lower() or sprint_id.lower() in body.lower():
-                parsed_prs.append(
-                    {
-                        "id": str(pr.get("number", "")),
-                        "title": title,
-                        "author": pr.get("user", {}).get("login", "unknown"),
-                        "status": self._get_pr_status(pr),
-                        "jira_keys": jira_keys,
-                        "created_at": datetime.fromisoformat(
-                            pr.get("created_at", "").replace("Z", "+00:00")
-                        ),
-                    }
-                )
-        return parsed_prs
-
+        Returns:
+            List of PullRequest objects
+            
+        Raises:
+            requests.RequestException: If API call fails
+        """
+        sprint_id = kwargs.get("sprint_id", "")
+        url = f"https://api.github.com/repos/{self._repo}/pulls"
+        params = {"state": "all", "per_page": 100}
+        
+        response = self._session.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        prs = []
+        for pr in data:
+            jira_keys = self._extract_jira_keys(pr.get("title", "") + " " + pr.get("body", ""))
+            
+            # Filter by sprint if provided
+            if sprint_id and sprint_id not in pr.get("title", "") and sprint_id not in pr.get("body", ""):
+                if not jira_keys:  # Skip if no Jira keys found
+                    continue
+            
+            status = self._map_pr_status(pr)
+            prs.append(PullRequest(
+                id=str(pr["number"]),
+                title=pr["title"],
+                author=pr["user"]["login"],
+                status=status,
+                jira_keys=jira_keys,
+                url=pr["html_url"]
+            ))
+        
+        return prs
+    
     def _extract_jira_keys(self, text: str) -> list[str]:
         """Extract Jira ticket keys from text."""
-        pattern = r"\b[A-Z]{2,}-\d+\b"
-        return re.findall(pattern, text)
-
-    def _get_pr_status(self, pr: dict[str, Any]) -> str:
-        """Determine PR status."""
-        if pr.get("merged_at"):
-            return "merged"
-        elif pr.get("state") == "closed":
-            return "closed"
-        elif pr.get("draft"):
-            return "draft"
-        return "open"
+        pattern = r"\b([A-Z]{2,10}-\d+)\b"
+        return list(set(re.findall(pattern, text)))
+    
+    def _map_pr_status(self, pr: dict[str, Any]) -> StatusType:
+        """Map GitHub PR state to StatusType."""
+        if pr.get("merged"):
+            return StatusType.SUCCESS
+        if pr.get("state") == "closed":
+            return StatusType.FAILED
+        return StatusType.PENDING
