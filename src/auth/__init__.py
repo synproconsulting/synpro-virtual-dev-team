@@ -1,15 +1,21 @@
-"""
-Authentication module for user management system.
-"""
+"""Authentication module for user registration and password management."""
 
-from .change_password import (
-    PasswordChangeRequest,
-    PasswordChangeResponse,
-    PasswordChangeService,
+from .user_registration import (
+    User,
+    RegistrationError,
+    register_user,
+    validate_email,
+    validate_password,
+    hash_password,
+    verify_password,
 )
 
 __all__ = [
-    "PasswordChangeRequest",
-    "PasswordChangeResponse",
-    "PasswordChangeService",
+    "User",
+    "RegistrationError",
+    "register_user",
+    "validate_email",
+    "validate_password",
+    "hash_password",
+    "verify_password",
 ]
