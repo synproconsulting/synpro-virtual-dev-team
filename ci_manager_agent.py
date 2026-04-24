@@ -69,7 +69,7 @@ def get_pr_diff(pr_number):
     headers = {**GH_HEADERS, "Accept": "application/vnd.github.v3.diff"}
     r = requests.get(f"{BASE}/pulls/{pr_number}", headers=headers)
     diff = r.text
-    return diff[:6000] + "\n...(truncated)" if len(diff) > 6000 else diff
+    return diff[:12000] + "\n...(truncated)" if len(diff) > 12000 else diff
 
 def get_pr_files(pr_number):
     r = requests.get(f"{BASE}/pulls/{pr_number}/files", headers=GH_HEADERS)
