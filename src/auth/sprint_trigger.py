@@ -1,104 +1,104 @@
-"""Sprint trigger functionality for one-click sprint initiation."""
+"""Sprint trigger functionality for one-click sprint execution."""
 
-import asyncio
-from datetime import datetime, timedelta
+import logging
+from datetime import datetime
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class SprintConfig:
-    """Configuration for sprint triggering."""
-    
-    sprint_duration_days: int = 14
-    auto_start: bool = True
-    notification_enabled: bool = True
-    team_id: Optional[str] = None
+    """Configuration for sprint execution."""
+    sprint_name: str
+    start_date: datetime
+    duration_days: int
+    team_id: str
+    auto_review_enabled: bool = True
 
 
 class SprintTrigger:
-    """Handles one-click sprint triggering with configurable parameters."""
-    
-    def __init__(self, config: SprintConfig):
+    """Handles one-click sprint triggering and orchestration."""
+
+    def __init__(self, config: SprintConfig) -> None:
         """Initialize sprint trigger with configuration.
         
         Args:
-            config: Sprint configuration object
+            config: Sprint configuration details
         """
         self.config = config
-        self._active_sprint: Optional[Dict[str, Any]] = None
-        logger.info(f"SprintTrigger initialized for team {config.team_id}")
-    
-    async def trigger_sprint(self, name: str, start_date: Optional[datetime] = None) -> Dict[str, Any]:
-        """Trigger a new sprint with one click.
+        self._status: str = "idle"
+        self._sprint_id: Optional[str] = None
+
+    def trigger_sprint(self) -> Dict[str, Any]:
+        """Trigger a new sprint execution.
         
-        Args:
-            name: Sprint name/identifier
-            start_date: Optional sprint start date, defaults to now
-            
         Returns:
-            Dictionary containing sprint details
+            Dictionary containing sprint execution details
             
         Raises:
-            ValueError: If a sprint is already active
+            ValueError: If sprint is already running
         """
-        if self._active_sprint and self._active_sprint.get("status") == "active":
-            raise ValueError("Cannot start new sprint while another is active")
+        if self._status == "running":
+            raise ValueError("Sprint is already running")
+
+        logger.info(f"Triggering sprint: {self.config.sprint_name}")
         
-        start = start_date or datetime.utcnow()
-        end = start + timedelta(days=self.config.sprint_duration_days)
+        self._status = "running"
+        self._sprint_id = self._generate_sprint_id()
         
-        self._active_sprint = {
-            "name": name,
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-            "status": "active",
+        result = {
+            "sprint_id": self._sprint_id,
+            "name": self.config.sprint_name,
+            "status": self._status,
+            "start_date": self.config.start_date.isoformat(),
+            "duration_days": self.config.duration_days,
             "team_id": self.config.team_id,
+            "auto_review_enabled": self.config.auto_review_enabled,
             "triggered_at": datetime.utcnow().isoformat()
         }
         
-        logger.info(f"Sprint '{name}' triggered successfully")
-        
-        if self.config.notification_enabled:
-            await self._send_notification(self._active_sprint)
-        
-        return self._active_sprint
-    
-    async def _send_notification(self, sprint_data: Dict[str, Any]) -> None:
-        """Send notification about sprint trigger.
-        
-        Args:
-            sprint_data: Sprint information to include in notification
-        """
-        # Placeholder for actual notification logic
-        await asyncio.sleep(0.1)
-        logger.info(f"Notification sent for sprint: {sprint_data['name']}")
-    
-    def get_active_sprint(self) -> Optional[Dict[str, Any]]:
-        """Get currently active sprint information.
+        logger.info(f"Sprint triggered successfully: {self._sprint_id}")
+        return result
+
+    def stop_sprint(self) -> Dict[str, Any]:
+        """Stop the current sprint.
         
         Returns:
-            Active sprint dictionary or None
+            Dictionary containing sprint stop details
         """
-        return self._active_sprint
-    
-    async def complete_sprint(self) -> Dict[str, Any]:
-        """Mark the current sprint as completed.
+        logger.info(f"Stopping sprint: {self._sprint_id}")
+        
+        self._status = "stopped"
+        
+        return {
+            "sprint_id": self._sprint_id,
+            "status": self._status,
+            "stopped_at": datetime.utcnow().isoformat()
+        }
+
+    def get_status(self) -> Dict[str, Any]:
+        """Get current sprint status.
         
         Returns:
-            Completed sprint data
-            
-        Raises:
-            ValueError: If no active sprint exists
+            Dictionary containing current sprint status
         """
-        if not self._active_sprint:
-            raise ValueError("No active sprint to complete")
+        return {
+            "sprint_id": self._sprint_id,
+            "status": self._status,
+            "config": {
+                "name": self.config.sprint_name,
+                "team_id": self.config.team_id,
+                "auto_review_enabled": self.config.auto_review_enabled
+            }
+        }
+
+    def _generate_sprint_id(self) -> str:
+        """Generate unique sprint identifier.
         
-        self._active_sprint["status"] = "completed"
-        self._active_sprint["completed_at"] = datetime.utcnow().isoformat()
-        
-        logger.info(f"Sprint '{self._active_sprint['name']}' completed")
-        return self._active_sprint
+        Returns:
+            Unique sprint ID string
+        """
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        return f"sprint-{self.config.team_id}-{timestamp}"
