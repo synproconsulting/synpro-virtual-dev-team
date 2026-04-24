@@ -2,38 +2,41 @@
 ci_manager_agent.py
 ────────────────────
 Self-contained Manager Agent for GitHub Actions.
-Reviews a PR and merges it if CI passes and code quality is good.
-No dependency on local agent framework — calls Anthropic API directly.
+Handles CI waiting, code review, merge, and Jira updates.
 
 Usage:
-    python ci_manager_agent.py --pr 8
+    python ci_manager_agent.py --pr 8        # review specific PR
+    python ci_manager_agent.py --auto        # auto mode (reads from env)
 """
 
 import os
 import sys
 import json
+import time
 import argparse
+import re
 import requests
 import anthropic
 
-# ── Config from environment ────────────────────────────────────────────────────
+# ── Config ─────────────────────────────────────────────────────────────────────
 
-ANTHROPIC_KEY  = os.environ["ANTHROPIC_API_KEY"]
-GITHUB_TOKEN   = os.environ["GITHUB_TOKEN"]
+ANTHROPIC_KEY   = os.environ["ANTHROPIC_API_KEY"]
+GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
 GITHUB_USERNAME = os.environ["GITHUB_USERNAME"]
-GITHUB_REPO    = os.environ["GITHUB_REPO"]
-JIRA_BASE_URL  = os.environ.get("JIRA_BASE_URL", "")
-JIRA_EMAIL     = os.environ.get("JIRA_EMAIL", "")
-JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
+GITHUB_REPO     = os.environ["GITHUB_REPO"]
+JIRA_BASE_URL   = os.environ.get("JIRA_BASE_URL", "")
+JIRA_EMAIL      = os.environ.get("JIRA_EMAIL", "")
+JIRA_API_TOKEN  = os.environ.get("JIRA_API_TOKEN", "")
 
 GH_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
     "Accept": "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
 }
-JIRA_AUTH = (JIRA_EMAIL, JIRA_API_TOKEN)
+JIRA_AUTH    = (JIRA_EMAIL, JIRA_API_TOKEN)
 JIRA_HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
-BASE = f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}"
+BASE         = f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}"
+SKIP_JOBS    = {"Manager Agent review", "Wait for CI then review", "wait-and-review"}
 
 
 # ── GitHub helpers ─────────────────────────────────────────────────────────────
@@ -46,25 +49,31 @@ def get_pr(pr_number):
 def get_ci_status(sha):
     r = requests.get(f"{BASE}/commits/{sha}/check-runs", headers=GH_HEADERS)
     runs = r.json().get("check_runs", [])
-    results = []
-    for run in runs:
-        if run["name"] in ("Wait for CI then review", "Manager Agent review"):
-            continue
-        results.append({
-            "name":       run["name"],
-            "status":     run["status"],
-            "conclusion": run.get("conclusion"),
-        })
-    return results
+    return [c for c in runs if c["name"] not in SKIP_JOBS]
 
-def get_pr_files(pr_number):
-    r = requests.get(f"{BASE}/pulls/{pr_number}/files", headers=GH_HEADERS)
-    return r.json()
+def wait_for_ci(sha, max_minutes=15):
+    """Wait for all CI checks to complete. Returns True if all pass."""
+    print(f"Waiting for CI checks on sha: {sha[:8]}")
+    for attempt in range(max_minutes * 6):
+        time.sleep(10)
+        checks   = get_ci_status(sha)
+        total    = len(checks)
+        done     = sum(1 for c in checks if c["status"] == "completed")
+        failed   = sum(1 for c in checks if c.get("conclusion") in ("failure", "cancelled", "timed_out"))
+        print(f"  Attempt {attempt+1}: {done}/{total} completed, {failed} failed")
+        if total > 0 and done == total:
+            return failed == 0
+    return False
 
 def get_pr_diff(pr_number):
     headers = {**GH_HEADERS, "Accept": "application/vnd.github.v3.diff"}
     r = requests.get(f"{BASE}/pulls/{pr_number}", headers=headers)
-    return r.text[:6000] + "\n...(truncated)" if len(r.text) > 6000 else r.text
+    diff = r.text
+    return diff[:6000] + "\n...(truncated)" if len(diff) > 6000 else diff
+
+def get_pr_files(pr_number):
+    r = requests.get(f"{BASE}/pulls/{pr_number}/files", headers=GH_HEADERS)
+    return r.json()
 
 def post_comment(pr_number, body):
     requests.post(f"{BASE}/issues/{pr_number}/comments",
@@ -111,139 +120,132 @@ def jira_comment(issue_key, body):
     )
 
 
-# ── Main review logic ──────────────────────────────────────────────────────────
+# ── Review logic ───────────────────────────────────────────────────────────────
 
-def review_pr(pr_number: int):
+def review_pr(pr_number, sha=None):
     print(f"\n=== Manager Agent reviewing PR #{pr_number} ===\n")
 
-    # 1. Get PR details
-    pr    = get_pr(pr_number)
-    title = pr["title"]
-    body  = pr.get("body", "")
-    branch = pr["head"]["ref"]
-    sha   = pr["head"]["sha"]
+    pr        = get_pr(pr_number)
+    title     = pr["title"]
+    branch    = pr["head"]["ref"]
+    sha       = sha or pr["head"]["sha"]
     mergeable = pr.get("mergeable")
 
     print(f"Title:     {title}")
     print(f"Branch:    {branch}")
     print(f"Mergeable: {mergeable}")
 
-    # 2. Check CI
-    checks = get_ci_status(sha)
-    all_pass = all(
-        c["conclusion"] in ("success", "skipped")
-        for c in checks if c["status"] == "completed"
-    )
+    if mergeable is False:
+        print("PR has merge conflicts — skipping")
+        post_comment(pr_number, "⚠️ Manager Agent: merge conflicts present — please rebase.")
+        return
+
+    checks     = get_ci_status(sha)
+    all_pass   = all(c.get("conclusion") in ("success", "skipped") for c in checks if c["status"] == "completed")
     ci_summary = "\n".join(
-        f"  {'✓' if c['conclusion']=='success' else '✗'} {c['name']}: {c['conclusion']}"
+        f"  {'✓' if c.get('conclusion')=='success' else '✗'} {c['name']}: {c.get('conclusion','pending')}"
         for c in checks
-    )
-    print(f"\nCI Status:\n{ci_summary}")
+    ) or "  No CI checks found"
+    print(f"\nCI:\n{ci_summary}")
 
     if not all_pass:
-        print("\nCI not fully passing — skipping merge")
-        post_comment(pr_number, "⚠️ Manager Agent: CI checks not all passing — skipping auto-merge.")
+        print("CI not fully passing — skipping")
+        post_comment(pr_number, f"⚠️ Manager Agent: CI not passing — skipping merge.\n\n```\n{ci_summary}\n```")
         return
 
-    if mergeable is False:
-        print("\nPR has merge conflicts — skipping merge")
-        post_comment(pr_number, "⚠️ Manager Agent: PR has merge conflicts — please rebase.")
-        return
-
-    # 3. Get diff for Claude to review
     diff  = get_pr_diff(pr_number)
     files = get_pr_files(pr_number)
     file_list = "\n".join(f"  {f['filename']} (+{f['additions']} -{f['deletions']})" for f in files)
 
-    # 4. Ask Claude to review the code
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    prompt = f"""You are a Dev Manager reviewing a pull request. 
+    prompt = (
+        f"You are a Dev Manager reviewing PR #{pr_number}: {title}\n\n"
+        f"Files changed:\n{file_list}\n\n"
+        f"CI:\n{ci_summary}\n\n"
+        f"Diff:\n{diff}\n\n"
+        "Respond ONLY with a JSON object:\n"
+        '{"decision":"APPROVE" or "REQUEST_CHANGES","summary":"one paragraph","issues":[],"merge_message":"commit title"}'
+    )
 
-PR #{pr_number}: {title}
-Branch: {branch}
-
-Files changed:
-{file_list}
-
-CI Results:
-{ci_summary}
-
-Code diff (truncated):
-{diff}
-
-Review this PR and respond with a JSON object:
-{{
-  "decision": "APPROVE" or "REQUEST_CHANGES",
-  "summary": "one paragraph summary of the code quality",
-  "issues": ["list of issues if any"],
-  "merge_message": "squash commit message if approving"
-}}
-
-Respond ONLY with the JSON object, no other text."""
-
-    print("\nAsking Claude to review the code...")
+    print("\nAsking Claude to review...")
     response = client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}]
     )
-
     raw = response.content[0].text.strip()
-    # Strip markdown code fences if present
     if raw.startswith("```"):
         raw = "\n".join(raw.split("\n")[1:-1])
 
     try:
         review = json.loads(raw)
     except json.JSONDecodeError:
-        print(f"Could not parse Claude response: {raw[:200]}")
         review = {"decision": "REQUEST_CHANGES", "summary": raw, "issues": [], "merge_message": ""}
 
     decision = review.get("decision", "REQUEST_CHANGES")
     summary  = review.get("summary", "")
     issues   = review.get("issues", [])
+    print(f"\nDecision: {decision}")
+    print(f"Summary:  {summary}")
 
-    print(f"\nReview decision: {decision}")
-    print(f"Summary: {summary}")
-
-    # 5. Extract Jira ticket from PR title
-    import re
     ticket_match = re.search(r'\[([A-Z]+-\d+)\]', title)
     ticket_key   = ticket_match.group(1) if ticket_match else None
-    print(f"Jira ticket: {ticket_key}")
 
-    # 6. Act on decision
     if decision == "APPROVE":
-        merge_title   = review.get("merge_message", title)
-        merge_body    = f"Auto-merged by Manager Agent.\n\n{summary}"
-
-        ok, result = merge_pr(pr_number, merge_title, merge_body)
+        merge_title = review.get("merge_message", title)
+        ok, result  = merge_pr(pr_number, merge_title, f"Auto-merged by Manager Agent.\n\n{summary}")
         if ok:
-            print(f"\n✅ PR #{pr_number} merged successfully")
-            post_comment(pr_number,
-                f"✅ **Manager Agent approved and merged this PR.**\n\n{summary}")
-
+            print(f"\n✅ PR #{pr_number} merged")
+            post_comment(pr_number, f"✅ **Manager Agent merged this PR.**\n\n{summary}")
             if ticket_key:
-                transitioned = jira_transition(ticket_key, "Done")
-                print(f"Jira {ticket_key} → Done: {transitioned}")
-                jira_comment(ticket_key,
-                    f"PR #{pr_number} merged by Manager Agent.\n\n{summary}")
+                jira_transition(ticket_key, "Done")
+                jira_comment(ticket_key, f"PR #{pr_number} merged by Manager Agent.\n\n{summary}")
+                print(f"Jira {ticket_key} → Done")
         else:
             print(f"\n✗ Merge failed: {result}")
-            post_comment(pr_number, f"⚠️ Manager Agent: merge failed — {result.get('message','unknown error')}")
-
+            post_comment(pr_number, f"⚠️ Manager Agent: merge failed — {result.get('message','unknown')}")
     else:
-        issue_list = "\n".join(f"- {i}" for i in issues) if issues else "See summary above."
-        comment = f"**Manager Agent — Changes Requested:**\n\n{summary}\n\n**Issues:**\n{issue_list}"
-        post_comment(pr_number, comment)
-        print(f"\nChanges requested on PR #{pr_number}")
-
+        issue_list = "\n".join(f"- {i}" for i in issues)
+        post_comment(pr_number, f"**Manager Agent — Changes Requested:**\n\n{summary}\n\n{issue_list}")
         if ticket_key:
             jira_comment(ticket_key, f"PR #{pr_number} needs rework: {summary}")
+        print("Changes requested")
 
+
+# ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pr", type=int, required=True)
+    parser.add_argument("--pr",   type=int, help="PR number to review")
+    parser.add_argument("--auto", action="store_true", help="Auto mode — reads PR from environment")
     args = parser.parse_args()
-    review_pr(args.pr)
+
+    if args.auto:
+        event     = os.environ.get("EVENT_NAME", "")
+        manual_pr = os.environ.get("MANUAL_PR", "").strip()
+        pr_env    = os.environ.get("PR_NUMBER", "").strip()
+        head_sha  = os.environ.get("HEAD_SHA", "").strip()
+
+        if manual_pr:
+            pr_num = int(manual_pr)
+            sha    = None
+        elif pr_env:
+            pr_num = int(pr_env)
+            sha    = head_sha or None
+            if sha:
+                print("Waiting for CI to complete...")
+                ci_ok = wait_for_ci(sha)
+                if not ci_ok:
+                    print("CI failed or timed out — skipping Manager Agent")
+                    sys.exit(0)
+        else:
+            print("No PR number found — nothing to review")
+            sys.exit(0)
+
+        review_pr(pr_num, sha=None)
+
+    elif args.pr:
+        review_pr(args.pr)
+    else:
+        print("Use --pr <number> or --auto")
+        sys.exit(1)
