@@ -1,222 +1,260 @@
-"""
-Profile management module for user profile operations.
+"""Profile page UI/UX models and services.
 
-This module provides functions for managing user profiles including
-retrieval, updates, and password changes.
+This module provides data models and services for rendering user profile pages
+with a clean, intuitive UI/UX design.
 """
 
-from typing import Optional, Dict, Any
+from dataclasses import dataclass, field
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, validator
-from passlib.context import CryptContext
+from typing import Optional
+from enum import Enum
 
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+class ProfileTheme(str, Enum):
+    """Available theme options for profile customization."""
+    LIGHT = "light"
+    DARK = "dark"
+    AUTO = "auto"
 
 
-class ProfileBase(BaseModel):
-    """Base profile model with common fields."""
-    
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = Field(None, min_length=1, max_length=100)
-    phone_number: Optional[str] = Field(None, min_length=10, max_length=20)
-    bio: Optional[str] = Field(None, max_length=500)
-    avatar_url: Optional[str] = None
-    
-    @validator('phone_number')
-    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        """Validate phone number format."""
-        if v is not None:
-            # Remove spaces and dashes for validation
-            cleaned = v.replace(' ', '').replace('-', '')
-            if not cleaned.replace('+', '').isdigit():
-                raise ValueError('Phone number must contain only digits, spaces, dashes, and optional + prefix')
-        return v
+class ProfileVisibility(str, Enum):
+    """Profile visibility settings."""
+    PUBLIC = "public"
+    PRIVATE = "private"
+    CONNECTIONS_ONLY = "connections_only"
 
 
-class ProfileUpdate(ProfileBase):
-    """Model for profile update requests."""
-    pass
+@dataclass
+class ProfileSection:
+    """Represents a customizable section in the user profile."""
+    section_id: str
+    title: str
+    content: str
+    is_visible: bool = True
+    order: int = 0
+    icon: Optional[str] = None
 
 
-class ProfileResponse(ProfileBase):
-    """Model for profile response with additional metadata."""
-    
+@dataclass
+class ProfileSettings:
+    """User profile display and privacy settings."""
+    theme: ProfileTheme = ProfileTheme.AUTO
+    visibility: ProfileVisibility = ProfileVisibility.PUBLIC
+    show_email: bool = False
+    show_last_login: bool = True
+    show_join_date: bool = True
+    show_activity: bool = True
+    enable_notifications: bool = True
+
+
+@dataclass
+class ProfileData:
+    """Complete user profile data structure for UI rendering."""
     user_id: str
     username: str
-    created_at: datetime
-    updated_at: datetime
-    is_active: bool
-    
-    class Config:
-        """Pydantic configuration."""
-        from_attributes = True
+    email: str
+    display_name: Optional[str] = None
+    bio: Optional[str] = None
+    avatar_url: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    location: Optional[str] = None
+    website: Optional[str] = None
+    joined_date: Optional[datetime] = None
+    last_login: Optional[datetime] = None
+    settings: ProfileSettings = field(default_factory=ProfileSettings)
+    sections: list[ProfileSection] = field(default_factory=list)
+    social_links: dict[str, str] = field(default_factory=dict)
+    stats: dict[str, int] = field(default_factory=dict)
 
-
-class PasswordChangeRequest(BaseModel):
-    """Model for password change requests."""
-    
-    current_password: str = Field(..., min_length=8)
-    new_password: str = Field(..., min_length=8)
-    confirm_password: str = Field(..., min_length=8)
-    
-    @validator('new_password')
-    def validate_new_password(cls, v: str, values: Dict[str, Any]) -> str:
-        """Validate new password requirements."""
-        if 'current_password' in values and v == values['current_password']:
-            raise ValueError('New password must be different from current password')
-        
-        # Check password complexity
-        if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain at least one digit')
-        
-        return v
-    
-    @validator('confirm_password')
-    def passwords_match(cls, v: str, values: Dict[str, Any]) -> str:
-        """Validate that passwords match."""
-        if 'new_password' in values and v != values['new_password']:
-            raise ValueError('Passwords do not match')
-        return v
+    def to_dict(self) -> dict:
+        """Convert profile data to dictionary for API responses."""
+        return {
+            "user_id": self.user_id,
+            "username": self.username,
+            "email": self.email if self.settings.show_email else None,
+            "display_name": self.display_name or self.username,
+            "bio": self.bio,
+            "avatar_url": self.avatar_url,
+            "cover_image_url": self.cover_image_url,
+            "location": self.location,
+            "website": self.website,
+            "joined_date": self.joined_date.isoformat() if self.joined_date and self.settings.show_join_date else None,
+            "last_login": self.last_login.isoformat() if self.last_login and self.settings.show_last_login else None,
+            "settings": {
+                "theme": self.settings.theme.value,
+                "visibility": self.settings.visibility.value,
+            },
+            "sections": [
+                {
+                    "id": section.section_id,
+                    "title": section.title,
+                    "content": section.content,
+                    "icon": section.icon,
+                    "order": section.order,
+                }
+                for section in sorted(self.sections, key=lambda s: s.order)
+                if section.is_visible
+            ],
+            "social_links": self.social_links,
+            "stats": self.stats if self.settings.show_activity else {},
+        }
 
 
 class ProfileService:
-    """Service class for profile management operations."""
-    
-    def __init__(self, database_connection: Any):
-        """
-        Initialize the profile service.
-        
+    """Service for managing user profile data and operations."""
+
+    def __init__(self):
+        """Initialize the profile service."""
+        self._profiles: dict[str, ProfileData] = {}
+
+    def create_profile(
+        self,
+        user_id: str,
+        username: str,
+        email: str,
+        **kwargs,
+    ) -> ProfileData:
+        """Create a new user profile.
+
         Args:
-            database_connection: Database connection or session object
-        """
-        self.db = database_connection
-    
-    async def get_profile(self, user_id: str) -> Optional[ProfileResponse]:
-        """
-        Retrieve user profile by user ID.
-        
-        Args:
-            user_id: The unique identifier of the user
-            
+            user_id: Unique user identifier
+            username: User's username
+            email: User's email address
+            **kwargs: Additional profile fields
+
         Returns:
-            ProfileResponse object if found, None otherwise
+            ProfileData: The created profile
         """
-        # In a real implementation, this would query the database
-        # Example: user = await self.db.query(User).filter(User.id == user_id).first()
-        raise NotImplementedError("Database integration required")
-    
-    async def update_profile(
-        self, 
-        user_id: str, 
-        profile_data: ProfileUpdate
-    ) -> ProfileResponse:
-        """
-        Update user profile with provided data.
-        
+        profile = ProfileData(
+            user_id=user_id,
+            username=username,
+            email=email,
+            joined_date=datetime.utcnow(),
+            **kwargs,
+        )
+        self._profiles[user_id] = profile
+        return profile
+
+    def get_profile(self, user_id: str) -> Optional[ProfileData]:
+        """Retrieve a user profile by ID.
+
         Args:
-            user_id: The unique identifier of the user
-            profile_data: Profile update data
-            
+            user_id: User identifier
+
         Returns:
-            Updated ProfileResponse object
-            
-        Raises:
-            ValueError: If user not found
+            ProfileData if found, None otherwise
         """
-        # In a real implementation, this would update the database
-        # Example:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # for field, value in profile_data.dict(exclude_unset=True).items():
-        #     setattr(user, field, value)
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return ProfileResponse.from_orm(user)
-        raise NotImplementedError("Database integration required")
-    
-    async def change_password(
-        self, 
-        user_id: str, 
-        password_change: PasswordChangeRequest
+        return self._profiles.get(user_id)
+
+    def update_profile(
+        self,
+        user_id: str,
+        **updates,
+    ) -> Optional[ProfileData]:
+        """Update profile fields.
+
+        Args:
+            user_id: User identifier
+            **updates: Fields to update
+
+        Returns:
+            Updated ProfileData if found, None otherwise
+        """
+        profile = self._profiles.get(user_id)
+        if not profile:
+            return None
+
+        for key, value in updates.items():
+            if hasattr(profile, key):
+                setattr(profile, key, value)
+
+        return profile
+
+    def update_settings(
+        self,
+        user_id: str,
+        **settings,
+    ) -> Optional[ProfileSettings]:
+        """Update profile settings.
+
+        Args:
+            user_id: User identifier
+            **settings: Settings to update
+
+        Returns:
+            Updated ProfileSettings if found, None otherwise
+        """
+        profile = self._profiles.get(user_id)
+        if not profile:
+            return None
+
+        for key, value in settings.items():
+            if hasattr(profile.settings, key):
+                setattr(profile.settings, key, value)
+
+        return profile.settings
+
+    def add_section(
+        self,
+        user_id: str,
+        section: ProfileSection,
     ) -> bool:
-        """
-        Change user password after validating current password.
-        
+        """Add a custom section to the profile.
+
         Args:
-            user_id: The unique identifier of the user
-            password_change: Password change request data
-            
+            user_id: User identifier
+            section: Section to add
+
         Returns:
-            True if password changed successfully
-            
-        Raises:
-            ValueError: If current password is incorrect or user not found
+            True if added, False if profile not found
         """
-        # In a real implementation:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # if not verify_password(password_change.current_password, user.hashed_password):
-        #     raise ValueError("Current password is incorrect")
-        # user.hashed_password = hash_password(password_change.new_password)
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return True
-        raise NotImplementedError("Database integration required")
-    
-    async def deactivate_profile(self, user_id: str) -> bool:
-        """
-        Deactivate user profile (soft delete).
-        
+        profile = self._profiles.get(user_id)
+        if not profile:
+            return False
+
+        profile.sections.append(section)
+        return True
+
+    def remove_section(
+        self,
+        user_id: str,
+        section_id: str,
+    ) -> bool:
+        """Remove a section from the profile.
+
         Args:
-            user_id: The unique identifier of the user
-            
+            user_id: User identifier
+            section_id: Section identifier to remove
+
         Returns:
-            True if profile deactivated successfully
-            
-        Raises:
-            ValueError: If user not found
+            True if removed, False if not found
         """
-        # In a real implementation:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # user.is_active = False
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return True
-        raise NotImplementedError("Database integration required")
+        profile = self._profiles.get(user_id)
+        if not profile:
+            return False
 
+        profile.sections = [
+            s for s in profile.sections if s.section_id != section_id
+        ]
+        return True
 
-def hash_password(password: str) -> str:
-    """
-    Hash a password using bcrypt.
-    
-    Args:
-        password: Plain text password
-        
-    Returns:
-        Hashed password string
-    """
-    return pwd_context.hash(password)
+    def update_stats(
+        self,
+        user_id: str,
+        stats: dict[str, int],
+    ) -> bool:
+        """Update profile statistics.
 
+        Args:
+            user_id: User identifier
+            stats: Statistics to update/add
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify a password against a hash.
-    
-    Args:
-        plain_password: Plain text password to verify
-        hashed_password: Hashed password to compare against
-        
-    Returns:
-        True if password matches, False otherwise
-    """
-    return pwd_context.verify(plain_password, hashed_password)
+        Returns:
+            True if updated, False if profile not found
+        """
+        profile = self._profiles.get(user_id)
+        if not profile:
+            return False
+
+        profile.stats.update(stats)
+        return True
