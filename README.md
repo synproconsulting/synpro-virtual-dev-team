@@ -1,354 +1,204 @@
-# Profile Management API
+# User Account Deletion - SDT1-13
 
-A comprehensive FastAPI-based profile management system with authentication, authorization, and user profile operations.
+This module provides comprehensive user account deletion functionality with support for both soft and hard deletion methods.
 
 ## Features
 
-- **Get Profile**: Retrieve user profile information
-- **Update Profile**: Update user details (name, email, phone, bio, avatar)
-- **Change Password**: Secure password change with validation
-- **Deactivate Profile**: Soft delete user profiles
-- **JWT Authentication**: Bearer token-based authentication
-- **Input Validation**: Comprehensive validation using Pydantic models
-- **Password Security**: Bcrypt hashing with complexity requirements
-
-## Project Structure
-
-```
-.
-├── src/
-│   └── auth/
-│       ├── __init__.py       # Module exports
-│       ├── profile.py        # Profile models and service layer
-│       └── api.py            # FastAPI endpoints
-├── tests/
-│   ├── __init__.py
-│   ├── test_profile.py       # Profile model and service tests
-│   └── test_api.py           # API endpoint tests
-├── requirements.txt          # Project dependencies
-└── README.md                 # This file
-```
+- **Soft Delete**: Marks user as inactive and anonymizes personal data while retaining the record
+- **Hard Delete**: Permanently removes user and all associated data from the database
+- **Authorization Verification**: Ensures users can only delete their own accounts (unless admin)
+- **Bulk Deletion**: Admin functionality to clean up inactive users
+- **Comprehensive Error Handling**: Custom exceptions for different failure scenarios
+- **Transaction Safety**: All operations use database transactions with proper rollback on errors
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.11+
-- pip
-
-### Setup
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd <repository-directory>
-```
-
-2. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
+1. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Set environment variables:
+2. Set up environment variables:
 ```bash
-export JWT_SECRET_KEY="your-secret-key-here"
-export JWT_ALGORITHM="HS256"
+export DB_HOST=localhost
+export DB_NAME=your_database
+export DB_USER=your_user
+export DB_PASSWORD=your_password
+export DB_PORT=5432  # Optional, defaults to 5432
 ```
 
-## API Endpoints
+## Usage
 
-### Base URL: `/api/v1/profile`
+### Delete User Account
 
-All endpoints require JWT authentication via Bearer token in the `Authorization` header.
+```python
+from src.auth.delete_user import delete_user_account
 
-### 1. Get Current User Profile
+# Soft delete (default)
+result = delete_user_account(
+    user_id=123,
+    requesting_user_id=123,
+    is_admin=False,
+    hard_delete=False
+)
 
-**GET** `/api/v1/profile/me`
+# Hard delete (permanent)
+result = delete_user_account(
+    user_id=123,
+    requesting_user_id=123,
+    is_admin=False,
+    hard_delete=True
+)
 
-Retrieve the authenticated user's profile.
-
-**Response:**
-```json
-{
-  "user_id": "123",
-  "username": "johndoe",
-  "email": "john@example.com",
-  "full_name": "John Doe",
-  "phone_number": "+1234567890",
-  "bio": "Software developer",
-  "avatar_url": "https://example.com/avatar.jpg",
-  "created_at": "2024-01-01T00:00:00",
-  "updated_at": "2024-01-01T00:00:00",
-  "is_active": true
-}
+# Admin deleting another user's account
+result = delete_user_account(
+    user_id=456,
+    requesting_user_id=1,
+    is_admin=True,
+    hard_delete=False
+)
 ```
 
-### 2. Update Current User Profile
+### Bulk Delete Inactive Users
 
-**PUT** `/api/v1/profile/me`
+```python
+from src.auth.delete_user import bulk_delete_inactive_users
 
-Update the authenticated user's profile.
+# Dry run to see how many users would be deleted
+result = bulk_delete_inactive_users(
+    days_inactive=365,
+    requesting_admin_id=1,
+    dry_run=True
+)
 
-**Request Body:**
-```json
-{
-  "email": "newemail@example.com",
-  "full_name": "Jane Doe",
-  "phone_number": "+1234567890",
-  "bio": "Updated bio",
-  "avatar_url": "https://example.com/new-avatar.jpg"
-}
+# Actual deletion
+result = bulk_delete_inactive_users(
+    days_inactive=365,
+    requesting_admin_id=1,
+    dry_run=False
+)
 ```
 
-All fields are optional. Only provided fields will be updated.
+## Database Schema Requirements
 
-**Response:** Updated profile object (same as GET)
+The module expects the following database tables:
 
-### 3. Change Password
-
-**POST** `/api/v1/profile/me/change-password`
-
-Change the authenticated user's password.
-
-**Request Body:**
-```json
-{
-  "current_password": "OldPass123",
-  "new_password": "NewPass456",
-  "confirm_password": "NewPass456"
-}
+### users table
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    username VARCHAR(100) UNIQUE NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    last_login_at TIMESTAMP,
+    deleted_at TIMESTAMP
+);
 ```
 
-**Password Requirements:**
-- Minimum 8 characters
-- At least one uppercase letter
-- At least one lowercase letter
-- At least one digit
-- Must be different from current password
+### Related tables (for hard delete)
+```sql
+CREATE TABLE user_sessions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id)
+);
 
-**Response:**
-```json
-{
-  "message": "Password changed successfully",
-  "changed_at": "2024-01-01T12:00:00"
-}
+CREATE TABLE user_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE user_preferences (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id)
+);
 ```
 
-### 4. Deactivate Profile
+## Testing
 
-**DELETE** `/api/v1/profile/me`
-
-Deactivate (soft delete) the authenticated user's profile.
-
-**Response:**
-```json
-{
-  "message": "Profile deactivated successfully",
-  "deactivated_at": "2024-01-01T12:00:00"
-}
-```
-
-### 5. Get User Profile by ID
-
-**GET** `/api/v1/profile/{user_id}`
-
-Retrieve a specific user's profile. Currently restricted to own profile only (future: admin access).
-
-**Response:** Profile object (same as GET /me)
-
-## Authentication
-
-All endpoints require a JWT token in the Authorization header:
-
-```
-Authorization: Bearer <your-jwt-token>
-```
-
-The JWT token must contain a `sub` (subject) claim with the user ID.
-
-## Running Tests
-
-Run the test suite using pytest:
+Run the test suite:
 
 ```bash
 # Run all tests
-pytest
+pytest tests/test_delete_user.py
 
 # Run with coverage
-pytest --cov=src --cov-report=html
+pytest tests/test_delete_user.py --cov=src/auth --cov-report=html
 
-# Run specific test file
-pytest tests/test_profile.py
+# Run specific test class
+pytest tests/test_delete_user.py::TestDeleteUserAccount
 
 # Run with verbose output
-pytest -v
+pytest tests/test_delete_user.py -v
 ```
 
-## Usage Example
+## Error Handling
 
-### Using Python requests:
+The module defines custom exceptions:
 
+- **UserNotFoundError**: Raised when the specified user does not exist
+- **UnauthorizedDeletionError**: Raised when user lacks permission to delete the account
+- **UserDeletionError**: Raised when deletion operation fails
+
+Example:
 ```python
-import requests
+from src.auth.delete_user import (
+    delete_user_account,
+    UserNotFoundError,
+    UnauthorizedDeletionError,
+    UserDeletionError
+)
 
-# Base URL
-base_url = "http://localhost:8000/api/v1/profile"
-
-# JWT token (obtain from authentication endpoint)
-token = "your-jwt-token-here"
-headers = {"Authorization": f"Bearer {token}"}
-
-# Get profile
-response = requests.get(f"{base_url}/me", headers=headers)
-print(response.json())
-
-# Update profile
-update_data = {
-    "full_name": "Jane Smith",
-    "bio": "Python developer"
-}
-response = requests.put(f"{base_url}/me", json=update_data, headers=headers)
-print(response.json())
-
-# Change password
-password_data = {
-    "current_password": "OldPass123",
-    "new_password": "NewPass456",
-    "confirm_password": "NewPass456"
-}
-response = requests.post(f"{base_url}/me/change-password", json=password_data, headers=headers)
-print(response.json())
-```
-
-### Using curl:
-
-```bash
-# Get profile
-curl -X GET "http://localhost:8000/api/v1/profile/me" \
-  -H "Authorization: Bearer your-jwt-token"
-
-# Update profile
-curl -X PUT "http://localhost:8000/api/v1/profile/me" \
-  -H "Authorization: Bearer your-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{"full_name": "Jane Smith", "bio": "Python developer"}'
-
-# Change password
-curl -X POST "http://localhost:8000/api/v1/profile/me/change-password" \
-  -H "Authorization: Bearer your-jwt-token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "current_password": "OldPass123",
-    "new_password": "NewPass456",
-    "confirm_password": "NewPass456"
-  }'
-```
-
-## Integration with FastAPI Application
-
-To integrate the profile router into your FastAPI application:
-
-```python
-from fastapi import FastAPI
-from src.auth import profile_router
-
-app = FastAPI(title="My Application")
-
-# Include the profile management router
-app.include_router(profile_router)
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-```
-
-## Database Integration
-
-The current implementation includes placeholder methods that raise `NotImplementedError`. To integrate with a database:
-
-1. **Create database models** (e.g., using SQLAlchemy or your ORM of choice)
-2. **Implement the ProfileService methods** in `src/auth/profile.py`
-3. **Update the dependency** `get_profile_service()` in `src/auth/api.py` to return a service with an actual database connection
-
-Example SQLAlchemy integration:
-
-```python
-from sqlalchemy.ext.asyncio import AsyncSession
-
-async def get_profile_service(db: AsyncSession = Depends(get_db)):
-    return ProfileService(database_connection=db)
+try:
+    result = delete_user_account(user_id=123, requesting_user_id=123)
+except UserNotFoundError:
+    print("User not found")
+except UnauthorizedDeletionError:
+    print("Not authorized to delete this account")
+except UserDeletionError as e:
+    print(f"Deletion failed: {e}")
 ```
 
 ## Security Considerations
 
-- **Environment Variables**: Never commit `JWT_SECRET_KEY` to version control
-- **Password Hashing**: Uses bcrypt with automatic salting
-- **JWT Expiration**: Implement token expiration in your authentication system
-- **HTTPS**: Always use HTTPS in production
-- **Rate Limiting**: Consider adding rate limiting to prevent brute force attacks
-- **Input Validation**: All inputs are validated using Pydantic models
+1. **Environment Variables**: Never commit database credentials to version control
+2. **Authorization**: The module enforces that users can only delete their own accounts unless they have admin privileges
+3. **Soft Delete by Default**: Soft deletion is the default to prevent accidental data loss
+4. **Transaction Safety**: All database operations use transactions to ensure data integrity
+5. **Audit Trail**: Soft deletes preserve records with deletion timestamp for audit purposes
 
-## Error Handling
+## Response Format
 
-The API returns standard HTTP status codes:
-
-- **200 OK**: Request successful
-- **400 Bad Request**: Invalid input data
-- **401 Unauthorized**: Missing or invalid authentication token
-- **403 Forbidden**: Not authorized to access resource
-- **404 Not Found**: Resource not found
-- **501 Not Implemented**: Database integration required
-
-Error responses include a detail message:
-
-```json
+Successful deletion returns:
+```python
 {
-  "detail": "Error message describing what went wrong"
+    "success": True,
+    "user_id": 123,
+    "deletion_type": "soft",  # or "hard"
+    "deleted_at": "2024-01-01T12:00:00",
+    "message": "User account successfully deleted (soft delete)"
 }
 ```
 
 ## Development
 
-### Code Quality Tools
+### Code Style
+- Python 3.11+
+- Type hints on all functions
+- Docstrings following Google style
+- Maximum function length: 30 lines
+- No hardcoded secrets
 
-```bash
-# Format code with black
-black src/ tests/
+### Logging
+The module uses Python's logging module. Configure it in your application:
+```python
+import logging
 
-# Sort imports with isort
-isort src/ tests/
-
-# Lint with flake8
-flake8 src/ tests/
-
-# Type check with mypy
-mypy src/
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 ```
-
-### Running the Development Server
-
-```bash
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-## Contributing
-
-1. Create a feature branch
-2. Write tests for new functionality
-3. Ensure all tests pass
-4. Follow PEP 8 style guidelines
-5. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License.
-
-## Support
-
-For issues, questions, or contributions, please open an issue on the project repository.
+Internal use only - Synpro Consulting
