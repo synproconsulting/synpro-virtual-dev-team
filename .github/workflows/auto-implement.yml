@@ -1,0 +1,53 @@
+name: Auto Implement
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticket:
+        description: 'Jira ticket key e.g. SDT1-13'
+        required: true
+      summary:
+        description: 'Ticket summary'
+        required: true
+      feedback:
+        description: 'Feedback from previous failed attempt'
+        required: false
+        default: ''
+
+jobs:
+  implement:
+    name: Dev Agent implement
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install anthropic requests python-dotenv
+
+      - name: Run Dev Agent
+        env:
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_USERNAME:    ${{ github.repository_owner }}
+          GITHUB_REPO:        ${{ github.event.repository.name }}
+          JIRA_BASE_URL:      ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL:         ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN:     ${{ secrets.JIRA_API_TOKEN }}
+          OPENAI_API_KEY:     sk-no-openai-needed
+        run: |
+          python ci_dev_agent.py \
+            --ticket "${{ github.event.inputs.ticket }}" \
+            --summary "${{ github.event.inputs.summary }}" \
+            --feedback "${{ github.event.inputs.feedback }}"
