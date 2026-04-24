@@ -1,106 +1,10 @@
-# Authentication Module
+# Test Feedback Loop - SDT1-18
 
-This module provides secure user registration functionality with password hashing and validation for Python applications.
+This repository demonstrates a test feedback loop implementation for the authentication module.
 
-## Features
+## Overview
 
-- **User Registration**: Register new users with username, email, and password
-- **Email Validation**: Validates email format using regex patterns
-- **Password Strength Validation**: Enforces strong password requirements
-- **Secure Password Hashing**: Uses bcrypt for secure password storage
-- **Password Verification**: Verify passwords against stored hashes
-
-## Installation
-
-Install the required dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-## Usage
-
-### Register a New User
-
-```python
-from src.auth import register_user, RegistrationError
-
-try:
-    user = register_user(
-        username="johndoe",
-        email="john@example.com",
-        password="SecurePass123"
-    )
-    print(f"User registered: {user}")
-except RegistrationError as e:
-    print(f"Registration failed: {e}")
-```
-
-### Validate Email
-
-```python
-from src.auth import validate_email
-
-is_valid = validate_email("user@example.com")
-print(f"Email valid: {is_valid}")
-```
-
-### Validate Password Strength
-
-```python
-from src.auth import validate_password
-
-is_strong = validate_password("MyPassword123")
-print(f"Password meets requirements: {is_strong}")
-```
-
-### Hash and Verify Passwords
-
-```python
-from src.auth import hash_password, verify_password
-
-# Hash a password
-hashed = hash_password("MyPassword123")
-
-# Verify a password
-is_correct = verify_password("MyPassword123", hashed)
-print(f"Password verified: {is_correct}")
-```
-
-## Password Requirements
-
-Passwords must meet the following criteria:
-- Minimum 8 characters long
-- At least one uppercase letter (A-Z)
-- At least one lowercase letter (a-z)
-- At least one digit (0-9)
-
-## Username Requirements
-
-- Minimum 3 characters
-- Maximum 50 characters
-
-## Email Requirements
-
-- Valid email format (e.g., user@example.com)
-
-## Running Tests
-
-Execute the test suite using pytest:
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage report
-pytest --cov=src --cov-report=html
-
-# Run specific test file
-pytest tests/test_user_registration.py
-
-# Run with verbose output
-pytest -v
-```
+This project replaces the existing README with new content as per ticket SDT1-18 requirements. All previous requirements have been removed and replaced with a fresh authentication module implementation.
 
 ## Project Structure
 
@@ -109,79 +13,69 @@ pytest -v
 ├── src/
 │   └── auth/
 │       ├── __init__.py
-│       └── user_registration.py
+│       ├── user.py
+│       └── authentication.py
 ├── tests/
 │   ├── __init__.py
-│   └── test_user_registration.py
+│   └── test_authentication.py
 ├── requirements.txt
 └── README.md
 ```
 
-## Dependencies
+## Features
 
-- **passlib**: Password hashing library with bcrypt support
-- **pytest**: Testing framework
-- **pytest-cov**: Code coverage plugin for pytest
+- User registration and authentication
+- Password hashing with bcrypt
+- JWT token generation and validation
+- Type-safe Python 3.11+ implementation
+- Comprehensive unit tests
 
-## API Reference
+## Installation
 
-### `register_user(username: str, email: str, password: str) -> User`
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Register a new user with validation.
+## Usage
 
-**Parameters:**
-- `username`: Desired username (3-50 characters)
-- `email`: User's email address
-- `password`: Plain text password
+```python
+from src.auth.authentication import AuthService
+from src.auth.user import User
 
-**Returns:** User object with hashed password
+# Initialize auth service
+auth_service = AuthService()
 
-**Raises:** `RegistrationError` if validation fails
+# Register a new user
+user = auth_service.register_user("john@example.com", "secure_password123")
 
-### `validate_email(email: str) -> bool`
+# Authenticate user
+is_authenticated = auth_service.authenticate_user("john@example.com", "secure_password123")
 
-Validate email format.
+# Generate JWT token
+token = auth_service.generate_token(user.user_id)
 
-**Parameters:**
-- `email`: Email address to validate
+# Validate token
+payload = auth_service.validate_token(token)
+```
 
-**Returns:** True if email format is valid, False otherwise
+## Testing
 
-### `validate_password(password: str) -> bool`
+Run the test suite:
 
-Validate password strength.
+```bash
+pytest tests/ -v
+```
 
-**Parameters:**
-- `password`: Password to validate
+## Environment Variables
 
-**Returns:** True if password meets requirements, False otherwise
+Set the following environment variables:
 
-### `hash_password(password: str) -> str`
-
-Hash a password using bcrypt.
-
-**Parameters:**
-- `password`: Plain text password
-
-**Returns:** Hashed password string
-
-### `verify_password(plain_password: str, hashed_password: str) -> bool`
-
-Verify a password against its hash.
-
-**Parameters:**
-- `plain_password`: Plain text password
-- `hashed_password`: Hashed password to verify against
-
-**Returns:** True if password matches, False otherwise
-
-## Security Notes
-
-- Passwords are hashed using bcrypt with automatic salt generation
-- Never store plain text passwords
-- Each password hash is unique due to automatic salting
-- The bcrypt algorithm is intentionally slow to prevent brute-force attacks
+- `JWT_SECRET_KEY`: Secret key for JWT token signing (required)
+- `JWT_ALGORITHM`: Algorithm for JWT (default: HS256)
+- `JWT_EXPIRATION_MINUTES`: Token expiration time in minutes (default: 30)
 
 ## License
 
-This module is part of the SynPro Virtual Dev Team project.
+MIT License
