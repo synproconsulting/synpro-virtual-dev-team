@@ -1,112 +1,187 @@
-# Email Notifications for Authentication Events
+# Notification Preferences Management Interface
 
-## Overview
-
-This module provides email notification functionality for authentication-related events, including:
-- Password reset requests
-- Login alerts
-- Password change confirmations
+A comprehensive Python implementation for managing user notification preferences across multiple channels (email, SMS, push, in-app) and event categories.
 
 ## Features
 
-- **Password Reset Emails**: Send secure password reset links with expiration warnings
-- **Login Alerts**: Notify users of new logins with device and location information
-- **Password Changed Notifications**: Confirm password changes with security warnings
-- **HTML and Plain Text**: All emails sent in both formats for maximum compatibility
-- **Configurable SMTP**: Easy configuration via environment variables or constructor parameters
+- **Multi-channel notification support**: Email, SMS, Push, and In-App notifications
+- **Event categories**: Security, Account, Marketing, Product Updates, System, and Social
+- **Global controls**: Global mute and quiet hours functionality
+- **Timezone support**: Per-user timezone configuration
+- **RESTful API**: FastAPI-based endpoints for preference management
+- **Flexible storage**: Pluggable storage backend (default: in-memory)
+- **Comprehensive validation**: Pydantic models with built-in validation
+- **Full test coverage**: Unit tests for all major components
 
 ## Installation
 
-1. Install dependencies:
+1. Clone the repository:
+```bash
+git clone https://github.com/synproconsulting/synpro-virtual-dev-team.git
+cd synpro-virtual-dev-team
+```
+
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configure environment variables:
-```bash
-export SMTP_HOST=smtp.example.com
-export SMTP_PORT=587
-export SMTP_USERNAME=your_username
-export SMTP_PASSWORD=your_password
-export FROM_EMAIL=noreply@example.com
-export PASSWORD_RESET_URL=https://yourapp.com/reset-password
+## Project Structure
+
+```
+.
+├── src/
+│   └── auth/
+│       ├── __init__.py
+│       ├── notification_preferences.py  # Core business logic
+│       └── notification_api.py          # REST API endpoints
+├── tests/
+│   ├── __init__.py
+│   ├── test_notification_preferences.py  # Unit tests for core module
+│   └── test_notification_api.py          # API endpoint tests
+├── requirements.txt
+└── README.md
 ```
 
 ## Usage
 
-### Basic Example
+### Basic Usage
 
 ```python
-from src.auth.email_notifications import EmailNotificationService
+from src.auth import NotificationPreferencesManager, NotificationType, EventCategory
 
-# Initialize the service
-email_service = EmailNotificationService(
-    smtp_host="smtp.gmail.com",
-    smtp_port=587,
-    smtp_username="your_email@gmail.com",
-    smtp_password="your_app_password",
-    from_email="noreply@yourapp.com"
+# Initialize the manager
+manager = NotificationPreferencesManager()
+
+# Get user preferences (creates defaults for new users)
+profile = manager.get_user_preferences("user123")
+
+# Update a single preference
+manager.update_preference(
+    user_id="user123",
+    event_category=EventCategory.SECURITY,
+    notification_type=NotificationType.EMAIL,
+    enabled=True
 )
 
-# Send password reset email
-success = email_service.send_password_reset_email(
-    to_email="user@example.com",
-    reset_token="secure_random_token_here",
-    reset_url_base="https://yourapp.com/reset-password"
+# Update global settings
+manager.update_global_settings(
+    user_id="user123",
+    global_mute=False,
+    quiet_hours_enabled=True,
+    quiet_hours_start="22:00",
+    quiet_hours_end="08:00",
+    timezone="America/New_York"
 )
 
-# Send login alert
-from datetime import datetime
-
-success = email_service.send_login_alert_email(
-    to_email="user@example.com",
-    login_time=datetime.utcnow(),
-    ip_address="192.168.1.1",
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    location="New York, USA"
-)
-
-# Send password changed confirmation
-success = email_service.send_password_changed_email(
-    to_email="user@example.com"
+# Check if notification is allowed
+allowed = manager.is_notification_allowed(
+    user_id="user123",
+    event_category=EventCategory.SECURITY,
+    notification_type=NotificationType.EMAIL
 )
 ```
 
-### Using Environment Variables
+### FastAPI Integration
 
 ```python
-from src.auth.email_notifications import EmailNotificationService
+from fastapi import FastAPI
+from src.auth import notification_router
 
-# Service will automatically use environment variables
-email_service = EmailNotificationService()
+app = FastAPI()
+app.include_router(notification_router)
 
-# Use the service
-email_service.send_password_reset_email(
-    to_email="user@example.com",
-    reset_token="token123"
-)
+# Run with: uvicorn main:app --reload
 ```
 
-## Configuration
+## API Endpoints
 
-### Environment Variables
+### Get User Preferences
+```
+GET /api/v1/notifications/preferences
+GET /api/v1/notifications/preferences?user_id={user_id}
+```
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SMTP_HOST` | SMTP server hostname | `localhost` |
-| `SMTP_PORT` | SMTP server port | `587` |
-| `SMTP_USERNAME` | SMTP authentication username | `""` |
-| `SMTP_PASSWORD` | SMTP authentication password | `""` |
-| `FROM_EMAIL` | Sender email address | `noreply@example.com` |
-| `PASSWORD_RESET_URL` | Base URL for password reset | `https://example.com/reset-password` |
+### Update Single Preference
+```
+PUT /api/v1/notifications/preferences/single
+Body: {
+    "event_category": "security",
+    "notification_type": "email",
+    "enabled": false
+}
+```
 
-### Security Considerations
+### Bulk Update Preferences
+```
+PUT /api/v1/notifications/preferences/bulk
+Body: {
+    "preferences": [
+        {
+            "event_category": "security",
+            "notification_type": "email",
+            "enabled": false
+        },
+        {
+            "event_category": "marketing",
+            "notification_type": "sms",
+            "enabled": true
+        }
+    ]
+}
+```
 
-- **Never commit credentials**: Always use environment variables for sensitive data
-- **Use app-specific passwords**: For Gmail and similar services, use app-specific passwords
-- **Enable TLS**: The service uses STARTTLS for secure connections
-- **Token expiration**: Password reset tokens should expire (mentioned in email, implement server-side)
-- **Rate limiting**: Implement rate limiting on the application side to prevent abuse
+### Update Global Settings
+```
+PUT /api/v1/notifications/preferences/global
+Body: {
+    "global_mute": true,
+    "quiet_hours_enabled": true,
+    "quiet_hours_start": "22:00",
+    "quiet_hours_end": "08:00",
+    "timezone": "America/New_York"
+}
+```
+
+### Check Notification Allowed
+```
+POST /api/v1/notifications/check
+Body: {
+    "event_category": "security",
+    "notification_type": "email"
+}
+```
+
+### Get Metadata
+```
+GET /api/v1/notifications/categories  # List all event categories
+GET /api/v1/notifications/types       # List all notification types
+```
+
+## Event Categories
+
+- `security` - Security-related notifications
+- `account` - Account activity notifications
+- `marketing` - Marketing and promotional content
+- `product_updates` - Product feature updates
+- `system` - System maintenance and alerts
+- `social` - Social interactions and comments
+
+## Notification Types
+
+- `email` - Email notifications
+- `sms` - SMS/text message notifications
+- `push` - Push notifications (mobile/web)
+- `in_app` - In-application notifications
+
+## Default Behavior
+
+When a new user is created, default preferences are automatically generated:
+- All notification types are **enabled** for all event categories
+- **Except**: Marketing notifications are **disabled** by default
+- Global mute is **off**
+- Quiet hours are **disabled**
+- Timezone is set to **UTC**
 
 ## Testing
 
@@ -114,108 +189,66 @@ Run the test suite:
 
 ```bash
 # Run all tests
-pytest tests/
+pytest
 
 # Run with coverage
-pytest --cov=src tests/
+pytest --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/test_email_notifications.py
-
-# Run with verbose output
-pytest -v tests/
+pytest tests/test_notification_preferences.py
+pytest tests/test_notification_api.py
 ```
 
-## Email Templates
+## Storage Backends
 
-All emails include:
-- Professional HTML templates with inline CSS
-- Plain text fallback versions
-- Clear call-to-action buttons (in HTML version)
-- Security warnings and instructions
-- Consistent branding elements
+The system supports pluggable storage backends. The default is in-memory storage.
 
-### Customization
+### Custom Storage Backend
 
-To customize email templates, modify the HTML and text content in the respective methods:
-- `send_password_reset_email()` - Password reset template
-- `send_login_alert_email()` - Login alert template  
-- `send_password_changed_email()` - Password changed template
-
-## Error Handling
-
-The service includes comprehensive error handling:
-- All methods return `bool` indicating success/failure
-- Errors are logged using Python's logging module
-- SMTP exceptions are caught and logged
-- Failed emails return `False` without raising exceptions
-
-## API Reference
-
-### EmailNotificationService
-
-#### `__init__(smtp_host, smtp_port, smtp_username, smtp_password, from_email)`
-Initialize the email notification service with SMTP configuration.
-
-#### `send_password_reset_email(to_email, reset_token, reset_url_base) -> bool`
-Send a password reset email with a secure reset link.
-
-#### `send_login_alert_email(to_email, login_time, ip_address, user_agent, location) -> bool`
-Send a login alert notification with login details.
-
-#### `send_password_changed_email(to_email) -> bool`
-Send a confirmation email after password change.
-
-## Integration Examples
-
-### Flask Integration
+Implement the `StorageBackend` interface:
 
 ```python
-from flask import Flask, request
-from src.auth.email_notifications import EmailNotificationService
+from src.auth import StorageBackend, NotificationPreferencesProfile
+from typing import Optional
 
-app = Flask(__name__)
-email_service = EmailNotificationService()
+class MyCustomStorage(StorageBackend):
+    def get_profile(self, user_id: str) -> Optional[NotificationPreferencesProfile]:
+        # Your implementation
+        pass
+    
+    def save_profile(self, profile: NotificationPreferencesProfile) -> None:
+        # Your implementation
+        pass
 
-@app.route('/api/auth/forgot-password', methods=['POST'])
-def forgot_password():
-    email = request.json.get('email')
-    # Generate reset token (implement your token generation)
-    reset_token = generate_reset_token(email)
-    
-    # Send email
-    success = email_service.send_password_reset_email(
-        to_email=email,
-        reset_token=reset_token
-    )
-    
-    if success:
-        return {'message': 'Password reset email sent'}, 200
-    return {'error': 'Failed to send email'}, 500
+# Use custom storage
+manager = NotificationPreferencesManager(storage_backend=MyCustomStorage())
 ```
 
-### Django Integration
+## Security Considerations
 
-```python
-from django.contrib.auth.signals import user_logged_in
-from django.dispatch import receiver
-from src.auth.email_notifications import EmailNotificationService
+- All user inputs are validated using Pydantic models
+- No secrets or API keys are hardcoded
+- Authentication dependency is designed to integrate with existing auth systems
+- Input sanitization is handled automatically by FastAPI and Pydantic
 
-email_service = EmailNotificationService()
+## Future Enhancements
 
-@receiver(user_logged_in)
-def send_login_notification(sender, request, user, **kwargs):
-    email_service.send_login_alert_email(
-        to_email=user.email,
-        ip_address=request.META.get('REMOTE_ADDR'),
-        user_agent=request.META.get('HTTP_USER_AGENT'),
-    )
-```
+- Database storage backend (PostgreSQL, MongoDB)
+- Notification delivery scheduling
+- A/B testing for notification effectiveness
+- Notification batching and digest options
+- User preference import/export
+- Admin dashboard for preference management
+- Notification history and analytics
+
+## Contributing
+
+1. Create a feature branch
+2. Make your changes
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues, questions, or contributions, please contact the development team.
+Copyright © 2024 Synpro Consulting. All rights reserved.
