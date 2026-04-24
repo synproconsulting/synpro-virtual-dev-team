@@ -119,45 +119,32 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
 
     feedback_section = f"\n\nFEEDBACK FROM PREVIOUS ATTEMPT (must address these):\n{feedback}" if feedback else ""
 
-    prompt = f"""You are a Python backend developer implementing a Jira ticket.
-
-Ticket: [{ticket}] {summary}{feedback_section}
-
-EXISTING FILES (do not replace these — append/extend only):
-
-README.md (existing content):
-{existing_readme or '(does not exist yet)'}
-
-requirements.txt (existing content):
-{existing_reqs or '(does not exist yet)'}
-
-src/auth/__init__.py (existing content):
-{existing_init or '(does not exist yet)'}
-
-tests/__init__.py (existing content):
-{existing_test_init or '(does not exist yet)'}
-
-RULES:
-1. Create NEW source files for the feature (e.g. src/auth/delete_account.py)
-2. Create NEW test files (e.g. tests/test_delete_account.py)
-3. For README.md: provide the FULL file content including existing content PLUS new section appended at the end
-4. For requirements.txt: provide FULL content including ALL existing dependencies PLUS any new ones
-5. For __init__.py files: provide FULL content including existing exports PLUS new ones
-6. Never remove existing content from shared files
-7. Use Python 3.11+, type hints, docstrings, pytest tests
-
-Respond with a JSON object:
-{{
-  "files": [
-    {{"path": "src/auth/delete_account.py", "content": "# full file content"}},
-    {{"path": "tests/test_delete_account.py", "content": "# full test content"}},
-    {{"path": "README.md", "content": "# existing content + new section"}},
-    {{"path": "requirements.txt", "content": "existing deps + new ones"}}
-  ],
-  "pr_body": "description of what was implemented and how to test it"
-}}
-
-Respond ONLY with the JSON object."""
+    prompt = (
+        "You are a Python backend developer implementing a Jira ticket.\n\n"
+        "Ticket: [" + ticket + "] " + summary + feedback_section + "\n\n"
+        "RULES:\n"
+        "1. Create ONLY NEW source files (e.g. src/auth/delete_account.py)\n"
+        "2. Create ONLY NEW test files (e.g. tests/test_delete_account.py)\n"
+        "3. Do NOT include README.md, requirements.txt, or __init__.py\n"
+        "   These will be handled separately\n"
+        "4. Use Python 3.11+, type hints, docstrings, pytest tests\n"
+        "5. No hardcoded secrets\n\n"
+        "Also provide:\n"
+        "- readme_section: new markdown section to append to README\n"
+        "- new_requirements: list of NEW pip packages needed\n"
+        "- new_exports: list of new symbols to add to src/auth/__init__.py\n\n"
+        "Respond with ONLY a JSON object:\n"
+        "{\n"
+        '  \"files\": [\n'
+        '    {\"path\": \"src/auth/feature.py\", \"content\": \"# implementation\"},\n'
+        '    {\"path\": \"tests/test_feature.py\", \"content\": \"# tests\"}\n'
+        "  ],\n"
+        '  \"readme_section\": \"## Feature\\n\\ndescription\",\n'
+        '  \"new_requirements\": [\"package==1.0\"],\n'
+        '  \"new_exports\": [\"ClassName\"],\n'
+        '  \"pr_body\": \"what was implemented\"\n'
+        "}"
+    )
 
     print("\nAsking Claude to implement the ticket...")
     response = client.messages.create(
@@ -178,9 +165,12 @@ Respond ONLY with the JSON object."""
         print(f"Raw: {raw[:300]}")
         sys.exit(1)
 
-    files   = result.get("files", [])
-    pr_body = result.get("pr_body", f"Implements {summary}")
-    print(f"\nClaude generated {len(files)} files")
+    files            = result.get("files", [])
+    pr_body          = result.get("pr_body", "Implements " + summary)
+    readme_section   = result.get("readme_section", "")
+    new_requirements = result.get("new_requirements", [])
+    new_exports      = result.get("new_exports", [])
+    print(f"\nClaude generated {len(files)} new files")
 
     # Create branch
     print(f"\nCreating branch {branch}...")
@@ -188,22 +178,58 @@ Respond ONLY with the JSON object."""
         print("Failed to create branch")
         sys.exit(1)
 
-    # Commit each file
-    print("\nCommitting files...")
+    commit_msg = "feat(" + ticket.lower() + "): implement " + summary.lower()[:50]
+
+    # Commit each NEW file
+    print("\nCommitting new files...")
     committed = []
     for f in files:
-        path    = f.get("path", "")
-        content = f.get("content", "")
-        if not path or not content:
+        path     = f.get("path", "")
+        fcontent = f.get("content", "")
+        if not path or not fcontent:
             continue
-        ok = commit_file(path, content,
-                        f"feat({ticket.lower()}): implement {summary.lower()[:50]}",
-                        branch)
+        ok = commit_file(path, fcontent, commit_msg, branch)
         if ok:
             print(f"  ✓ {path}")
             committed.append(path)
         else:
             print(f"  ✗ {path} — commit failed")
+
+    # Append to README.md
+    if readme_section and existing_readme:
+        new_readme = existing_readme.rstrip() + "\n\n" + readme_section
+        ok = commit_file("README.md", new_readme, commit_msg, branch)
+        print(f"  {'✓' if ok else '✗'} README.md (appended)")
+        if ok:
+            committed.append("README.md")
+    elif readme_section:
+        ok = commit_file("README.md", readme_section, commit_msg, branch)
+        if ok:
+            committed.append("README.md")
+
+    # Append to requirements.txt
+    if new_requirements and existing_reqs:
+        existing_pkgs = set(l.split("==")[0].split(">=")[0].strip().lower()
+                           for l in existing_reqs.splitlines() if l.strip() and not l.startswith("#"))
+        to_add = [r for r in new_requirements
+                  if r.split("==")[0].split(">=")[0].strip().lower() not in existing_pkgs]
+        if to_add:
+            new_reqs = existing_reqs.rstrip() + "\n" + "\n".join(to_add) + "\n"
+            ok = commit_file("requirements.txt", new_reqs, commit_msg, branch)
+            print(f"  {'✓' if ok else '✗'} requirements.txt (appended {len(to_add)} packages)")
+            if ok:
+                committed.append("requirements.txt")
+
+    # Update src/auth/__init__.py
+    if new_exports and existing_init:
+        additions = "\n".join(f"from src.auth.{files[0].get('path','').split('/')[-1].replace('.py','')} import {e}"
+                              for e in new_exports if e not in existing_init)
+        if additions:
+            new_init = existing_init.rstrip() + "\n" + additions + "\n"
+            ok = commit_file("src/auth/__init__.py", new_init, commit_msg, branch)
+            print(f"  {'✓' if ok else '✗'} src/auth/__init__.py (updated)")
+            if ok:
+                committed.append("src/auth/__init__.py")
 
     # Open PR
     print(f"\nOpening PR...")
