@@ -163,6 +163,16 @@ def review_pr(pr_number, sha=None):
         f"Files changed:\n{file_list}\n\n"
         f"CI:\n{ci_summary}\n\n"
         f"Diff:\n{diff}\n\n"
+        "APPROVAL CRITERIA - approve if ANY of these are true:\n"
+        "- Tests pass and new source files are present\n"
+        "- CI blocking jobs (Test, Security, E2E) all pass\n\n"
+        "NEVER reject for these reasons:\n"
+        "- SonarCloud skipped (always expected)\n"
+        "- Railway deploy skipped (always expected)\n"
+        "- Truncated diff\n"
+        "- README changes\n"
+        "- Mergeable shows None (GitHub still computing)\n\n"
+        "ONLY reject for: hardcoded secrets, syntax errors, zero tests\n\n"
         "Respond ONLY with a JSON object:\n"
         '{"decision":"APPROVE" or "REQUEST_CHANGES","summary":"one paragraph","issues":[],"merge_message":"commit title"}'
     )
