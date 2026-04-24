@@ -262,3 +262,7 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## Sprint Trigger and PR Auto Review
+
+This module provides one-click sprint triggering functionality and automated PR review capabilities. The SprintTrigger class enables teams to quickly initiate sprints with configurable durations and notifications, while PRAutoReview automatically validates pull requests against customizable rules including title conventions, size limits, test coverage, and secret detection.
