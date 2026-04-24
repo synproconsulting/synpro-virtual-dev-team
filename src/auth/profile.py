@@ -1,222 +1,271 @@
 """
-Profile management module for user profile operations.
+Profile page UI/UX handler module.
 
-This module provides functions for managing user profiles including
-retrieval, updates, and password changes.
+This module provides the backend logic for rendering and managing
+the user profile page, including data retrieval, validation, and updates.
 """
 
 from typing import Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, validator
-from passlib.context import CryptContext
+import os
 
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-class ProfileBase(BaseModel):
-    """Base profile model with common fields."""
+class UserProfile(BaseModel):
+    """
+    User profile data model for UI rendering.
     
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = Field(None, min_length=1, max_length=100)
-    phone_number: Optional[str] = Field(None, min_length=10, max_length=20)
-    bio: Optional[str] = Field(None, max_length=500)
-    avatar_url: Optional[str] = None
-    
-    @validator('phone_number')
-    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        """Validate phone number format."""
-        if v is not None:
-            # Remove spaces and dashes for validation
-            cleaned = v.replace(' ', '').replace('-', '')
-            if not cleaned.replace('+', '').isdigit():
-                raise ValueError('Phone number must contain only digits, spaces, dashes, and optional + prefix')
-        return v
-
-
-class ProfileUpdate(ProfileBase):
-    """Model for profile update requests."""
-    pass
-
-
-class ProfileResponse(ProfileBase):
-    """Model for profile response with additional metadata."""
+    Attributes:
+        user_id: Unique identifier for the user
+        username: User's username
+        email: User's email address
+        full_name: User's full name
+        bio: User biography/description
+        avatar_url: URL to user's profile picture
+        created_at: Account creation timestamp
+        updated_at: Last profile update timestamp
+        is_verified: Email verification status
+        phone_number: Optional phone number
+        location: Optional user location
+        website: Optional website URL
+    """
     
     user_id: str
     username: str
+    email: EmailStr
+    full_name: Optional[str] = None
+    bio: Optional[str] = Field(None, max_length=500)
+    avatar_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
-    is_active: bool
+    is_verified: bool = False
+    phone_number: Optional[str] = None
+    location: Optional[str] = None
+    website: Optional[str] = None
     
-    class Config:
-        """Pydantic configuration."""
-        from_attributes = True
+    @validator('bio')
+    def validate_bio(cls, value: Optional[str]) -> Optional[str]:
+        """Validate and sanitize bio text."""
+        if value:
+            # Remove excessive whitespace
+            value = ' '.join(value.split())
+        return value
+    
+    @validator('website')
+    def validate_website(cls, value: Optional[str]) -> Optional[str]:
+        """Validate website URL format."""
+        if value and not value.startswith(('http://', 'https://')):
+            raise ValueError('Website URL must start with http:// or https://')
+        return value
 
 
-class PasswordChangeRequest(BaseModel):
-    """Model for password change requests."""
+class ProfileUpdateRequest(BaseModel):
+    """
+    Request model for profile updates.
     
-    current_password: str = Field(..., min_length=8)
-    new_password: str = Field(..., min_length=8)
-    confirm_password: str = Field(..., min_length=8)
+    Only includes fields that users are allowed to update.
+    """
     
-    @validator('new_password')
-    def validate_new_password(cls, v: str, values: Dict[str, Any]) -> str:
-        """Validate new password requirements."""
-        if 'current_password' in values and v == values['current_password']:
-            raise ValueError('New password must be different from current password')
-        
-        # Check password complexity
-        if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain at least one digit')
-        
-        return v
+    full_name: Optional[str] = Field(None, max_length=100)
+    bio: Optional[str] = Field(None, max_length=500)
+    phone_number: Optional[str] = Field(None, max_length=20)
+    location: Optional[str] = Field(None, max_length=100)
+    website: Optional[str] = Field(None, max_length=200)
     
-    @validator('confirm_password')
-    def passwords_match(cls, v: str, values: Dict[str, Any]) -> str:
-        """Validate that passwords match."""
-        if 'new_password' in values and v != values['new_password']:
-            raise ValueError('Passwords do not match')
-        return v
+    @validator('phone_number')
+    def validate_phone(cls, value: Optional[str]) -> Optional[str]:
+        """Validate phone number format."""
+        if value:
+            # Remove common separators
+            cleaned = ''.join(c for c in value if c.isdigit() or c == '+')
+            if len(cleaned) < 10:
+                raise ValueError('Phone number must be at least 10 digits')
+        return value
 
 
 class ProfileService:
-    """Service class for profile management operations."""
+    """
+    Service class for profile management operations.
     
-    def __init__(self, database_connection: Any):
+    Handles profile retrieval, updates, and avatar management.
+    """
+    
+    def __init__(self, database_url: Optional[str] = None):
         """
-        Initialize the profile service.
+        Initialize profile service.
         
         Args:
-            database_connection: Database connection or session object
+            database_url: Database connection URL (from env if not provided)
         """
-        self.db = database_connection
+        self.database_url = database_url or os.getenv('DATABASE_URL')
+        if not self.database_url:
+            raise ValueError("DATABASE_URL environment variable is required")
     
-    async def get_profile(self, user_id: str) -> Optional[ProfileResponse]:
+    async def get_profile(self, user_id: str) -> Optional[UserProfile]:
         """
         Retrieve user profile by user ID.
         
         Args:
-            user_id: The unique identifier of the user
+            user_id: Unique user identifier
             
         Returns:
-            ProfileResponse object if found, None otherwise
+            UserProfile object if found, None otherwise
         """
-        # In a real implementation, this would query the database
-        # Example: user = await self.db.query(User).filter(User.id == user_id).first()
-        raise NotImplementedError("Database integration required")
+        # Database query would go here
+        # This is a placeholder for the actual implementation
+        pass
     
     async def update_profile(
-        self, 
-        user_id: str, 
-        profile_data: ProfileUpdate
-    ) -> ProfileResponse:
+        self,
+        user_id: str,
+        update_data: ProfileUpdateRequest
+    ) -> UserProfile:
         """
         Update user profile with provided data.
         
         Args:
-            user_id: The unique identifier of the user
-            profile_data: Profile update data
+            user_id: Unique user identifier
+            update_data: Profile fields to update
             
         Returns:
-            Updated ProfileResponse object
+            Updated UserProfile object
             
         Raises:
-            ValueError: If user not found
+            ValueError: If user not found or validation fails
         """
-        # In a real implementation, this would update the database
-        # Example:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # for field, value in profile_data.dict(exclude_unset=True).items():
-        #     setattr(user, field, value)
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return ProfileResponse.from_orm(user)
-        raise NotImplementedError("Database integration required")
+        # Database update would go here
+        # This is a placeholder for the actual implementation
+        pass
     
-    async def change_password(
-        self, 
-        user_id: str, 
-        password_change: PasswordChangeRequest
-    ) -> bool:
+    async def upload_avatar(
+        self,
+        user_id: str,
+        file_data: bytes,
+        content_type: str
+    ) -> str:
         """
-        Change user password after validating current password.
+        Upload user avatar image.
         
         Args:
-            user_id: The unique identifier of the user
-            password_change: Password change request data
+            user_id: Unique user identifier
+            file_data: Binary image data
+            content_type: MIME type of the image
             
         Returns:
-            True if password changed successfully
+            URL of the uploaded avatar
             
         Raises:
-            ValueError: If current password is incorrect or user not found
+            ValueError: If file type is invalid or upload fails
         """
-        # In a real implementation:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # if not verify_password(password_change.current_password, user.hashed_password):
-        #     raise ValueError("Current password is incorrect")
-        # user.hashed_password = hash_password(password_change.new_password)
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return True
-        raise NotImplementedError("Database integration required")
+        allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+        if content_type not in allowed_types:
+            raise ValueError(f"Invalid file type. Allowed: {', '.join(allowed_types)}")
+        
+        max_size = 5 * 1024 * 1024  # 5MB
+        if len(file_data) > max_size:
+            raise ValueError("File size exceeds 5MB limit")
+        
+        # Upload logic would go here (S3, CloudStorage, etc.)
+        # This is a placeholder for the actual implementation
+        pass
     
-    async def deactivate_profile(self, user_id: str) -> bool:
+    async def delete_avatar(self, user_id: str) -> None:
         """
-        Deactivate user profile (soft delete).
+        Delete user avatar and reset to default.
         
         Args:
-            user_id: The unique identifier of the user
+            user_id: Unique user identifier
+        """
+        # Avatar deletion logic would go here
+        pass
+
+
+class ProfileUIRenderer:
+    """
+    UI rendering helper for profile pages.
+    
+    Provides methods to format profile data for frontend consumption.
+    """
+    
+    @staticmethod
+    def format_profile_for_display(profile: UserProfile) -> Dict[str, Any]:
+        """
+        Format profile data for UI display.
+        
+        Args:
+            profile: UserProfile object
             
         Returns:
-            True if profile deactivated successfully
-            
-        Raises:
-            ValueError: If user not found
+            Dictionary with formatted profile data
         """
-        # In a real implementation:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # user.is_active = False
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return True
-        raise NotImplementedError("Database integration required")
-
-
-def hash_password(password: str) -> str:
-    """
-    Hash a password using bcrypt.
+        return {
+            'userId': profile.user_id,
+            'username': profile.username,
+            'email': profile.email,
+            'fullName': profile.full_name or profile.username,
+            'bio': profile.bio or '',
+            'avatarUrl': profile.avatar_url or ProfileUIRenderer._get_default_avatar(),
+            'memberSince': profile.created_at.strftime('%B %Y'),
+            'lastUpdated': profile.updated_at.strftime('%Y-%m-%d'),
+            'verified': profile.is_verified,
+            'contactInfo': {
+                'phone': profile.phone_number,
+                'location': profile.location,
+                'website': profile.website
+            }
+        }
     
-    Args:
-        password: Plain text password
+    @staticmethod
+    def _get_default_avatar() -> str:
+        """
+        Get default avatar URL.
         
-    Returns:
-        Hashed password string
-    """
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify a password against a hash.
+        Returns:
+            URL to default avatar image
+        """
+        return os.getenv('DEFAULT_AVATAR_URL', '/static/images/default-avatar.png')
     
-    Args:
-        plain_password: Plain text password to verify
-        hashed_password: Hashed password to compare against
+    @staticmethod
+    def get_profile_sections() -> Dict[str, Any]:
+        """
+        Get UI section configuration for profile page.
         
-    Returns:
-        True if password matches, False otherwise
-    """
-    return pwd_context.verify(plain_password, hashed_password)
+        Returns:
+            Dictionary defining profile page sections and layout
+        """
+        return {
+            'sections': [
+                {
+                    'id': 'header',
+                    'type': 'profile-header',
+                    'fields': ['avatarUrl', 'username', 'fullName', 'verified'],
+                    'editable': False
+                },
+                {
+                    'id': 'about',
+                    'type': 'profile-section',
+                    'title': 'About',
+                    'fields': ['bio', 'location', 'website', 'memberSince'],
+                    'editable': True
+                },
+                {
+                    'id': 'contact',
+                    'type': 'profile-section',
+                    'title': 'Contact Information',
+                    'fields': ['email', 'phone'],
+                    'editable': True
+                },
+                {
+                    'id': 'activity',
+                    'type': 'profile-section',
+                    'title': 'Activity',
+                    'fields': ['lastUpdated'],
+                    'editable': False
+                }
+            ],
+            'theme': {
+                'primaryColor': os.getenv('THEME_PRIMARY_COLOR', '#007bff'),
+                'secondaryColor': os.getenv('THEME_SECONDARY_COLOR', '#6c757d'),
+                'accentColor': os.getenv('THEME_ACCENT_COLOR', '#28a745')
+            }
+        }
