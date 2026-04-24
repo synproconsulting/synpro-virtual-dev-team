@@ -198,9 +198,16 @@ def review_pr(pr_number, sha=None):
             print(f"\n✅ PR #{pr_number} merged")
             post_comment(pr_number, f"✅ **Manager Agent merged this PR.**\n\n{summary}")
             if ticket_key:
-                jira_transition(ticket_key, "Done")
+                print(f"Updating Jira {ticket_key}...")
+                print(f"  JIRA_BASE_URL set: {bool(JIRA_BASE_URL)}")
+                print(f"  JIRA_EMAIL set: {bool(JIRA_EMAIL)}")
+                print(f"  JIRA_API_TOKEN set: {bool(JIRA_API_TOKEN)}")
+                transitioned = jira_transition(ticket_key, "Done")
+                print(f"  Transition result: {transitioned}")
                 jira_comment(ticket_key, f"PR #{pr_number} merged by Manager Agent.\n\n{summary}")
-                print(f"Jira {ticket_key} → Done")
+                print(f"  Comment posted")
+            else:
+                print("No Jira ticket key found in PR title")
         else:
             print(f"\n✗ Merge failed: {result}")
             post_comment(pr_number, f"⚠️ Manager Agent: merge failed — {result.get('message','unknown')}")
