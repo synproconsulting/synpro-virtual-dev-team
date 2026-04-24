@@ -262,3 +262,7 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## Manual UAT Deployment Interface
+
+Provides a controlled interface for manual UAT deployments with service selection capabilities. Supports adding, removing, and validating service configurations before deployment, with built-in safety checks to ensure deployments only target the UAT environment. The interface uses a provider pattern to support different deployment backends while maintaining a consistent API for service management and deployment operations.
