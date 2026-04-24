@@ -1,1 +1,3 @@
-"""Test suite for authentication module."""
+"""
+Test suite for authentication module.
+"""
