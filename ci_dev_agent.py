@@ -120,36 +120,23 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
     feedback_section = f"\n\nFEEDBACK FROM PREVIOUS ATTEMPT (must address these):\n{feedback}" if feedback else ""
 
     prompt = (
-        "You are a Python backend developer implementing a Jira ticket.\n\n"
+        "Implement this Jira ticket as Python code.\n\n"
         "Ticket: [" + ticket + "] " + summary + feedback_section + "\n\n"
-        "RULES:\n"
-        "1. Create ONLY NEW source files (e.g. src/auth/delete_account.py)\n"
-        "2. Create ONLY NEW test files (e.g. tests/test_delete_account.py)\n"
-        "3. Do NOT include README.md, requirements.txt, or __init__.py\n"
-        "   These will be handled separately\n"
-        "4. Use Python 3.11+, type hints, docstrings, pytest tests\n"
-        "5. No hardcoded secrets\n\n"
-        "Also provide:\n"
-        "- readme_section: new markdown section to append to README\n"
-        "- new_requirements: list of NEW pip packages needed\n"
-        "- new_exports: list of new symbols to add to src/auth/__init__.py\n\n"
-        "Respond with ONLY a JSON object:\n"
-        "{\n"
-        '  \"files\": [\n'
-        '    {\"path\": \"src/auth/feature.py\", \"content\": \"# implementation\"},\n'
-        '    {\"path\": \"tests/test_feature.py\", \"content\": \"# tests\"}\n'
-        "  ],\n"
-        '  \"readme_section\": \"## Feature\\n\\ndescription\",\n'
-        '  \"new_requirements\": [\"package==1.0\"],\n'
-        '  \"new_exports\": [\"ClassName\"],\n'
-        '  \"pr_body\": \"what was implemented\"\n'
-        "}"
+        "Rules:\n"
+        "- Create ONLY new files under src/auth/ and tests/\n"
+        "- Do NOT include README.md, requirements.txt, or __init__.py\n"
+        "- Python 3.11+, type hints, docstrings, pytest\n"
+        "- Keep each file under 150 lines\n"
+        "- No hardcoded secrets\n\n"
+        "Respond with ONLY this JSON structure:\n"
+        '{"files":[{"path":"src/auth/x.py","content":"..."},{"path":"tests/test_x.py","content":"..."}],'
+        '"readme_section":"## Title\\n\\none paragraph","new_requirements":[],"new_exports":["ClassName"],"pr_body":"..."}'
     )
 
     print("\nAsking Claude to implement the ticket...")
     response = client.messages.create(
         model="claude-sonnet-4-5",
-        max_tokens=8000,
+        max_tokens=16000,
         messages=[{"role": "user", "content": prompt}]
     )
 
@@ -161,9 +148,26 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
     try:
         result = json.loads(raw)
     except json.JSONDecodeError as e:
-        print(f"Could not parse Claude response: {e}")
-        print(f"Raw: {raw[:300]}")
-        sys.exit(1)
+        print(f"JSON parse error: {e}")
+        # Try to salvage partial JSON by extracting files array
+        import re
+        files_match = re.findall(
+            r'\{"path":\s*"([^"]+)",\s*"content":\s*"((?:[^"\\]|\\.)*)"\s*\}',
+            raw
+        )
+        if files_match:
+            print(f"Salvaged {len(files_match)} files from partial JSON")
+            result = {
+                "files": [{"path": p, "content": c.replace("\\n", "\n").replace('\\"', '"')}
+                          for p, c in files_match],
+                "readme_section": "",
+                "new_requirements": [],
+                "new_exports": [],
+                "pr_body": "Implements " + summary
+            }
+        else:
+            print(f"Raw (first 500 chars): {raw[:500]}")
+            sys.exit(1)
 
     files            = result.get("files", [])
     pr_body          = result.get("pr_body", "Implements " + summary)
