@@ -262,3 +262,7 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## Sprint Status Dashboard
+
+The Sprint Status Dashboard provides a unified view of sprint progress by integrating data from Jira tickets, GitHub pull requests, and CI/CD builds. It calculates completion percentages and health scores to give teams real-time visibility into sprint status, including ticket progress, PR merge status, and build success rates across all integrated systems.
