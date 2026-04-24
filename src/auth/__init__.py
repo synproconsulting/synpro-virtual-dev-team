@@ -1,5 +1,17 @@
-"""Authentication module for email notifications."""
+"""
+Authentication and authorization module.
 
-from .email_notifications import EmailNotificationService
+This module provides authentication, registration, and notification services.
+"""
 
-__all__ = ["EmailNotificationService"]
+from src.auth.email_notifications import (
+    EmailConfig,
+    RegistrationEmailService,
+    send_registration_notification,
+)
+
+__all__ = [
+    "EmailConfig",
+    "RegistrationEmailService",
+    "send_registration_notification",
+]
