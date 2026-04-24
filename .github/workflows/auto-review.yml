@@ -29,46 +29,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install anthropic requests python-dotenv
 
-      - name: Wait for CI checks to complete
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHA=${{ github.event.pull_request.head.sha }}
-          echo "Waiting for CI checks on sha: $SHA"
-          for i in $(seq 1 90); do
-            sleep 10
-            CHECKS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/commits/$SHA/check-runs")
-            TOTAL=$(echo "$CHECKS" | python3 -c "
-import sys,json
-runs=[r for r in json.load(sys.stdin).get('check_runs',[]) if r['name'] not in ('Manager Agent review','Wait for CI then review')]
-print(len(runs))")
-            COMPLETED=$(echo "$CHECKS" | python3 -c "
-import sys,json
-runs=[r for r in json.load(sys.stdin).get('check_runs',[]) if r['name'] not in ('Manager Agent review','Wait for CI then review') and r['status']=='completed']
-print(len(runs))")
-            FAILED=$(echo "$CHECKS" | python3 -c "
-import sys,json
-runs=[r for r in json.load(sys.stdin).get('check_runs',[]) if r['name'] not in ('Manager Agent review','Wait for CI then review') and r.get('conclusion') in ('failure','cancelled','timed_out')]
-print(len(runs))")
-            echo "Attempt $i: $COMPLETED/$TOTAL completed, $FAILED failed"
-            if [ "$TOTAL" -gt "0" ] && [ "$COMPLETED" -eq "$TOTAL" ]; then
-              if [ "$FAILED" -gt "0" ]; then
-                echo "CI failed — skipping review"
-                exit 0
-              fi
-              echo "CI_PASSED=true" >> $GITHUB_ENV
-              break
-            fi
-          done
-
-      - name: Set PR for manual trigger
-        if: github.event_name == 'workflow_dispatch'
-        run: echo "CI_PASSED=true" >> $GITHUB_ENV
-
-      - name: Run Manager Agent
-        if: env.CI_PASSED == 'true'
+      - name: Wait for CI and run Manager Agent
         env:
           ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
           JIRA_BASE_URL:      ${{ secrets.JIRA_BASE_URL }}
@@ -78,11 +39,8 @@ print(len(runs))")
           GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
           GITHUB_USERNAME:    ${{ github.repository_owner }}
           GITHUB_REPO:        ${{ github.event.repository.name }}
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            PR_NUM="${{ github.event.inputs.pr_number }}"
-          else
-            PR_NUM="${{ github.event.pull_request.number }}"
-          fi
-          echo "Running Manager Agent on PR #$PR_NUM"
-          python ci_manager_agent.py --pr $PR_NUM
+          PR_NUMBER:          ${{ github.event.pull_request.number }}
+          MANUAL_PR:          ${{ github.event.inputs.pr_number }}
+          EVENT_NAME:         ${{ github.event_name }}
+          HEAD_SHA:           ${{ github.event.pull_request.head.sha }}
+        run: python ci_manager_agent.py --auto
