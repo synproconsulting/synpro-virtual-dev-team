@@ -1,29 +1,12 @@
-"""
-Authentication and Notification Management Package
+"""Authentication module for email notifications."""
 
-This package provides authentication-related functionality including
-notification preferences management.
-"""
+from .email_notifications import EmailNotificationService
 
-from .notification_preferences import (
-    NotificationPreferencesManager,
-    NotificationPreference,
-    NotificationPreferencesProfile,
-    NotificationType,
-    EventCategory,
-    StorageBackend,
-    InMemoryStorage
-)
-
-from .notification_api import router as notification_router
-
-__all__ = [
-    'NotificationPreferencesManager',
-    'NotificationPreference',
-    'NotificationPreferencesProfile',
-    'NotificationType',
-    'EventCategory',
-    'StorageBackend',
-    'InMemoryStorage',
-    'notification_router'
-]
+__all__ = ["EmailNotificationService"]
+from src.auth.notification_preferences import NotificationPreferences
+from src.auth.notification_preferences import NotificationPreferenceService
+from src.auth.notification_preferences import NotificationCategory
+from src.auth.notification_preferences import NotificationChannel
+from src.auth.notification_preferences import ChannelPreference
+from src.auth.notification_preferences import InMemoryPreferenceStore
+from src.auth.notification_preferences import PreferenceStore
