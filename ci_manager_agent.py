@@ -188,7 +188,7 @@ def review_pr(pr_number, sha=None):
     print(f"\nDecision: {decision}")
     print(f"Summary:  {summary}")
 
-    ticket_match = re.search(r'\[([A-Z]+-\d+)\]', title)
+    ticket_match = re.search(r'\[([A-Z][A-Z0-9]+-\d+)\]', title)
     ticket_key   = ticket_match.group(1) if ticket_match else None
 
     if decision == "APPROVE":
