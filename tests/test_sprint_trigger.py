@@ -7,85 +7,77 @@ from src.auth.sprint_trigger import SprintTrigger, SprintConfig
 
 @pytest.fixture
 def sprint_config():
-    """Create a test sprint configuration."""
+    """Fixture for sprint configuration."""
     return SprintConfig(
-        sprint_duration_days=14,
-        auto_start=True,
-        notification_enabled=False,
-        team_id="test-team-123"
+        sprint_name="Sprint 1",
+        start_date=datetime.utcnow(),
+        duration_days=14,
+        team_id="team-alpha",
+        auto_review_enabled=True
     )
 
 
 @pytest.fixture
 def sprint_trigger(sprint_config):
-    """Create a sprint trigger instance."""
+    """Fixture for sprint trigger."""
     return SprintTrigger(sprint_config)
 
 
-@pytest.mark.asyncio
-async def test_trigger_sprint_success(sprint_trigger):
+def test_sprint_trigger_initialization(sprint_trigger, sprint_config):
+    """Test sprint trigger initialization."""
+    assert sprint_trigger.config == sprint_config
+    assert sprint_trigger._status == "idle"
+    assert sprint_trigger._sprint_id is None
+
+
+def test_trigger_sprint_success(sprint_trigger):
     """Test successful sprint triggering."""
-    result = await sprint_trigger.trigger_sprint("Sprint 1")
+    result = sprint_trigger.trigger_sprint()
     
+    assert "sprint_id" in result
     assert result["name"] == "Sprint 1"
-    assert result["status"] == "active"
-    assert result["team_id"] == "test-team-123"
-    assert "start_date" in result
-    assert "end_date" in result
+    assert result["status"] == "running"
+    assert result["team_id"] == "team-alpha"
+    assert result["auto_review_enabled"] is True
+    assert "triggered_at" in result
 
 
-@pytest.mark.asyncio
-async def test_trigger_sprint_with_custom_date(sprint_trigger):
-    """Test sprint triggering with custom start date."""
-    custom_date = datetime(2024, 1, 1, 0, 0, 0)
-    result = await sprint_trigger.trigger_sprint("Sprint 2", start_date=custom_date)
+def test_trigger_sprint_already_running(sprint_trigger):
+    """Test error when triggering already running sprint."""
+    sprint_trigger.trigger_sprint()
     
-    assert result["name"] == "Sprint 2"
-    assert custom_date.isoformat() in result["start_date"]
+    with pytest.raises(ValueError, match="Sprint is already running"):
+        sprint_trigger.trigger_sprint()
 
 
-@pytest.mark.asyncio
-async def test_trigger_sprint_prevents_duplicate(sprint_trigger):
-    """Test that duplicate active sprints are prevented."""
-    await sprint_trigger.trigger_sprint("Sprint 1")
+def test_stop_sprint(sprint_trigger):
+    """Test stopping a sprint."""
+    sprint_trigger.trigger_sprint()
+    result = sprint_trigger.stop_sprint()
     
-    with pytest.raises(ValueError, match="Cannot start new sprint"):
-        await sprint_trigger.trigger_sprint("Sprint 2")
+    assert result["status"] == "stopped"
+    assert "stopped_at" in result
+    assert "sprint_id" in result
 
 
-@pytest.mark.asyncio
-async def test_get_active_sprint(sprint_trigger):
-    """Test retrieving active sprint information."""
-    await sprint_trigger.trigger_sprint("Sprint 1")
-    active = sprint_trigger.get_active_sprint()
+def test_get_status(sprint_trigger):
+    """Test getting sprint status."""
+    sprint_trigger.trigger_sprint()
+    status = sprint_trigger.get_status()
     
-    assert active is not None
-    assert active["name"] == "Sprint 1"
-    assert active["status"] == "active"
+    assert status["status"] == "running"
+    assert status["config"]["name"] == "Sprint 1"
+    assert status["config"]["team_id"] == "team-alpha"
+    assert status["config"]["auto_review_enabled"] is True
 
 
-@pytest.mark.asyncio
-async def test_complete_sprint(sprint_trigger):
-    """Test completing an active sprint."""
-    await sprint_trigger.trigger_sprint("Sprint 1")
-    result = await sprint_trigger.complete_sprint()
+def test_sprint_id_generation(sprint_trigger):
+    """Test sprint ID generation is unique."""
+    result1 = sprint_trigger.trigger_sprint()
+    sprint_trigger.stop_sprint()
     
-    assert result["status"] == "completed"
-    assert "completed_at" in result
-
-
-@pytest.mark.asyncio
-async def test_complete_sprint_without_active(sprint_trigger):
-    """Test that completing without active sprint raises error."""
-    with pytest.raises(ValueError, match="No active sprint"):
-        await sprint_trigger.complete_sprint()
-
-
-def test_sprint_config_defaults():
-    """Test default sprint configuration values."""
-    config = SprintConfig(team_id="team-1")
+    sprint_trigger._status = "idle"
+    result2 = sprint_trigger.trigger_sprint()
     
-    assert config.sprint_duration_days == 14
-    assert config.auto_start is True
-    assert config.notification_enabled is True
-    assert config.team_id == "team-1"
+    assert result1["sprint_id"] != result2["sprint_id"]
+    assert "sprint-team-alpha-" in result1["sprint_id"]
