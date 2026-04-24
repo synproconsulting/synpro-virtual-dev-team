@@ -1,16 +1,16 @@
-# User Update Module - Username and Email
+# Profile Management API
 
-This module provides secure functionality for updating user profile information, specifically username and email addresses, with proper authentication and validation.
+A comprehensive FastAPI-based profile management system with authentication, authorization, and user profile operations.
 
 ## Features
 
-- **Username Update**: Update user's username with validation
-- **Email Update**: Update user's email address with validation  
-- **Profile Update**: Update both username and email in a single operation
-- **JWT Authentication**: Secure token-based authentication
-- **Input Validation**: Comprehensive validation for usernames and emails
-- **Duplicate Detection**: Prevents duplicate usernames and emails
-- **Authorization**: Users can only update their own profiles
+- **Get Profile**: Retrieve user profile information
+- **Update Profile**: Update user details (name, email, phone, bio, avatar)
+- **Change Password**: Secure password change with validation
+- **Deactivate Profile**: Soft delete user profiles
+- **JWT Authentication**: Bearer token-based authentication
+- **Input Validation**: Comprehensive validation using Pydantic models
+- **Password Security**: Bcrypt hashing with complexity requirements
 
 ## Project Structure
 
@@ -18,23 +18,30 @@ This module provides secure functionality for updating user profile information,
 .
 ├── src/
 │   └── auth/
-│       ├── __init__.py           # Module exports
-│       ├── update_user.py        # Core update functionality
-│       └── user_repository.py    # Data persistence layer
+│       ├── __init__.py       # Module exports
+│       ├── profile.py        # Profile models and service layer
+│       └── api.py            # FastAPI endpoints
 ├── tests/
 │   ├── __init__.py
-│   ├── test_update_user.py       # Update service tests
-│   └── test_user_repository.py   # Repository tests
-├── requirements.txt              # Python dependencies
-└── README.md                     # This file
+│   ├── test_profile.py       # Profile model and service tests
+│   └── test_api.py           # API endpoint tests
+├── requirements.txt          # Project dependencies
+└── README.md                 # This file
 ```
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.11+
+- pip
+
+### Setup
+
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd <repository-name>
+cd <repository-directory>
 ```
 
 2. Create a virtual environment:
@@ -48,160 +55,126 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Configuration
-
-Set the following environment variables for production use:
-
-- `JWT_SECRET_KEY`: Secret key for JWT token signing (required for production)
-
-**Important**: Never use the default secret key in production!
-
+4. Set environment variables:
 ```bash
-export JWT_SECRET_KEY="your-secure-random-secret-key-here"
+export JWT_SECRET_KEY="your-secret-key-here"
+export JWT_ALGORITHM="HS256"
 ```
 
-## Usage
+## API Endpoints
 
-### Basic Example
+### Base URL: `/api/v1/profile`
 
-```python
-from src.auth import UserUpdateService, InMemoryUserRepository
+All endpoints require JWT authentication via Bearer token in the `Authorization` header.
 
-# Initialize repository and service
-repository = InMemoryUserRepository()
-service = UserUpdateService(repository)
+### 1. Get Current User Profile
 
-# Create a test user
-user = repository.create(
-    username="johndoe",
-    email="john@example.com",
-    hashed_password="hashed_password_here"
-)
+**GET** `/api/v1/profile/me`
 
-# Generate a JWT token for the user (in production, this comes from login)
-import jwt
-from datetime import datetime, timedelta
+Retrieve the authenticated user's profile.
 
-token = jwt.encode(
-    {
-        "sub": str(user["id"]),
-        "username": user["username"],
-        "exp": datetime.utcnow() + timedelta(minutes=30)
-    },
-    "your-secret-key",
-    algorithm="HS256"
-)
-
-# Update username
-result = service.update_username(
-    user_id=user["id"],
-    new_username="john_doe_updated",
-    token=token
-)
-print(f"Updated username: {result['username']}")
-
-# Update email
-result = service.update_email(
-    user_id=user["id"],
-    new_email="john.doe@example.com",
-    token=token
-)
-print(f"Updated email: {result['email']}")
-
-# Update both at once
-result = service.update_user_profile(
-    user_id=user["id"],
-    username="johndoe2024",
-    email="johndoe2024@example.com",
-    token=token
-)
-print(f"Updated profile: {result}")
+**Response:**
+```json
+{
+  "user_id": "123",
+  "username": "johndoe",
+  "email": "john@example.com",
+  "full_name": "John Doe",
+  "phone_number": "+1234567890",
+  "bio": "Software developer",
+  "avatar_url": "https://example.com/avatar.jpg",
+  "created_at": "2024-01-01T00:00:00",
+  "updated_at": "2024-01-01T00:00:00",
+  "is_active": true
+}
 ```
 
-### Validation Rules
+### 2. Update Current User Profile
 
-**Username:**
-- 3-30 characters in length
-- Only alphanumeric characters, underscores (_), and hyphens (-)
-- Must be unique across all users
+**PUT** `/api/v1/profile/me`
 
-**Email:**
-- Valid email format (e.g., user@example.com)
-- Must be unique across all users
+Update the authenticated user's profile.
 
-## API Reference
+**Request Body:**
+```json
+{
+  "email": "newemail@example.com",
+  "full_name": "Jane Doe",
+  "phone_number": "+1234567890",
+  "bio": "Updated bio",
+  "avatar_url": "https://example.com/new-avatar.jpg"
+}
+```
 
-### UserUpdateService
+All fields are optional. Only provided fields will be updated.
 
-#### `update_username(user_id: int, new_username: str, token: str) -> Dict[str, Any]`
+**Response:** Updated profile object (same as GET)
 
-Update a user's username.
+### 3. Change Password
 
-**Parameters:**
-- `user_id`: ID of the user to update
-- `new_username`: New username to set
-- `token`: Valid JWT authentication token
+**POST** `/api/v1/profile/me/change-password`
 
-**Returns:** Dictionary with updated user information
+Change the authenticated user's password.
 
-**Raises:**
-- `ValidationError`: If username format is invalid
-- `AuthenticationError`: If token is invalid or unauthorized
-- `UserNotFoundError`: If user doesn't exist
-- `UserUpdateError`: If username is already taken
+**Request Body:**
+```json
+{
+  "current_password": "OldPass123",
+  "new_password": "NewPass456",
+  "confirm_password": "NewPass456"
+}
+```
 
-#### `update_email(user_id: int, new_email: str, token: str) -> Dict[str, Any]`
+**Password Requirements:**
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one digit
+- Must be different from current password
 
-Update a user's email address.
+**Response:**
+```json
+{
+  "message": "Password changed successfully",
+  "changed_at": "2024-01-01T12:00:00"
+}
+```
 
-**Parameters:**
-- `user_id`: ID of the user to update
-- `new_email`: New email address to set
-- `token`: Valid JWT authentication token
+### 4. Deactivate Profile
 
-**Returns:** Dictionary with updated user information
+**DELETE** `/api/v1/profile/me`
 
-**Raises:**
-- `ValidationError`: If email format is invalid
-- `AuthenticationError`: If token is invalid or unauthorized
-- `UserNotFoundError`: If user doesn't exist
-- `UserUpdateError`: If email is already taken
+Deactivate (soft delete) the authenticated user's profile.
 
-#### `update_user_profile(user_id: int, username: Optional[str], email: Optional[str], token: str) -> Dict[str, Any]`
+**Response:**
+```json
+{
+  "message": "Profile deactivated successfully",
+  "deactivated_at": "2024-01-01T12:00:00"
+}
+```
 
-Update user profile (username and/or email).
+### 5. Get User Profile by ID
 
-**Parameters:**
-- `user_id`: ID of the user to update
-- `username`: New username (optional)
-- `email`: New email address (optional)
-- `token`: Valid JWT authentication token
+**GET** `/api/v1/profile/{user_id}`
 
-**Returns:** Dictionary with updated user information
+Retrieve a specific user's profile. Currently restricted to own profile only (future: admin access).
 
-**Raises:**
-- `ValidationError`: If any field format is invalid or both fields are None
-- `AuthenticationError`: If token is invalid or unauthorized
-- `UserNotFoundError`: If user doesn't exist
-- `UserUpdateError`: If username or email is already taken
+**Response:** Profile object (same as GET /me)
 
-### Helper Functions
+## Authentication
 
-#### `validate_email(email: str) -> bool`
+All endpoints require a JWT token in the Authorization header:
 
-Validate email format.
+```
+Authorization: Bearer <your-jwt-token>
+```
 
-#### `validate_username(username: str) -> bool`
+The JWT token must contain a `sub` (subject) claim with the user ID.
 
-Validate username format.
+## Running Tests
 
-#### `verify_token(token: str) -> Dict[str, Any]`
-
-Verify JWT token and extract user information.
-
-## Testing
-
-Run the test suite:
+Run the test suite using pytest:
 
 ```bash
 # Run all tests
@@ -211,88 +184,171 @@ pytest
 pytest --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/test_update_user.py
+pytest tests/test_profile.py
 
 # Run with verbose output
 pytest -v
 ```
 
-### Test Coverage
+## Usage Example
 
-The test suite includes:
-- Email validation tests
-- Username validation tests
-- JWT token verification tests
-- Username update tests (success, validation, authorization)
-- Email update tests (success, validation, authorization)
-- Profile update tests (combined updates)
-- Repository CRUD operations
-- Error handling and edge cases
+### Using Python requests:
+
+```python
+import requests
+
+# Base URL
+base_url = "http://localhost:8000/api/v1/profile"
+
+# JWT token (obtain from authentication endpoint)
+token = "your-jwt-token-here"
+headers = {"Authorization": f"Bearer {token}"}
+
+# Get profile
+response = requests.get(f"{base_url}/me", headers=headers)
+print(response.json())
+
+# Update profile
+update_data = {
+    "full_name": "Jane Smith",
+    "bio": "Python developer"
+}
+response = requests.put(f"{base_url}/me", json=update_data, headers=headers)
+print(response.json())
+
+# Change password
+password_data = {
+    "current_password": "OldPass123",
+    "new_password": "NewPass456",
+    "confirm_password": "NewPass456"
+}
+response = requests.post(f"{base_url}/me/change-password", json=password_data, headers=headers)
+print(response.json())
+```
+
+### Using curl:
+
+```bash
+# Get profile
+curl -X GET "http://localhost:8000/api/v1/profile/me" \
+  -H "Authorization: Bearer your-jwt-token"
+
+# Update profile
+curl -X PUT "http://localhost:8000/api/v1/profile/me" \
+  -H "Authorization: Bearer your-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{"full_name": "Jane Smith", "bio": "Python developer"}'
+
+# Change password
+curl -X POST "http://localhost:8000/api/v1/profile/me/change-password" \
+  -H "Authorization: Bearer your-jwt-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "current_password": "OldPass123",
+    "new_password": "NewPass456",
+    "confirm_password": "NewPass456"
+  }'
+```
+
+## Integration with FastAPI Application
+
+To integrate the profile router into your FastAPI application:
+
+```python
+from fastapi import FastAPI
+from src.auth import profile_router
+
+app = FastAPI(title="My Application")
+
+# Include the profile management router
+app.include_router(profile_router)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+## Database Integration
+
+The current implementation includes placeholder methods that raise `NotImplementedError`. To integrate with a database:
+
+1. **Create database models** (e.g., using SQLAlchemy or your ORM of choice)
+2. **Implement the ProfileService methods** in `src/auth/profile.py`
+3. **Update the dependency** `get_profile_service()` in `src/auth/api.py` to return a service with an actual database connection
+
+Example SQLAlchemy integration:
+
+```python
+from sqlalchemy.ext.asyncio import AsyncSession
+
+async def get_profile_service(db: AsyncSession = Depends(get_db)):
+    return ProfileService(database_connection=db)
+```
 
 ## Security Considerations
 
-1. **JWT Secret Key**: Always use a strong, random secret key in production
-2. **Token Expiration**: Tokens expire after 30 minutes by default
-3. **Authorization**: Users can only update their own profiles
-4. **Password Hashing**: Uses bcrypt for secure password hashing
-5. **Input Validation**: All inputs are validated before processing
-6. **No Sensitive Data in Responses**: Hashed passwords are never returned
+- **Environment Variables**: Never commit `JWT_SECRET_KEY` to version control
+- **Password Hashing**: Uses bcrypt with automatic salting
+- **JWT Expiration**: Implement token expiration in your authentication system
+- **HTTPS**: Always use HTTPS in production
+- **Rate Limiting**: Consider adding rate limiting to prevent brute force attacks
+- **Input Validation**: All inputs are validated using Pydantic models
 
 ## Error Handling
 
-The module provides specific exception types:
+The API returns standard HTTP status codes:
 
-- `UserUpdateError`: Base exception for update-related errors
-- `ValidationError`: Invalid input format
-- `AuthenticationError`: Invalid or expired token, unauthorized access
-- `UserNotFoundError`: User doesn't exist
+- **200 OK**: Request successful
+- **400 Bad Request**: Invalid input data
+- **401 Unauthorized**: Missing or invalid authentication token
+- **403 Forbidden**: Not authorized to access resource
+- **404 Not Found**: Resource not found
+- **501 Not Implemented**: Database integration required
 
-## Production Considerations
+Error responses include a detail message:
 
-**Database Integration:**
-
-The current implementation uses an in-memory repository for demonstration. For production:
-
-1. Replace `InMemoryUserRepository` with a proper database implementation (PostgreSQL, MySQL, etc.)
-2. Use SQLAlchemy or another ORM for database operations
-3. Implement proper transaction handling
-4. Add database migrations (e.g., Alembic)
-
-**Example PostgreSQL Repository:**
-
-```python
-from sqlalchemy.orm import Session
-from .models import User
-
-class PostgreSQLUserRepository:
-    def __init__(self, db_session: Session):
-        self.db = db_session
-    
-    def update_username(self, user_id: int, new_username: str):
-        user = self.db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise ValueError(f"User with ID {user_id} not found")
-        user.username = new_username
-        self.db.commit()
-        self.db.refresh(user)
-        return user
-    
-    # ... implement other methods
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
 ```
 
-## License
+## Development
 
-MIT
+### Code Quality Tools
+
+```bash
+# Format code with black
+black src/ tests/
+
+# Sort imports with isort
+isort src/ tests/
+
+# Lint with flake8
+flake8 src/ tests/
+
+# Type check with mypy
+mypy src/
+```
+
+### Running the Development Server
+
+```bash
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+```
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
+1. Create a feature branch
+2. Write tests for new functionality
+3. Ensure all tests pass
+4. Follow PEP 8 style guidelines
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License.
 
 ## Support
 
-For issues and questions, please open an issue on GitHub.
+For issues, questions, or contributions, please open an issue on the project repository.
