@@ -1,190 +1,188 @@
-# In-App Notification Storage and Data Model
+# Profile Page UI/UX Design and Layout
 
-This module provides a complete implementation for in-app notification storage and data models with support for multiple storage backends.
+## Overview
+
+This implementation provides a complete backend solution for a user profile page with modern UI/UX design principles. The module includes profile data management, API endpoints, validation, and UI rendering configuration.
 
 ## Features
 
-- **Comprehensive Data Models**: Well-defined notification models using Pydantic with validation
-- **Flexible Storage Layer**: Abstract storage interface with in-memory implementation
-- **Database Support**: SQLAlchemy models for persistent storage (PostgreSQL, SQLite)
-- **Status Management**: Track notification states (unread, read, archived)
-- **Type Classification**: Multiple notification types (info, success, warning, error, system, user_action, reminder)
-- **Expiration Support**: Time-sensitive notifications with automatic expiration
-- **Rich Metadata**: Extensible metadata field for custom data
-- **Pagination**: Built-in support for paginated queries
-- **Full Test Coverage**: Comprehensive unit tests using pytest
+- **User Profile Management**: Complete CRUD operations for user profiles
+- **Avatar Upload**: Support for image upload with validation (JPEG, PNG, WebP)
+- **Profile Updates**: Secure profile editing with field validation
+- **UI Configuration**: Dynamic UI layout and theming support
+- **Type Safety**: Full type hints using Pydantic models
+- **Validation**: Comprehensive input validation and sanitization
+- **Security**: Environment-based configuration, no hardcoded secrets
 
 ## Project Structure
 
 ```
-src/
-  notifications/
-    __init__.py           # Package initialization
-    models.py             # Pydantic data models
-    storage.py            # Storage layer implementation
-    database.py           # SQLAlchemy database models
-tests/
-  test_notification_models.py    # Model unit tests
-  test_notification_storage.py   # Storage unit tests
-requirements.txt          # Project dependencies
-README.md                # This file
+.
+├── src/
+│   └── auth/
+│       ├── __init__.py           # Package initialization
+│       ├── profile.py            # Core profile logic and models
+│       └── profile_routes.py     # FastAPI routes and endpoints
+├── tests/
+│   ├── test_profile.py           # Unit tests for profile module
+│   └── test_profile_routes.py    # Unit tests for API routes
+├── requirements.txt              # Python dependencies
+└── README.md                     # This file
 ```
 
 ## Installation
 
-Install the required dependencies:
+### Prerequisites
+
+- Python 3.11 or higher
+- PostgreSQL database (or compatible)
+- Virtual environment tool (venv, virtualenv, or conda)
+
+### Setup
+
+1. Clone the repository and navigate to the project directory:
+
+```bash
+cd synpro-virtual-dev-team
+```
+
+2. Create and activate a virtual environment:
+
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Usage
+4. Set up environment variables:
 
-### Creating Notifications
+Create a `.env` file in the project root:
 
-```python
-from src.notifications.models import NotificationCreate, NotificationType
-from src.notifications.storage import NotificationStorage
+```env
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/dbname
 
-# Initialize storage
-storage = NotificationStorage()
-
-# Create a notification
-notification_data = NotificationCreate(
-    user_id="user_123",
-    notification_type=NotificationType.INFO,
-    title="Welcome!",
-    message="Thank you for joining our platform",
-    metadata={"source": "onboarding"},
-    action_url="https://example.com/getting-started"
-)
-
-notification = await storage.create_notification(notification_data)
+# UI Theme (optional)
+DEFAULT_AVATAR_URL=/static/images/default-avatar.png
+THEME_PRIMARY_COLOR=#007bff
+THEME_SECONDARY_COLOR=#6c757d
+THEME_ACCENT_COLOR=#28a745
 ```
 
-### Retrieving Notifications
+## API Endpoints
 
-```python
-# Get a specific notification
-notification = await storage.get_notification(notification_id)
+### Get User Profile
 
-# Get all notifications for a user
-notifications = await storage.get_user_notifications("user_123")
-
-# Get unread notifications only
-unread = await storage.get_user_notifications(
-    "user_123",
-    status=NotificationStatus.UNREAD
-)
-
-# Get with pagination
-page1 = await storage.get_user_notifications(
-    "user_123",
-    limit=10,
-    offset=0
-)
+```http
+GET /api/profile/{user_id}
 ```
 
-### Managing Notification Status
+Returns formatted profile data for the specified user.
 
-```python
-# Mark a notification as read
-await storage.mark_notification_as_read(notification_id)
-
-# Mark all user notifications as read
-count = await storage.mark_all_user_notifications_as_read("user_123")
-
-# Get unread count
-unread_count = await storage.get_user_unread_count("user_123")
+**Response:**
+```json
+{
+  "userId": "user123",
+  "username": "johndoe",
+  "email": "john@example.com",
+  "fullName": "John Doe",
+  "bio": "Software developer",
+  "avatarUrl": "https://example.com/avatar.jpg",
+  "memberSince": "January 2023",
+  "verified": true,
+  "contactInfo": {
+    "phone": "+1234567890",
+    "location": "San Francisco, CA",
+    "website": "https://johndoe.com"
+  }
+}
 ```
 
-### Updating and Deleting
+### Get Current User Profile
 
-```python
-from src.notifications.models import NotificationUpdate, NotificationStatus
-
-# Update a notification
-update_data = NotificationUpdate(
-    title="Updated Title",
-    status=NotificationStatus.ARCHIVED
-)
-updated = await storage.update_notification(notification_id, update_data)
-
-# Delete a notification
-deleted = await storage.delete_notification(notification_id)
+```http
+GET /api/profile/me
 ```
 
-### Cleanup Expired Notifications
+Returns the authenticated user's profile.
 
-```python
-# Delete all expired notifications
-deleted_count = await storage.cleanup_expired_notifications()
+### Update Profile
+
+```http
+PUT /api/profile/me
+Content-Type: application/json
+
+{
+  "full_name": "John Updated Doe",
+  "bio": "Updated bio text",
+  "phone_number": "+1234567890",
+  "location": "New York, NY",
+  "website": "https://example.com"
+}
 ```
+
+### Upload Avatar
+
+```http
+POST /api/profile/me/avatar
+Content-Type: multipart/form-data
+
+file: [image file]
+```
+
+**Constraints:**
+- Accepted formats: JPEG, PNG, WebP
+- Maximum size: 5MB
+
+### Delete Avatar
+
+```http
+DELETE /api/profile/me/avatar
+```
+
+Resets avatar to default image.
+
+### Get UI Layout Configuration
+
+```http
+GET /api/profile/ui/layout
+```
+
+Returns UI section configuration and theme settings.
 
 ## Data Models
 
-### Notification
+### UserProfile
 
-The main notification model with the following fields:
+Core profile data model with the following fields:
 
-- `id` (UUID): Unique identifier
-- `user_id` (str): User who receives the notification
-- `notification_type` (NotificationType): Type of notification
-- `title` (str): Notification title (max 200 chars)
-- `message` (str): Notification content (max 1000 chars)
-- `status` (NotificationStatus): Current status (default: unread)
-- `created_at` (datetime): Creation timestamp
-- `read_at` (datetime, optional): When marked as read
-- `archived_at` (datetime, optional): When archived
-- `metadata` (dict): Custom metadata
-- `action_url` (str, optional): URL for action button
-- `expires_at` (datetime, optional): Expiration timestamp
+- `user_id` (str): Unique user identifier
+- `username` (str): User's username
+- `email` (EmailStr): Validated email address
+- `full_name` (Optional[str]): User's full name
+- `bio` (Optional[str]): Biography (max 500 chars)
+- `avatar_url` (Optional[str]): Profile picture URL
+- `created_at` (datetime): Account creation timestamp
+- `updated_at` (datetime): Last update timestamp
+- `is_verified` (bool): Email verification status
+- `phone_number` (Optional[str]): Phone number
+- `location` (Optional[str]): User location
+- `website` (Optional[str]): Personal website URL
 
-### NotificationStatus Enum
+### ProfileUpdateRequest
 
-- `UNREAD`: Notification hasn't been read
-- `READ`: Notification has been read
-- `ARCHIVED`: Notification has been archived
+Model for profile update operations (only editable fields):
 
-### NotificationType Enum
-
-- `INFO`: Informational notification
-- `SUCCESS`: Success message
-- `WARNING`: Warning message
-- `ERROR`: Error notification
-- `SYSTEM`: System notification
-- `USER_ACTION`: User action required
-- `REMINDER`: Reminder notification
-
-## Database Setup
-
-### Using SQLite (Development)
-
-SQLite is used by default:
-
-```python
-from src.notifications.database import create_database_engine, create_tables
-
-engine = create_database_engine()
-create_tables(engine)
-```
-
-### Using PostgreSQL (Production)
-
-Set the `DATABASE_URL` environment variable:
-
-```bash
-export DATABASE_URL="postgresql://user:password@localhost:5432/notifications"
-```
-
-Then create the tables:
-
-```python
-from src.notifications.database import create_database_engine, create_tables
-
-engine = create_database_engine()
-create_tables(engine)
-```
+- `full_name` (Optional[str]): Max 100 characters
+- `bio` (Optional[str]): Max 500 characters
+- `phone_number` (Optional[str]): Min 10 digits
+- `location` (Optional[str]): Max 100 characters
+- `website` (Optional[str]): Must start with http:// or https://
 
 ## Testing
 
@@ -195,70 +193,104 @@ Run the test suite:
 pytest
 
 # Run with coverage
-pytest --cov=src/notifications
+pytest --cov=src --cov-report=html
 
 # Run specific test file
-pytest tests/test_notification_models.py
+pytest tests/test_profile.py
 
 # Run with verbose output
 pytest -v
 ```
 
-## Environment Variables
+### Test Coverage
 
-- `DATABASE_URL`: Database connection string (default: `sqlite:///./notifications.db`)
-- `DATABASE_ECHO`: Enable SQLAlchemy SQL logging (default: `false`)
+The implementation includes comprehensive unit tests for:
 
-## Architecture
+- Profile model validation
+- Update request validation
+- Profile service operations
+- API endpoint behavior
+- UI rendering and formatting
+- Error handling and edge cases
 
-### Storage Layer
+## Usage Examples
 
-The storage layer uses an abstract interface pattern, allowing for multiple backend implementations:
+### Basic Profile Retrieval
 
-- **InMemoryNotificationStorage**: For development and testing
-- **Database Storage** (future): For production use with SQLAlchemy
+```python
+from src.auth.profile import ProfileService
 
-### Data Validation
+service = ProfileService()
+profile = await service.get_profile("user123")
+```
 
-All models use Pydantic for automatic validation:
-- Type checking
-- Field constraints (min/max length)
-- Required vs optional fields
-- Default values
+### Profile Update
 
-## API Methods
+```python
+from src.auth.profile import ProfileService, ProfileUpdateRequest
 
-### NotificationStorage
+service = ProfileService()
+update_data = ProfileUpdateRequest(
+    full_name="Jane Doe",
+    bio="Updated bio"
+)
+updated_profile = await service.update_profile("user123", update_data)
+```
 
-- `create_notification(data)`: Create a new notification
-- `get_notification(id)`: Get notification by ID
-- `get_user_notifications(user_id, status, limit, offset)`: Get user's notifications
-- `update_notification(id, data)`: Update a notification
-- `delete_notification(id)`: Delete a notification
-- `mark_notification_as_read(id)`: Mark as read
-- `mark_all_user_notifications_as_read(user_id)`: Mark all as read
-- `get_user_unread_count(user_id)`: Get unread count
-- `cleanup_expired_notifications()`: Delete expired notifications
+### UI Rendering
 
-## Best Practices
+```python
+from src.auth.profile import ProfileUIRenderer, UserProfile
 
-1. **Never hardcode user IDs**: Always use IDs from authentication system
-2. **Set expiration for time-sensitive notifications**: Use `expires_at` field
-3. **Use appropriate notification types**: Choose the right type for better UI rendering
-4. **Add meaningful metadata**: Store additional context for processing
-5. **Regular cleanup**: Schedule periodic cleanup of expired notifications
-6. **Handle pagination**: Use limit/offset for large notification lists
+# Get formatted profile data
+formatted = ProfileUIRenderer.format_profile_for_display(profile)
+
+# Get UI layout configuration
+layout = ProfileUIRenderer.get_profile_sections()
+```
+
+## UI/UX Design Principles
+
+The profile page follows these design principles:
+
+1. **User-Centered Design**: Clear information hierarchy with editable/non-editable sections
+2. **Responsive Layout**: Section-based layout adaptable to different screen sizes
+3. **Visual Consistency**: Configurable theme with primary, secondary, and accent colors
+4. **Progressive Disclosure**: Information organized in collapsible sections
+5. **Clear Feedback**: Validation messages and success/error states
+6. **Accessibility**: Semantic structure and ARIA-compatible layout
+
+## Security Considerations
+
+- All sensitive configuration via environment variables
+- Input validation on all user-provided data
+- File type and size validation for avatar uploads
+- SQL injection protection through Pydantic models
+- XSS prevention through input sanitization
+- Authentication required for profile modifications
 
 ## Future Enhancements
 
-- WebSocket real-time notification delivery
-- Email/SMS notification channels
-- Notification templates
-- Bulk operations
-- Advanced filtering and search
-- Notification preferences per user
-- Read receipts and delivery confirmation
+- Social media link integration
+- Privacy settings for profile visibility
+- Profile activity timeline
+- Multi-language support
+- Dark mode theme support
+- Profile export functionality
+
+## Contributing
+
+1. Create a feature branch from `main`
+2. Implement changes with tests
+3. Ensure all tests pass: `pytest`
+4. Format code: `black src/ tests/`
+5. Check types: `mypy src/`
+6. Submit pull request
 
 ## License
 
-This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+Copyright © 2024 Synpro Consulting. All rights reserved.
+
+## Support
+
+For questions or issues, please contact the development team or create an issue in the repository.
