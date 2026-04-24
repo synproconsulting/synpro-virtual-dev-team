@@ -1,222 +1,164 @@
-"""
-Profile management module for user profile operations.
+"""Profile management module for user profile data and avatar handling."""
 
-This module provides functions for managing user profiles including
-retrieval, updates, and password changes.
-"""
-
-from typing import Optional, Dict, Any
+from dataclasses import dataclass, field
+from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, validator
-from passlib.context import CryptContext
+import hashlib
 
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-class ProfileBase(BaseModel):
-    """Base profile model with common fields."""
-    
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = Field(None, min_length=1, max_length=100)
-    phone_number: Optional[str] = Field(None, min_length=10, max_length=20)
-    bio: Optional[str] = Field(None, max_length=500)
-    avatar_url: Optional[str] = None
-    
-    @validator('phone_number')
-    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        """Validate phone number format."""
-        if v is not None:
-            # Remove spaces and dashes for validation
-            cleaned = v.replace(' ', '').replace('-', '')
-            if not cleaned.replace('+', '').isdigit():
-                raise ValueError('Phone number must contain only digits, spaces, dashes, and optional + prefix')
-        return v
-
-
-class ProfileUpdate(ProfileBase):
-    """Model for profile update requests."""
-    pass
-
-
-class ProfileResponse(ProfileBase):
-    """Model for profile response with additional metadata."""
+@dataclass
+class UserProfile:
+    """User profile data structure."""
     
     user_id: str
-    username: str
-    created_at: datetime
-    updated_at: datetime
-    is_active: bool
-    
-    class Config:
-        """Pydantic configuration."""
-        from_attributes = True
+    email: str
+    display_name: str
+    avatar_url: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
 
 
-class PasswordChangeRequest(BaseModel):
-    """Model for password change requests."""
+class ProfileManager:
+    """Manages user profiles with in-memory storage.
     
-    current_password: str = Field(..., min_length=8)
-    new_password: str = Field(..., min_length=8)
-    confirm_password: str = Field(..., min_length=8)
+    Provides functionality to retrieve and update user profile information
+    including display names and avatar URLs.
+    """
     
-    @validator('new_password')
-    def validate_new_password(cls, v: str, values: Dict[str, Any]) -> str:
-        """Validate new password requirements."""
-        if 'current_password' in values and v == values['current_password']:
-            raise ValueError('New password must be different from current password')
-        
-        # Check password complexity
-        if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain at least one digit')
-        
-        return v
+    def __init__(self) -> None:
+        """Initialize ProfileManager with empty in-memory storage."""
+        self._profiles: dict[str, UserProfile] = {}
     
-    @validator('confirm_password')
-    def passwords_match(cls, v: str, values: Dict[str, Any]) -> str:
-        """Validate that passwords match."""
-        if 'new_password' in values and v != values['new_password']:
-            raise ValueError('Passwords do not match')
-        return v
-
-
-class ProfileService:
-    """Service class for profile management operations."""
-    
-    def __init__(self, database_connection: Any):
-        """
-        Initialize the profile service.
+    def create_profile(
+        self,
+        user_id: str,
+        email: str,
+        display_name: Optional[str] = None
+    ) -> UserProfile:
+        """Create a new user profile.
         
         Args:
-            database_connection: Database connection or session object
-        """
-        self.db = database_connection
-    
-    async def get_profile(self, user_id: str) -> Optional[ProfileResponse]:
-        """
-        Retrieve user profile by user ID.
+            user_id: Unique identifier for the user
+            email: User's email address
+            display_name: Optional display name (defaults to email if not provided)
         
-        Args:
-            user_id: The unique identifier of the user
-            
         Returns:
-            ProfileResponse object if found, None otherwise
-        """
-        # In a real implementation, this would query the database
-        # Example: user = await self.db.query(User).filter(User.id == user_id).first()
-        raise NotImplementedError("Database integration required")
-    
-    async def update_profile(
-        self, 
-        user_id: str, 
-        profile_data: ProfileUpdate
-    ) -> ProfileResponse:
-        """
-        Update user profile with provided data.
+            UserProfile: The created profile
         
-        Args:
-            user_id: The unique identifier of the user
-            profile_data: Profile update data
-            
-        Returns:
-            Updated ProfileResponse object
-            
         Raises:
-            ValueError: If user not found
+            ValueError: If profile already exists for user_id
         """
-        # In a real implementation, this would update the database
-        # Example:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # for field, value in profile_data.dict(exclude_unset=True).items():
-        #     setattr(user, field, value)
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return ProfileResponse.from_orm(user)
-        raise NotImplementedError("Database integration required")
+        if user_id in self._profiles:
+            raise ValueError(f"Profile already exists for user_id: {user_id}")
+        
+        profile = UserProfile(
+            user_id=user_id,
+            email=email,
+            display_name=display_name or email,
+            avatar_url=self._generate_gravatar_url(email)
+        )
+        self._profiles[user_id] = profile
+        return profile
     
-    async def change_password(
-        self, 
-        user_id: str, 
-        password_change: PasswordChangeRequest
-    ) -> bool:
-        """
-        Change user password after validating current password.
+    def get_profile(self, user_id: str) -> Optional[UserProfile]:
+        """Retrieve a user profile by user ID.
         
         Args:
-            user_id: The unique identifier of the user
-            password_change: Password change request data
-            
+            user_id: The unique identifier for the user
+        
         Returns:
-            True if password changed successfully
-            
-        Raises:
-            ValueError: If current password is incorrect or user not found
+            UserProfile if found, None otherwise
         """
-        # In a real implementation:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # if not verify_password(password_change.current_password, user.hashed_password):
-        #     raise ValueError("Current password is incorrect")
-        # user.hashed_password = hash_password(password_change.new_password)
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return True
-        raise NotImplementedError("Database integration required")
+        return self._profiles.get(user_id)
     
-    async def deactivate_profile(self, user_id: str) -> bool:
-        """
-        Deactivate user profile (soft delete).
+    def update_display_name(self, user_id: str, display_name: str) -> UserProfile:
+        """Update the display name for a user profile.
         
         Args:
-            user_id: The unique identifier of the user
-            
+            user_id: The unique identifier for the user
+            display_name: New display name to set
+        
         Returns:
-            True if profile deactivated successfully
-            
+            UserProfile: The updated profile
+        
         Raises:
-            ValueError: If user not found
+            ValueError: If profile not found or display_name is empty
         """
-        # In a real implementation:
-        # user = await self.db.query(User).filter(User.id == user_id).first()
-        # if not user:
-        #     raise ValueError("User not found")
-        # user.is_active = False
-        # user.updated_at = datetime.utcnow()
-        # await self.db.commit()
-        # return True
-        raise NotImplementedError("Database integration required")
-
-
-def hash_password(password: str) -> str:
-    """
-    Hash a password using bcrypt.
-    
-    Args:
-        password: Plain text password
+        if not display_name or not display_name.strip():
+            raise ValueError("Display name cannot be empty")
         
-    Returns:
-        Hashed password string
-    """
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify a password against a hash.
-    
-    Args:
-        plain_password: Plain text password to verify
-        hashed_password: Hashed password to compare against
+        profile = self._profiles.get(user_id)
+        if profile is None:
+            raise ValueError(f"Profile not found for user_id: {user_id}")
         
-    Returns:
-        True if password matches, False otherwise
-    """
-    return pwd_context.verify(plain_password, hashed_password)
+        profile.display_name = display_name.strip()
+        profile.updated_at = datetime.utcnow()
+        return profile
+    
+    def get_avatar_url(self, user_id: str) -> Optional[str]:
+        """Get the avatar URL for a user.
+        
+        Args:
+            user_id: The unique identifier for the user
+        
+        Returns:
+            Avatar URL if profile exists, None otherwise
+        """
+        profile = self._profiles.get(user_id)
+        return profile.avatar_url if profile else None
+    
+    def update_avatar_url(self, user_id: str, avatar_url: str) -> UserProfile:
+        """Update the avatar URL for a user profile.
+        
+        Args:
+            user_id: The unique identifier for the user
+            avatar_url: New avatar URL to set
+        
+        Returns:
+            UserProfile: The updated profile
+        
+        Raises:
+            ValueError: If profile not found
+        """
+        profile = self._profiles.get(user_id)
+        if profile is None:
+            raise ValueError(f"Profile not found for user_id: {user_id}")
+        
+        profile.avatar_url = avatar_url
+        profile.updated_at = datetime.utcnow()
+        return profile
+    
+    def _generate_gravatar_url(self, email: str, size: int = 200) -> str:
+        """Generate a Gravatar URL based on email address.
+        
+        Args:
+            email: User's email address
+            size: Avatar size in pixels (default: 200)
+        
+        Returns:
+            Gravatar URL string
+        """
+        email_hash = hashlib.md5(email.lower().strip().encode('utf-8')).hexdigest()
+        return f"https://www.gravatar.com/avatar/{email_hash}?s={size}&d=identicon"
+    
+    def delete_profile(self, user_id: str) -> bool:
+        """Delete a user profile.
+        
+        Args:
+            user_id: The unique identifier for the user
+        
+        Returns:
+            True if profile was deleted, False if not found
+        """
+        if user_id in self._profiles:
+            del self._profiles[user_id]
+            return True
+        return False
+    
+    def list_profiles(self) -> list[UserProfile]:
+        """List all user profiles.
+        
+        Returns:
+            List of all UserProfile objects
+        """
+        return list(self._profiles.values())
