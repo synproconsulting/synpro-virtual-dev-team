@@ -1,187 +1,190 @@
-# Notification Preferences Management Interface
+# In-App Notification Storage and Data Model
 
-A comprehensive Python implementation for managing user notification preferences across multiple channels (email, SMS, push, in-app) and event categories.
+This module provides a complete implementation for in-app notification storage and data models with support for multiple storage backends.
 
 ## Features
 
-- **Multi-channel notification support**: Email, SMS, Push, and In-App notifications
-- **Event categories**: Security, Account, Marketing, Product Updates, System, and Social
-- **Global controls**: Global mute and quiet hours functionality
-- **Timezone support**: Per-user timezone configuration
-- **RESTful API**: FastAPI-based endpoints for preference management
-- **Flexible storage**: Pluggable storage backend (default: in-memory)
-- **Comprehensive validation**: Pydantic models with built-in validation
-- **Full test coverage**: Unit tests for all major components
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/synproconsulting/synpro-virtual-dev-team.git
-cd synpro-virtual-dev-team
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+- **Comprehensive Data Models**: Well-defined notification models using Pydantic with validation
+- **Flexible Storage Layer**: Abstract storage interface with in-memory implementation
+- **Database Support**: SQLAlchemy models for persistent storage (PostgreSQL, SQLite)
+- **Status Management**: Track notification states (unread, read, archived)
+- **Type Classification**: Multiple notification types (info, success, warning, error, system, user_action, reminder)
+- **Expiration Support**: Time-sensitive notifications with automatic expiration
+- **Rich Metadata**: Extensible metadata field for custom data
+- **Pagination**: Built-in support for paginated queries
+- **Full Test Coverage**: Comprehensive unit tests using pytest
 
 ## Project Structure
 
 ```
-.
-├── src/
-│   └── auth/
-│       ├── __init__.py
-│       ├── notification_preferences.py  # Core business logic
-│       └── notification_api.py          # REST API endpoints
-├── tests/
-│   ├── __init__.py
-│   ├── test_notification_preferences.py  # Unit tests for core module
-│   └── test_notification_api.py          # API endpoint tests
-├── requirements.txt
-└── README.md
+src/
+  notifications/
+    __init__.py           # Package initialization
+    models.py             # Pydantic data models
+    storage.py            # Storage layer implementation
+    database.py           # SQLAlchemy database models
+tests/
+  test_notification_models.py    # Model unit tests
+  test_notification_storage.py   # Storage unit tests
+requirements.txt          # Project dependencies
+README.md                # This file
+```
+
+## Installation
+
+Install the required dependencies:
+
+```bash
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-### Basic Usage
+### Creating Notifications
 
 ```python
-from src.auth import NotificationPreferencesManager, NotificationType, EventCategory
+from src.notifications.models import NotificationCreate, NotificationType
+from src.notifications.storage import NotificationStorage
 
-# Initialize the manager
-manager = NotificationPreferencesManager()
+# Initialize storage
+storage = NotificationStorage()
 
-# Get user preferences (creates defaults for new users)
-profile = manager.get_user_preferences("user123")
-
-# Update a single preference
-manager.update_preference(
-    user_id="user123",
-    event_category=EventCategory.SECURITY,
-    notification_type=NotificationType.EMAIL,
-    enabled=True
+# Create a notification
+notification_data = NotificationCreate(
+    user_id="user_123",
+    notification_type=NotificationType.INFO,
+    title="Welcome!",
+    message="Thank you for joining our platform",
+    metadata={"source": "onboarding"},
+    action_url="https://example.com/getting-started"
 )
 
-# Update global settings
-manager.update_global_settings(
-    user_id="user123",
-    global_mute=False,
-    quiet_hours_enabled=True,
-    quiet_hours_start="22:00",
-    quiet_hours_end="08:00",
-    timezone="America/New_York"
-)
-
-# Check if notification is allowed
-allowed = manager.is_notification_allowed(
-    user_id="user123",
-    event_category=EventCategory.SECURITY,
-    notification_type=NotificationType.EMAIL
-)
+notification = await storage.create_notification(notification_data)
 ```
 
-### FastAPI Integration
+### Retrieving Notifications
 
 ```python
-from fastapi import FastAPI
-from src.auth import notification_router
+# Get a specific notification
+notification = await storage.get_notification(notification_id)
 
-app = FastAPI()
-app.include_router(notification_router)
+# Get all notifications for a user
+notifications = await storage.get_user_notifications("user_123")
 
-# Run with: uvicorn main:app --reload
+# Get unread notifications only
+unread = await storage.get_user_notifications(
+    "user_123",
+    status=NotificationStatus.UNREAD
+)
+
+# Get with pagination
+page1 = await storage.get_user_notifications(
+    "user_123",
+    limit=10,
+    offset=0
+)
 ```
 
-## API Endpoints
+### Managing Notification Status
 
-### Get User Preferences
-```
-GET /api/v1/notifications/preferences
-GET /api/v1/notifications/preferences?user_id={user_id}
-```
+```python
+# Mark a notification as read
+await storage.mark_notification_as_read(notification_id)
 
-### Update Single Preference
-```
-PUT /api/v1/notifications/preferences/single
-Body: {
-    "event_category": "security",
-    "notification_type": "email",
-    "enabled": false
-}
+# Mark all user notifications as read
+count = await storage.mark_all_user_notifications_as_read("user_123")
+
+# Get unread count
+unread_count = await storage.get_user_unread_count("user_123")
 ```
 
-### Bulk Update Preferences
-```
-PUT /api/v1/notifications/preferences/bulk
-Body: {
-    "preferences": [
-        {
-            "event_category": "security",
-            "notification_type": "email",
-            "enabled": false
-        },
-        {
-            "event_category": "marketing",
-            "notification_type": "sms",
-            "enabled": true
-        }
-    ]
-}
+### Updating and Deleting
+
+```python
+from src.notifications.models import NotificationUpdate, NotificationStatus
+
+# Update a notification
+update_data = NotificationUpdate(
+    title="Updated Title",
+    status=NotificationStatus.ARCHIVED
+)
+updated = await storage.update_notification(notification_id, update_data)
+
+# Delete a notification
+deleted = await storage.delete_notification(notification_id)
 ```
 
-### Update Global Settings
-```
-PUT /api/v1/notifications/preferences/global
-Body: {
-    "global_mute": true,
-    "quiet_hours_enabled": true,
-    "quiet_hours_start": "22:00",
-    "quiet_hours_end": "08:00",
-    "timezone": "America/New_York"
-}
+### Cleanup Expired Notifications
+
+```python
+# Delete all expired notifications
+deleted_count = await storage.cleanup_expired_notifications()
 ```
 
-### Check Notification Allowed
+## Data Models
+
+### Notification
+
+The main notification model with the following fields:
+
+- `id` (UUID): Unique identifier
+- `user_id` (str): User who receives the notification
+- `notification_type` (NotificationType): Type of notification
+- `title` (str): Notification title (max 200 chars)
+- `message` (str): Notification content (max 1000 chars)
+- `status` (NotificationStatus): Current status (default: unread)
+- `created_at` (datetime): Creation timestamp
+- `read_at` (datetime, optional): When marked as read
+- `archived_at` (datetime, optional): When archived
+- `metadata` (dict): Custom metadata
+- `action_url` (str, optional): URL for action button
+- `expires_at` (datetime, optional): Expiration timestamp
+
+### NotificationStatus Enum
+
+- `UNREAD`: Notification hasn't been read
+- `READ`: Notification has been read
+- `ARCHIVED`: Notification has been archived
+
+### NotificationType Enum
+
+- `INFO`: Informational notification
+- `SUCCESS`: Success message
+- `WARNING`: Warning message
+- `ERROR`: Error notification
+- `SYSTEM`: System notification
+- `USER_ACTION`: User action required
+- `REMINDER`: Reminder notification
+
+## Database Setup
+
+### Using SQLite (Development)
+
+SQLite is used by default:
+
+```python
+from src.notifications.database import create_database_engine, create_tables
+
+engine = create_database_engine()
+create_tables(engine)
 ```
-POST /api/v1/notifications/check
-Body: {
-    "event_category": "security",
-    "notification_type": "email"
-}
+
+### Using PostgreSQL (Production)
+
+Set the `DATABASE_URL` environment variable:
+
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/notifications"
 ```
 
-### Get Metadata
+Then create the tables:
+
+```python
+from src.notifications.database import create_database_engine, create_tables
+
+engine = create_database_engine()
+create_tables(engine)
 ```
-GET /api/v1/notifications/categories  # List all event categories
-GET /api/v1/notifications/types       # List all notification types
-```
-
-## Event Categories
-
-- `security` - Security-related notifications
-- `account` - Account activity notifications
-- `marketing` - Marketing and promotional content
-- `product_updates` - Product feature updates
-- `system` - System maintenance and alerts
-- `social` - Social interactions and comments
-
-## Notification Types
-
-- `email` - Email notifications
-- `sms` - SMS/text message notifications
-- `push` - Push notifications (mobile/web)
-- `in_app` - In-application notifications
-
-## Default Behavior
-
-When a new user is created, default preferences are automatically generated:
-- All notification types are **enabled** for all event categories
-- **Except**: Marketing notifications are **disabled** by default
-- Global mute is **off**
-- Quiet hours are **disabled**
-- Timezone is set to **UTC**
 
 ## Testing
 
@@ -192,63 +195,74 @@ Run the test suite:
 pytest
 
 # Run with coverage
-pytest --cov=src --cov-report=html
+pytest --cov=src/notifications
 
 # Run specific test file
-pytest tests/test_notification_preferences.py
-pytest tests/test_notification_api.py
+pytest tests/test_notification_models.py
+
+# Run with verbose output
+pytest -v
 ```
 
-## Storage Backends
+## Environment Variables
 
-The system supports pluggable storage backends. The default is in-memory storage.
+- `DATABASE_URL`: Database connection string (default: `sqlite:///./notifications.db`)
+- `DATABASE_ECHO`: Enable SQLAlchemy SQL logging (default: `false`)
 
-### Custom Storage Backend
+## Architecture
 
-Implement the `StorageBackend` interface:
+### Storage Layer
 
-```python
-from src.auth import StorageBackend, NotificationPreferencesProfile
-from typing import Optional
+The storage layer uses an abstract interface pattern, allowing for multiple backend implementations:
 
-class MyCustomStorage(StorageBackend):
-    def get_profile(self, user_id: str) -> Optional[NotificationPreferencesProfile]:
-        # Your implementation
-        pass
-    
-    def save_profile(self, profile: NotificationPreferencesProfile) -> None:
-        # Your implementation
-        pass
+- **InMemoryNotificationStorage**: For development and testing
+- **Database Storage** (future): For production use with SQLAlchemy
 
-# Use custom storage
-manager = NotificationPreferencesManager(storage_backend=MyCustomStorage())
-```
+### Data Validation
 
-## Security Considerations
+All models use Pydantic for automatic validation:
+- Type checking
+- Field constraints (min/max length)
+- Required vs optional fields
+- Default values
 
-- All user inputs are validated using Pydantic models
-- No secrets or API keys are hardcoded
-- Authentication dependency is designed to integrate with existing auth systems
-- Input sanitization is handled automatically by FastAPI and Pydantic
+## API Methods
+
+### NotificationStorage
+
+- `create_notification(data)`: Create a new notification
+- `get_notification(id)`: Get notification by ID
+- `get_user_notifications(user_id, status, limit, offset)`: Get user's notifications
+- `update_notification(id, data)`: Update a notification
+- `delete_notification(id)`: Delete a notification
+- `mark_notification_as_read(id)`: Mark as read
+- `mark_all_user_notifications_as_read(user_id)`: Mark all as read
+- `get_user_unread_count(user_id)`: Get unread count
+- `cleanup_expired_notifications()`: Delete expired notifications
+
+## Best Practices
+
+1. **Never hardcode user IDs**: Always use IDs from authentication system
+2. **Set expiration for time-sensitive notifications**: Use `expires_at` field
+3. **Use appropriate notification types**: Choose the right type for better UI rendering
+4. **Add meaningful metadata**: Store additional context for processing
+5. **Regular cleanup**: Schedule periodic cleanup of expired notifications
+6. **Handle pagination**: Use limit/offset for large notification lists
 
 ## Future Enhancements
 
-- Database storage backend (PostgreSQL, MongoDB)
-- Notification delivery scheduling
-- A/B testing for notification effectiveness
-- Notification batching and digest options
-- User preference import/export
-- Admin dashboard for preference management
-- Notification history and analytics
-
-## Contributing
-
-1. Create a feature branch
-2. Make your changes
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+- WebSocket real-time notification delivery
+- Email/SMS notification channels
+- Notification templates
+- Bulk operations
+- Advanced filtering and search
+- Notification preferences per user
+- Read receipts and delivery confirmation
 
 ## License
 
-Copyright © 2024 Synpro Consulting. All rights reserved.
+This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## Notification Preferences Management
+
+Provides a comprehensive interface for managing user notification preferences across multiple channels (email, SMS, push, in-app) and categories (security, marketing, billing, etc.). Includes support for global muting, quiet hours with timezone awareness, channel verification, and granular preference controls with security notifications enabled by default and bypassing quiet hours restrictions.
