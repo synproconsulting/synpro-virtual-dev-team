@@ -1,112 +1,190 @@
-# Email Notifications for Authentication Events
+# In-App Notification Storage and Data Model
 
-## Overview
-
-This module provides email notification functionality for authentication-related events, including:
-- Password reset requests
-- Login alerts
-- Password change confirmations
+This module provides a complete implementation for in-app notification storage and data models with support for multiple storage backends.
 
 ## Features
 
-- **Password Reset Emails**: Send secure password reset links with expiration warnings
-- **Login Alerts**: Notify users of new logins with device and location information
-- **Password Changed Notifications**: Confirm password changes with security warnings
-- **HTML and Plain Text**: All emails sent in both formats for maximum compatibility
-- **Configurable SMTP**: Easy configuration via environment variables or constructor parameters
+- **Comprehensive Data Models**: Well-defined notification models using Pydantic with validation
+- **Flexible Storage Layer**: Abstract storage interface with in-memory implementation
+- **Database Support**: SQLAlchemy models for persistent storage (PostgreSQL, SQLite)
+- **Status Management**: Track notification states (unread, read, archived)
+- **Type Classification**: Multiple notification types (info, success, warning, error, system, user_action, reminder)
+- **Expiration Support**: Time-sensitive notifications with automatic expiration
+- **Rich Metadata**: Extensible metadata field for custom data
+- **Pagination**: Built-in support for paginated queries
+- **Full Test Coverage**: Comprehensive unit tests using pytest
+
+## Project Structure
+
+```
+src/
+  notifications/
+    __init__.py           # Package initialization
+    models.py             # Pydantic data models
+    storage.py            # Storage layer implementation
+    database.py           # SQLAlchemy database models
+tests/
+  test_notification_models.py    # Model unit tests
+  test_notification_storage.py   # Storage unit tests
+requirements.txt          # Project dependencies
+README.md                # This file
+```
 
 ## Installation
 
-1. Install dependencies:
+Install the required dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configure environment variables:
-```bash
-export SMTP_HOST=smtp.example.com
-export SMTP_PORT=587
-export SMTP_USERNAME=your_username
-export SMTP_PASSWORD=your_password
-export FROM_EMAIL=noreply@example.com
-export PASSWORD_RESET_URL=https://yourapp.com/reset-password
-```
-
 ## Usage
 
-### Basic Example
+### Creating Notifications
 
 ```python
-from src.auth.email_notifications import EmailNotificationService
+from src.notifications.models import NotificationCreate, NotificationType
+from src.notifications.storage import NotificationStorage
 
-# Initialize the service
-email_service = EmailNotificationService(
-    smtp_host="smtp.gmail.com",
-    smtp_port=587,
-    smtp_username="your_email@gmail.com",
-    smtp_password="your_app_password",
-    from_email="noreply@yourapp.com"
+# Initialize storage
+storage = NotificationStorage()
+
+# Create a notification
+notification_data = NotificationCreate(
+    user_id="user_123",
+    notification_type=NotificationType.INFO,
+    title="Welcome!",
+    message="Thank you for joining our platform",
+    metadata={"source": "onboarding"},
+    action_url="https://example.com/getting-started"
 )
 
-# Send password reset email
-success = email_service.send_password_reset_email(
-    to_email="user@example.com",
-    reset_token="secure_random_token_here",
-    reset_url_base="https://yourapp.com/reset-password"
+notification = await storage.create_notification(notification_data)
+```
+
+### Retrieving Notifications
+
+```python
+# Get a specific notification
+notification = await storage.get_notification(notification_id)
+
+# Get all notifications for a user
+notifications = await storage.get_user_notifications("user_123")
+
+# Get unread notifications only
+unread = await storage.get_user_notifications(
+    "user_123",
+    status=NotificationStatus.UNREAD
 )
 
-# Send login alert
-from datetime import datetime
-
-success = email_service.send_login_alert_email(
-    to_email="user@example.com",
-    login_time=datetime.utcnow(),
-    ip_address="192.168.1.1",
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    location="New York, USA"
-)
-
-# Send password changed confirmation
-success = email_service.send_password_changed_email(
-    to_email="user@example.com"
+# Get with pagination
+page1 = await storage.get_user_notifications(
+    "user_123",
+    limit=10,
+    offset=0
 )
 ```
 
-### Using Environment Variables
+### Managing Notification Status
 
 ```python
-from src.auth.email_notifications import EmailNotificationService
+# Mark a notification as read
+await storage.mark_notification_as_read(notification_id)
 
-# Service will automatically use environment variables
-email_service = EmailNotificationService()
+# Mark all user notifications as read
+count = await storage.mark_all_user_notifications_as_read("user_123")
 
-# Use the service
-email_service.send_password_reset_email(
-    to_email="user@example.com",
-    reset_token="token123"
-)
+# Get unread count
+unread_count = await storage.get_user_unread_count("user_123")
 ```
 
-## Configuration
+### Updating and Deleting
 
-### Environment Variables
+```python
+from src.notifications.models import NotificationUpdate, NotificationStatus
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SMTP_HOST` | SMTP server hostname | `localhost` |
-| `SMTP_PORT` | SMTP server port | `587` |
-| `SMTP_USERNAME` | SMTP authentication username | `""` |
-| `SMTP_PASSWORD` | SMTP authentication password | `""` |
-| `FROM_EMAIL` | Sender email address | `noreply@example.com` |
-| `PASSWORD_RESET_URL` | Base URL for password reset | `https://example.com/reset-password` |
+# Update a notification
+update_data = NotificationUpdate(
+    title="Updated Title",
+    status=NotificationStatus.ARCHIVED
+)
+updated = await storage.update_notification(notification_id, update_data)
 
-### Security Considerations
+# Delete a notification
+deleted = await storage.delete_notification(notification_id)
+```
 
-- **Never commit credentials**: Always use environment variables for sensitive data
-- **Use app-specific passwords**: For Gmail and similar services, use app-specific passwords
-- **Enable TLS**: The service uses STARTTLS for secure connections
-- **Token expiration**: Password reset tokens should expire (mentioned in email, implement server-side)
-- **Rate limiting**: Implement rate limiting on the application side to prevent abuse
+### Cleanup Expired Notifications
+
+```python
+# Delete all expired notifications
+deleted_count = await storage.cleanup_expired_notifications()
+```
+
+## Data Models
+
+### Notification
+
+The main notification model with the following fields:
+
+- `id` (UUID): Unique identifier
+- `user_id` (str): User who receives the notification
+- `notification_type` (NotificationType): Type of notification
+- `title` (str): Notification title (max 200 chars)
+- `message` (str): Notification content (max 1000 chars)
+- `status` (NotificationStatus): Current status (default: unread)
+- `created_at` (datetime): Creation timestamp
+- `read_at` (datetime, optional): When marked as read
+- `archived_at` (datetime, optional): When archived
+- `metadata` (dict): Custom metadata
+- `action_url` (str, optional): URL for action button
+- `expires_at` (datetime, optional): Expiration timestamp
+
+### NotificationStatus Enum
+
+- `UNREAD`: Notification hasn't been read
+- `READ`: Notification has been read
+- `ARCHIVED`: Notification has been archived
+
+### NotificationType Enum
+
+- `INFO`: Informational notification
+- `SUCCESS`: Success message
+- `WARNING`: Warning message
+- `ERROR`: Error notification
+- `SYSTEM`: System notification
+- `USER_ACTION`: User action required
+- `REMINDER`: Reminder notification
+
+## Database Setup
+
+### Using SQLite (Development)
+
+SQLite is used by default:
+
+```python
+from src.notifications.database import create_database_engine, create_tables
+
+engine = create_database_engine()
+create_tables(engine)
+```
+
+### Using PostgreSQL (Production)
+
+Set the `DATABASE_URL` environment variable:
+
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/notifications"
+```
+
+Then create the tables:
+
+```python
+from src.notifications.database import create_database_engine, create_tables
+
+engine = create_database_engine()
+create_tables(engine)
+```
 
 ## Testing
 
@@ -114,108 +192,73 @@ Run the test suite:
 
 ```bash
 # Run all tests
-pytest tests/
+pytest
 
 # Run with coverage
-pytest --cov=src tests/
+pytest --cov=src/notifications
 
 # Run specific test file
-pytest tests/test_email_notifications.py
+pytest tests/test_notification_models.py
 
 # Run with verbose output
-pytest -v tests/
+pytest -v
 ```
 
-## Email Templates
+## Environment Variables
 
-All emails include:
-- Professional HTML templates with inline CSS
-- Plain text fallback versions
-- Clear call-to-action buttons (in HTML version)
-- Security warnings and instructions
-- Consistent branding elements
+- `DATABASE_URL`: Database connection string (default: `sqlite:///./notifications.db`)
+- `DATABASE_ECHO`: Enable SQLAlchemy SQL logging (default: `false`)
 
-### Customization
+## Architecture
 
-To customize email templates, modify the HTML and text content in the respective methods:
-- `send_password_reset_email()` - Password reset template
-- `send_login_alert_email()` - Login alert template  
-- `send_password_changed_email()` - Password changed template
+### Storage Layer
 
-## Error Handling
+The storage layer uses an abstract interface pattern, allowing for multiple backend implementations:
 
-The service includes comprehensive error handling:
-- All methods return `bool` indicating success/failure
-- Errors are logged using Python's logging module
-- SMTP exceptions are caught and logged
-- Failed emails return `False` without raising exceptions
+- **InMemoryNotificationStorage**: For development and testing
+- **Database Storage** (future): For production use with SQLAlchemy
 
-## API Reference
+### Data Validation
 
-### EmailNotificationService
+All models use Pydantic for automatic validation:
+- Type checking
+- Field constraints (min/max length)
+- Required vs optional fields
+- Default values
 
-#### `__init__(smtp_host, smtp_port, smtp_username, smtp_password, from_email)`
-Initialize the email notification service with SMTP configuration.
+## API Methods
 
-#### `send_password_reset_email(to_email, reset_token, reset_url_base) -> bool`
-Send a password reset email with a secure reset link.
+### NotificationStorage
 
-#### `send_login_alert_email(to_email, login_time, ip_address, user_agent, location) -> bool`
-Send a login alert notification with login details.
+- `create_notification(data)`: Create a new notification
+- `get_notification(id)`: Get notification by ID
+- `get_user_notifications(user_id, status, limit, offset)`: Get user's notifications
+- `update_notification(id, data)`: Update a notification
+- `delete_notification(id)`: Delete a notification
+- `mark_notification_as_read(id)`: Mark as read
+- `mark_all_user_notifications_as_read(user_id)`: Mark all as read
+- `get_user_unread_count(user_id)`: Get unread count
+- `cleanup_expired_notifications()`: Delete expired notifications
 
-#### `send_password_changed_email(to_email) -> bool`
-Send a confirmation email after password change.
+## Best Practices
 
-## Integration Examples
+1. **Never hardcode user IDs**: Always use IDs from authentication system
+2. **Set expiration for time-sensitive notifications**: Use `expires_at` field
+3. **Use appropriate notification types**: Choose the right type for better UI rendering
+4. **Add meaningful metadata**: Store additional context for processing
+5. **Regular cleanup**: Schedule periodic cleanup of expired notifications
+6. **Handle pagination**: Use limit/offset for large notification lists
 
-### Flask Integration
+## Future Enhancements
 
-```python
-from flask import Flask, request
-from src.auth.email_notifications import EmailNotificationService
-
-app = Flask(__name__)
-email_service = EmailNotificationService()
-
-@app.route('/api/auth/forgot-password', methods=['POST'])
-def forgot_password():
-    email = request.json.get('email')
-    # Generate reset token (implement your token generation)
-    reset_token = generate_reset_token(email)
-    
-    # Send email
-    success = email_service.send_password_reset_email(
-        to_email=email,
-        reset_token=reset_token
-    )
-    
-    if success:
-        return {'message': 'Password reset email sent'}, 200
-    return {'error': 'Failed to send email'}, 500
-```
-
-### Django Integration
-
-```python
-from django.contrib.auth.signals import user_logged_in
-from django.dispatch import receiver
-from src.auth.email_notifications import EmailNotificationService
-
-email_service = EmailNotificationService()
-
-@receiver(user_logged_in)
-def send_login_notification(sender, request, user, **kwargs):
-    email_service.send_login_alert_email(
-        to_email=user.email,
-        ip_address=request.META.get('REMOTE_ADDR'),
-        user_agent=request.META.get('HTTP_USER_AGENT'),
-    )
-```
+- WebSocket real-time notification delivery
+- Email/SMS notification channels
+- Notification templates
+- Bulk operations
+- Advanced filtering and search
+- Notification preferences per user
+- Read receipts and delivery confirmation
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues, questions, or contributions, please contact the development team.
+This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
