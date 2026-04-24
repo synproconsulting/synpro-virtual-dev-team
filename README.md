@@ -262,3 +262,7 @@ All models use Pydantic for automatic validation:
 ## License
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
+
+## GitHub Actions Workflow Monitor
+
+Real-time monitoring of GitHub Actions workflows with status tracking and streaming updates. The `GitHubWorkflowMonitor` class provides async methods to fetch workflow run details, list recent runs, and watch workflows in real-time with automatic status polling. Supports all GitHub Actions workflow statuses and conclusions with type-safe enumerations.
