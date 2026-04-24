@@ -193,15 +193,26 @@ def review_pr(pr_number, sha=None):
 
     if decision == "APPROVE":
         merge_title = review.get("merge_message", title)
-        ok, result  = merge_pr(pr_number, merge_title, f"Auto-merged by Manager Agent.\n\n{summary}")
+
+        # Try to update branch with main first to resolve conflicts
+        print("Attempting to update branch with main...")
+        update_r = requests.put(f"{BASE}/pulls/{pr_number}/update-branch",
+                               headers=GH_HEADERS, json={})
+        if update_r.status_code == 202:
+            print("Branch updated with main — waiting 10 seconds for CI...")
+            import time
+            time.sleep(10)
+            # Refresh PR to get new mergeable status
+            pr = get_pr(pr_number)
+            mergeable = pr.get("mergeable")
+            print(f"Mergeable after update: {mergeable}")
+
+        ok, result = merge_pr(pr_number, merge_title, f"Auto-merged by Manager Agent.\n\n{summary}")
         if ok:
             print(f"\n✅ PR #{pr_number} merged")
             post_comment(pr_number, f"✅ **Manager Agent merged this PR.**\n\n{summary}")
             if ticket_key:
                 print(f"Updating Jira {ticket_key}...")
-                print(f"  JIRA_BASE_URL set: {bool(JIRA_BASE_URL)}")
-                print(f"  JIRA_EMAIL set: {bool(JIRA_EMAIL)}")
-                print(f"  JIRA_API_TOKEN set: {bool(JIRA_API_TOKEN)}")
                 transitioned = jira_transition(ticket_key, "Done")
                 print(f"  Transition result: {transitioned}")
                 jira_comment(ticket_key, f"PR #{pr_number} merged by Manager Agent.\n\n{summary}")
@@ -210,7 +221,27 @@ def review_pr(pr_number, sha=None):
                 print("No Jira ticket key found in PR title")
         else:
             print(f"\n✗ Merge failed: {result}")
-            post_comment(pr_number, f"⚠️ Manager Agent: merge failed — {result.get('message','unknown')}")
+            # If still conflicted, close and retrigger via Auto Implement
+            if "conflict" in str(result).lower() or "405" in str(result):
+                print("Merge conflicts detected — closing PR and triggering reimplement")
+                requests.patch(f"{BASE}/pulls/{pr_number}", headers=GH_HEADERS,
+                             json={"state": "closed"})
+                if ticket_key:
+                    jira_comment(ticket_key,
+                        f"PR #{pr_number} had merge conflicts and was closed. Will be reimplemented.")
+                    # Trigger Auto Implement
+                    requests.post(
+                        f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/actions/workflows/auto-implement.yml/dispatches",
+                        headers=GH_HEADERS,
+                        json={"ref": "main", "inputs": {
+                            "ticket": ticket_key,
+                            "summary": pr["title"].replace(f"[{ticket_key}] ", "").strip(),
+                            "feedback": "Previous PR had merge conflicts. Implement fresh from main branch.",
+                        }}
+                    )
+                    print(f"Auto Implement triggered for {ticket_key}")
+            else:
+                post_comment(pr_number, f"⚠️ Manager Agent: merge failed — {result.get('message','unknown')}")
     else:
         issue_list = "\n".join(f"- {i}" for i in issues)
         post_comment(pr_number, f"**Manager Agent — Changes Requested:**\n\n{summary}\n\n{issue_list}")
