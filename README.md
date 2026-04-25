@@ -271,6 +271,27 @@ Provides a chat-based interface for product managers to submit and manage featur
 
 Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
 
-## Manual UAT Deployment Interface
+## Manual UAT Deployment
 
-Provides a structured interface for manual UAT deployments with granular service selection. Supports deployment to UAT, staging, and production environments with configurable rollback options, dry-run mode, and deployment history tracking for audit purposes.
+The Manual UAT Deployment interface allows authorized users to select and deploy specific services to the UAT environment.
+
+### Features
+- Service selection with real-time status
+- Bulk deployment capabilities
+- Deployment history tracking
+- Success/error notifications
+
+### Usage
+1. Navigate to the UAT Deployment section in the Control Centre
+2. Select the services you want to deploy
+3. Click "Deploy to UAT"
+4. Monitor deployment status in the history panel
+
+### API Endpoints
+- `GET /api/uat/services` - Get available services
+- `POST /api/uat/deploy` - Deploy selected services
+- `GET /api/uat/deployments/history` - Get deployment history
+
+### Environment Variables
+- `UAT_DEPLOYMENT_API_URL` - URL for the UAT deployment API
+- `SERVICES_CONFIG_PATH` - Path to services configuration file
