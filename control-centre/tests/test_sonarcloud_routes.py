@@ -2,7 +2,17 @@
 
 import pytest
 from unittest.mock import patch, Mock
-import json
+from flask import Flask
+from control-centre.api.sonarcloud_routes import sonarcloud_bp
+
+
+@pytest.fixture
+def app():
+    """Create test Flask app."""
+    app = Flask(__name__)
+    app.register_blueprint(sonarcloud_bp)
+    app.config['TESTING'] = True
+    return app
 
 
 @pytest.fixture
@@ -11,93 +21,88 @@ def client(app):
     return app.test_client()
 
 
-@pytest.fixture
-def mock_sonar_client():
-    """Mock SonarCloud client."""
-    with patch('control_centre.api.sonarcloud_routes.get_client') as mock:
-        yield mock
+class TestSonarCloudRoutes:
+    """Test cases for SonarCloud routes."""
 
+    @patch('control-centre.api.sonarcloud_routes.get_sonarcloud_helper')
+    def test_trigger_analysis_success(self, mock_get_helper, client):
+        """Test successful analysis trigger."""
+        mock_helper = Mock()
+        mock_helper.trigger_analysis.return_value = {
+            'status': 'triggered',
+            'repository': 'owner/repo'
+        }
+        mock_get_helper.return_value = mock_helper
+        
+        response = client.post(
+            '/api/sonarcloud/trigger',
+            json={'repository': 'owner/repo', 'branch': 'main'}
+        )
+        
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['status'] == 'triggered'
 
-def test_trigger_analysis_success(client, mock_sonar_client):
-    """Test successful analysis trigger."""
-    mock_client = Mock()
-    mock_client.trigger_analysis.return_value = {
-        'taskId': 'task-123',
-        'projectKey': 'test-project',
-        'status': 'PENDING'
-    }
-    mock_sonar_client.return_value = mock_client
+    def test_trigger_analysis_no_data(self, client):
+        """Test trigger without data returns 400."""
+        response = client.post('/api/sonarcloud/trigger')
+        assert response.status_code == 400
 
-    response = client.post(
-        '/api/sonarcloud/trigger',
-        data=json.dumps({'projectKey': 'test-project', 'branch': 'main'}),
-        content_type='application/json'
-    )
+    def test_trigger_analysis_no_repository(self, client):
+        """Test trigger without repository returns 400."""
+        response = client.post(
+            '/api/sonarcloud/trigger',
+            json={'branch': 'main'}
+        )
+        assert response.status_code == 400
 
-    assert response.status_code == 200
-    data = json.loads(response.data)
-    assert data['taskId'] == 'task-123'
-    assert data['projectKey'] == 'test-project'
+    @patch('control-centre.api.sonarcloud_routes.get_sonarcloud_helper')
+    def test_get_results_success(self, mock_get_helper, client):
+        """Test successful results retrieval."""
+        mock_helper = Mock()
+        mock_helper.get_full_analysis.return_value = {
+            'repository': 'owner/repo',
+            'bugs': '5',
+            'coverage': '85'
+        }
+        mock_get_helper.return_value = mock_helper
+        
+        response = client.get('/api/sonarcloud/results?repository=owner/repo')
+        
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['repository'] == 'owner/repo'
 
+    def test_get_results_no_repository(self, client):
+        """Test results without repository parameter returns 400."""
+        response = client.get('/api/sonarcloud/results')
+        assert response.status_code == 400
 
-def test_trigger_analysis_missing_project_key(client, mock_sonar_client):
-    """Test trigger fails without project key."""
-    response = client.post(
-        '/api/sonarcloud/trigger',
-        data=json.dumps({'branch': 'main'}),
-        content_type='application/json'
-    )
+    @patch('control-centre.api.sonarcloud_routes.get_sonarcloud_helper')
+    def test_get_status_success(self, mock_get_helper, client):
+        """Test successful status retrieval."""
+        mock_helper = Mock()
+        mock_helper.get_project_status.return_value = {'status': 'OK'}
+        mock_get_helper.return_value = mock_helper
+        
+        response = client.get('/api/sonarcloud/status/owner/repo')
+        
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['status'] == 'OK'
 
-    assert response.status_code == 400
-    data = json.loads(response.data)
-    assert 'error' in data
-
-
-def test_get_analysis_status(client, mock_sonar_client):
-    """Test getting analysis status."""
-    mock_client = Mock()
-    mock_client.get_analysis_status.return_value = {
-        'status': 'SUCCESS',
-        'taskId': 'task-123'
-    }
-    mock_sonar_client.return_value = mock_client
-
-    response = client.get('/api/sonarcloud/status/task-123')
-
-    assert response.status_code == 200
-    data = json.loads(response.data)
-    assert data['status'] == 'SUCCESS'
-
-
-def test_get_project_results(client, mock_sonar_client):
-    """Test getting project results."""
-    mock_client = Mock()
-    mock_client.get_project_results.return_value = {
-        'projectKey': 'test-project',
-        'qualityGateStatus': 'OK',
-        'bugs': 5,
-        'vulnerabilities': 2
-    }
-    mock_sonar_client.return_value = mock_client
-
-    response = client.get('/api/sonarcloud/results/test-project?branch=main')
-
-    assert response.status_code == 200
-    data = json.loads(response.data)
-    assert data['qualityGateStatus'] == 'OK'
-    assert data['bugs'] == 5
-
-
-def test_get_quality_gate(client, mock_sonar_client):
-    """Test getting quality gate status."""
-    mock_client = Mock()
-    mock_client.get_quality_gate_status.return_value = {
-        'projectStatus': {'status': 'OK'}
-    }
-    mock_sonar_client.return_value = mock_client
-
-    response = client.get('/api/sonarcloud/quality-gate/test-project')
-
-    assert response.status_code == 200
-    data = json.loads(response.data)
-    assert data['projectStatus']['status'] == 'OK'
+    @patch('control-centre.api.sonarcloud_routes.get_sonarcloud_helper')
+    def test_get_issues_success(self, mock_get_helper, client):
+        """Test successful issues retrieval."""
+        mock_helper = Mock()
+        mock_helper.get_project_issues.return_value = {
+            'issues': [{'severity': 'MAJOR'}],
+            'total': 1
+        }
+        mock_get_helper.return_value = mock_helper
+        
+        response = client.get('/api/sonarcloud/issues/owner/repo')
+        
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['total'] == 1
