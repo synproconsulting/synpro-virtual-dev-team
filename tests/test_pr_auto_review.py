@@ -1,118 +1,109 @@
-"""Tests for PR auto review functionality."""
+"""Tests for PR auto-review functionality."""
 
 import pytest
-from src.auth.pr_auto_review import PRAutoReview, PRMetadata, ReviewStatus
+from unittest.mock import AsyncMock, patch
+from src.auth.pr_auto_review import PRAutoReview, ReviewStatus
+import httpx
 
 
 @pytest.fixture
-def pr_auto_review():
-    """Fixture for PR auto review."""
-    return PRAutoReview(team_id="team-alpha")
-
-
-@pytest.fixture
-def valid_pr_metadata():
-    """Fixture for valid PR metadata."""
-    return PRMetadata(
-        pr_id="PR-123",
-        title="Add new feature",
-        author="developer1",
-        branch="feature/new-feature",
-        target_branch="main",
-        files_changed=5,
-        lines_added=100,
-        lines_removed=20
+def pr_reviewer():
+    """Create PRAutoReview instance for testing."""
+    return PRAutoReview(
+        repo_url="https://api.github.com/repos/test/repo",
+        api_token="test-token-456",
     )
 
 
-@pytest.fixture
-def large_pr_metadata():
-    """Fixture for large PR metadata."""
-    return PRMetadata(
-        pr_id="PR-456",
-        title="Large refactor",
-        author="developer2",
-        branch="feature/refactor",
-        target_branch="main",
-        files_changed=100,
-        lines_added=5000,
-        lines_removed=3000
-    )
+@pytest.mark.asyncio
+async def test_analyze_pr_success(pr_reviewer):
+    """Test successful PR analysis."""
+    mock_pr_data = {"number": 42, "title": "Test PR", "state": "open"}
+    mock_files = [
+        {"filename": "test.py", "additions": 10, "deletions": 5},
+        {"filename": "main.py", "additions": 20, "deletions": 3},
+    ]
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value.json.side_effect = [mock_pr_data, mock_files]
+        mock_get.return_value.raise_for_status = lambda: None
+
+        result = await pr_reviewer.analyze_pr(42)
+
+        assert result["file_count"] == 2
+        assert result["additions"] == 30
+        assert result["deletions"] == 8
+        assert result["pr_data"]["number"] == 42
 
 
-def test_pr_auto_review_initialization(pr_auto_review):
-    """Test PR auto review initialization."""
-    assert pr_auto_review.team_id == "team-alpha"
-    assert pr_auto_review.review_rules is not None
-    assert len(pr_auto_review._review_history) == 0
+@pytest.mark.asyncio
+async def test_submit_review_approved(pr_reviewer):
+    """Test submitting an approved review."""
+    mock_response = {"id": "review-123", "state": "APPROVED"}
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value.json.return_value = mock_response
+        mock_post.return_value.raise_for_status = lambda: None
+
+        result = await pr_reviewer.submit_review(
+            pr_number=42,
+            status=ReviewStatus.APPROVED,
+            comments=["Looks good!"],
+        )
+
+        assert result["state"] == "APPROVED"
+        mock_post.assert_called_once()
 
 
-def test_review_valid_pr(pr_auto_review, valid_pr_metadata):
-    """Test reviewing a valid PR."""
-    result = pr_auto_review.review_pr(valid_pr_metadata)
-    
-    assert result["pr_id"] == "PR-123"
-    assert result["status"] == ReviewStatus.APPROVED.value
-    assert all(result["checks"].values())
-    assert len(result["comments"]) == 0
+@pytest.mark.asyncio
+async def test_auto_approve_if_eligible_approved(pr_reviewer):
+    """Test auto-approval for eligible PR."""
+    mock_pr_data = {"number": 42}
+    mock_files = [{"additions": 50, "deletions": 20}]
+    mock_review = {"id": "review-123", "state": "APPROVED"}
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get, \
+         patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_get.return_value.json.side_effect = [mock_pr_data, mock_files]
+        mock_get.return_value.raise_for_status = lambda: None
+        mock_post.return_value.json.return_value = mock_review
+        mock_post.return_value.raise_for_status = lambda: None
+
+        result = await pr_reviewer.auto_approve_if_eligible(42)
+
+        assert result is not None
+        assert result["state"] == "APPROVED"
 
 
-def test_review_large_pr(pr_auto_review, large_pr_metadata):
-    """Test reviewing a large PR."""
-    result = pr_auto_review.review_pr(large_pr_metadata)
-    
-    assert result["pr_id"] == "PR-456"
-    assert result["status"] == ReviewStatus.CHANGES_REQUESTED.value
-    assert not result["checks"]["size_check"]
-    assert not result["checks"]["lines_check"]
-    assert len(result["comments"]) > 0
+@pytest.mark.asyncio
+async def test_auto_approve_if_eligible_not_eligible(pr_reviewer):
+    """Test auto-approval for ineligible PR."""
+    mock_pr_data = {"number": 42}
+    mock_files = [{"additions": 200, "deletions": 100}]  # Too large
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value.json.side_effect = [mock_pr_data, mock_files]
+        mock_get.return_value.raise_for_status = lambda: None
+
+        result = await pr_reviewer.auto_approve_if_eligible(42)
+
+        assert result is None
 
 
-def test_invalid_branch_name(pr_auto_review):
-    """Test PR with invalid branch name."""
-    pr_metadata = PRMetadata(
-        pr_id="PR-789",
-        title="Test PR",
-        author="developer3",
-        branch="invalid-branch",
-        target_branch="main",
-        files_changed=5,
-        lines_added=50,
-        lines_removed=10
-    )
-    
-    result = pr_auto_review.review_pr(pr_metadata)
-    
-    assert not result["checks"]["branch_name_check"]
-    assert any("naming conventions" in comment for comment in result["comments"])
+@pytest.mark.asyncio
+async def test_analyze_pr_missing_credentials():
+    """Test PR analysis with missing credentials."""
+    reviewer = PRAutoReview(repo_url="", api_token="")
+
+    with pytest.raises(ValueError, match="Repository API credentials not configured"):
+        await reviewer.analyze_pr(42)
 
 
-def test_invalid_target_branch(pr_auto_review, valid_pr_metadata):
-    """Test PR with invalid target branch."""
-    valid_pr_metadata.target_branch = "random-branch"
-    result = pr_auto_review.review_pr(valid_pr_metadata)
-    
-    assert not result["checks"]["target_branch_check"]
-    assert any("Target branch" in comment for comment in result["comments"])
+def test_generate_review_body(pr_reviewer):
+    """Test review body generation."""
+    comments = ["Issue 1", "Issue 2", "Issue 3"]
+    body = pr_reviewer._generate_review_body(comments)
 
-
-def test_review_history(pr_auto_review, valid_pr_metadata):
-    """Test review history tracking."""
-    pr_auto_review.review_pr(valid_pr_metadata)
-    pr_auto_review.review_pr(valid_pr_metadata)
-    
-    history = pr_auto_review.get_review_history()
-    assert len(history) == 2
-    assert all("pr_id" in review for review in history)
-
-
-def test_custom_review_rules():
-    """Test custom review rules."""
-    custom_rules = {
-        "max_files_changed": 10,
-        "max_lines_changed": 200
-    }
-    reviewer = PRAutoReview(team_id="team-beta", review_rules=custom_rules)
-    
-    assert reviewer.review_rules["max_files_changed"] == 10
-    assert reviewer.review_rules["max_lines_changed"] == 200
+    assert "Automated Review" in body
+    assert "3 items identified" in body
+    assert "Issue 1" in body
