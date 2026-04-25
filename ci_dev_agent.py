@@ -119,19 +119,43 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
 
     feedback_section = f"\n\nFEEDBACK FROM PREVIOUS ATTEMPT (must address these):\n{feedback}" if feedback else ""
 
-    prompt = (
-        "Implement this Jira ticket as Python code.\n\n"
-        "Ticket: [" + ticket + "] " + summary + feedback_section + "\n\n"
-        "Rules:\n"
-        "- Create ONLY new files under src/auth/ and tests/\n"
-        "- Do NOT include README.md, requirements.txt, or __init__.py\n"
-        "- Python 3.11+, type hints, docstrings, pytest\n"
-        "- Keep each file under 150 lines\n"
-        "- No hardcoded secrets\n\n"
-        "Respond with ONLY this JSON structure:\n"
-        '{"files":[{"path":"src/auth/x.py","content":"..."},{"path":"tests/test_x.py","content":"..."}],'
-        '"readme_section":"## Title\\n\\none paragraph","new_requirements":[],"new_exports":["ClassName"],"pr_body":"..."}'
-    )
+    # Detect if this is a Control Centre / dashboard ticket
+    is_control_centre = any(kw in summary.lower() for kw in [
+        "control centre", "control center", "dashboard", "ui", "sprint status",
+        "workflow monitor", "deployment interface", "sonarcloud", "pm agent chat",
+        "sprint trigger", "auto review"
+    ])
+
+    if is_control_centre:
+        prompt = (
+            "Implement this Jira ticket as a React/Python feature for the Control Centre dashboard.\n\n"
+            "Ticket: [" + ticket + "] " + summary + feedback_section + "\n\n"
+            "Rules:\n"
+            "- Create files under control-centre/ directory ONLY\n"
+            "- For React components: control-centre/src/components/\n"
+            "- For Python API helpers: control-centre/api/\n"
+            "- For tests: control-centre/tests/\n"
+            "- Do NOT touch src/auth/, tests/, README.md, requirements.txt, or __init__.py\n"
+            "- Each file should be focused and under 200 lines\n"
+            "- No hardcoded secrets\n\n"
+            "Respond with ONLY this JSON structure:\n"
+            '{"files":[{"path":"control-centre/src/components/X.jsx","content":"..."}],'
+            '"readme_section":"","new_requirements":[],"new_exports":[],"pr_body":"..."}'
+        )
+    else:
+        prompt = (
+            "Implement this Jira ticket as Python code.\n\n"
+            "Ticket: [" + ticket + "] " + summary + feedback_section + "\n\n"
+            "Rules:\n"
+            "- Create ONLY new files under src/auth/ and tests/\n"
+            "- Do NOT include README.md, requirements.txt, or __init__.py\n"
+            "- Python 3.11+, type hints, docstrings, pytest\n"
+            "- Keep each file under 150 lines\n"
+            "- No hardcoded secrets\n\n"
+            "Respond with ONLY this JSON structure:\n"
+            '{"files":[{"path":"src/auth/x.py","content":"..."},{"path":"tests/test_x.py","content":"..."}],'
+            '"readme_section":"## Title\\n\\none paragraph","new_requirements":[],"new_exports":["ClassName"],"pr_body":"..."}'
+        )
 
     print("\nAsking Claude to implement the ticket...")
     response = client.messages.create(
