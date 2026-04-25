@@ -263,6 +263,14 @@ All models use Pydantic for automatic validation:
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
 
+## PM Agent Chat Interface - Feature Brief Submission
+
+Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
+
+## Dependency Management
+
+Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
+
 ## Manual UAT Deployment Interface
 
-Provides a controlled interface for manual UAT deployments with service selection capabilities. Supports adding, removing, and validating service configurations before deployment, with built-in safety checks to ensure deployments only target the UAT environment. The interface uses a provider pattern to support different deployment backends while maintaining a consistent API for service management and deployment operations.
+Provides a structured interface for manual UAT deployments with granular service selection. Supports deployment to UAT, staging, and production environments with configurable rollback options, dry-run mode, and deployment history tracking for audit purposes.
