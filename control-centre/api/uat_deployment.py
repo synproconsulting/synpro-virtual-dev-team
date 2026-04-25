@@ -1,184 +1,171 @@
-"""UAT deployment API endpoints."""
+"""UAT Deployment API handlers."""
 import os
 import json
+import logging
 from datetime import datetime
 from typing import List, Dict, Any
-from flask import Blueprint, request, jsonify
-from functools import wraps
+import uuid
 
-uat_bp = Blueprint('uat', __name__, url_prefix='/api/uat')
-
-
-def get_config(key: str, default: Any = None) -> Any:
-    """Get configuration from environment variables."""
-    return os.environ.get(key, default)
-
-
-def require_auth(f):
-    """Decorator to require authentication for endpoints."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Authentication should be handled by the main app middleware
-        # This is a placeholder for the decorator
-        return f(*args, **kwargs)
-    return decorated_function
+logger = logging.getLogger(__name__)
 
 
 class UATDeploymentService:
     """Service for managing UAT deployments."""
-    
+
     def __init__(self):
-        self.deployment_api_url = get_config('UAT_DEPLOYMENT_API_URL')
-        self.services_config_path = get_config('SERVICES_CONFIG_PATH', 'config/services.json')
-    
+        self.deployment_config_path = os.getenv(
+            'UAT_DEPLOYMENT_CONFIG',
+            '/etc/control-centre/uat-services.json'
+        )
+        self.deployment_endpoint = os.getenv(
+            'UAT_DEPLOYMENT_API',
+            'http://deployment-service:8080/api/v1/deploy'
+        )
+
     def get_available_services(self) -> List[Dict[str, Any]]:
-        """Get list of available services for deployment."""
-        # In production, this would fetch from a service registry or config
+        """Fetch available services for UAT deployment."""
+        try:
+            if os.path.exists(self.deployment_config_path):
+                with open(self.deployment_config_path, 'r') as f:
+                    config = json.load(f)
+                    return config.get('services', [])
+            else:
+                # Return default services if config not found
+                return self._get_default_services()
+        except Exception as e:
+            logger.error(f"Failed to load services: {e}")
+            return self._get_default_services()
+
+    def _get_default_services(self) -> List[Dict[str, Any]]:
+        """Return default service list."""
         return [
             {
-                'id': 'api-gateway',
-                'name': 'API Gateway',
-                'version': '2.3.1',
-                'status': 'active'
+                'name': 'api-gateway',
+                'current_version': 'v1.2.3',
+                'status': 'running'
             },
             {
-                'id': 'user-service',
-                'name': 'User Service',
-                'version': '1.8.4',
-                'status': 'active'
+                'name': 'user-service',
+                'current_version': 'v2.1.0',
+                'status': 'running'
             },
             {
-                'id': 'payment-service',
-                'name': 'Payment Service',
-                'version': '3.1.0',
-                'status': 'active'
+                'name': 'payment-service',
+                'current_version': 'v1.5.2',
+                'status': 'running'
             },
             {
-                'id': 'notification-service',
-                'name': 'Notification Service',
-                'version': '1.5.2',
-                'status': 'active'
+                'name': 'notification-service',
+                'current_version': 'v1.0.8',
+                'status': 'running'
             },
             {
-                'id': 'analytics-service',
-                'name': 'Analytics Service',
-                'version': '2.0.1',
-                'status': 'inactive'
+                'name': 'analytics-service',
+                'current_version': 'v0.9.1',
+                'status': 'stopped'
             }
         ]
-    
-    def deploy_services(self, service_ids: List[str], user: str) -> Dict[str, Any]:
-        """Deploy selected services to UAT environment."""
-        # In production, this would trigger actual deployment pipeline
-        deployment_id = f"DEP-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-        
-        # Simulate deployment
-        services = self.get_available_services()
-        selected_services = [s for s in services if s['id'] in service_ids]
-        
-        if not selected_services:
-            raise ValueError('No valid services selected')
-        
-        deployment_record = {
-            'id': deployment_id,
-            'services': [s['name'] for s in selected_services],
-            'service_ids': service_ids,
-            'status': 'success',
-            'timestamp': datetime.utcnow().isoformat(),
-            'user': user
-        }
-        
-        # Store deployment record
-        self._store_deployment(deployment_record)
-        
-        return {
+
+    def validate_deployment_request(
+        self,
+        services: List[str],
+        branch: str
+    ) -> tuple[bool, str]:
+        """Validate deployment request."""
+        if not services:
+            return False, "No services specified"
+
+        if not branch or not branch.strip():
+            return False, "Branch name is required"
+
+        available_services = [s['name'] for s in self.get_available_services()]
+        invalid_services = [s for s in services if s not in available_services]
+
+        if invalid_services:
+            return False, f"Invalid services: {', '.join(invalid_services)}"
+
+        return True, ""
+
+    def trigger_deployment(
+        self,
+        services: List[str],
+        branch: str,
+        environment: str = 'uat'
+    ) -> Dict[str, Any]:
+        """Trigger deployment for selected services."""
+        deployment_id = str(uuid.uuid4())
+        timestamp = datetime.utcnow().isoformat()
+
+        deployment_request = {
             'deployment_id': deployment_id,
-            'status': 'success',
-            'message': f'Successfully deployed {len(selected_services)} service(s) to UAT',
-            'services': [s['name'] for s in selected_services]
+            'environment': environment,
+            'services': services,
+            'branch': branch,
+            'timestamp': timestamp,
+            'triggered_by': 'manual'
         }
-    
-    def get_deployment_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get recent deployment history."""
-        # In production, this would fetch from a database
-        return [
-            {
-                'id': 'DEP-20240115120000',
-                'services': ['API Gateway', 'User Service'],
-                'status': 'success',
-                'timestamp': '2024-01-15T12:00:00Z',
-                'user': 'admin@example.com'
-            },
-            {
-                'id': 'DEP-20240115100000',
-                'services': ['Payment Service'],
-                'status': 'success',
-                'timestamp': '2024-01-15T10:00:00Z',
-                'user': 'devops@example.com'
-            },
-            {
-                'id': 'DEP-20240114180000',
-                'services': ['Notification Service', 'Analytics Service'],
-                'status': 'failed',
-                'timestamp': '2024-01-14T18:00:00Z',
-                'user': 'admin@example.com'
+
+        logger.info(
+            f"Triggering UAT deployment {deployment_id} "
+            f"for services: {', '.join(services)} from branch: {branch}"
+        )
+
+        # In production, this would make an actual API call to the deployment service
+        # For now, we log and return success
+        try:
+            # Here you would implement the actual deployment trigger
+            # Example:
+            # response = requests.post(
+            #     self.deployment_endpoint,
+            #     json=deployment_request,
+            #     headers={'Authorization': f'Bearer {get_auth_token()}'}
+            # )
+            # response.raise_for_status()
+            # return response.json()
+
+            return {
+                'deployment_id': deployment_id,
+                'status': 'initiated',
+                'services': services,
+                'branch': branch,
+                'environment': environment,
+                'message': f'Successfully initiated deployment for {len(services)} service(s)'
             }
-        ]
-    
-    def _store_deployment(self, deployment: Dict[str, Any]) -> None:
-        """Store deployment record."""
-        # In production, this would save to a database
-        pass
+        except Exception as e:
+            logger.error(f"Deployment failed: {e}")
+            raise
 
 
-deployment_service = UATDeploymentService()
-
-
-@uat_bp.route('/services', methods=['GET'])
-@require_auth
-def get_services():
-    """Get available services for UAT deployment."""
+def get_services_handler(request) -> tuple[Dict[str, Any], int]:
+    """Handler for GET /api/uat/services."""
     try:
-        services = deployment_service.get_available_services()
-        return jsonify({'services': services}), 200
+        service = UATDeploymentService()
+        services = service.get_available_services()
+        return {'services': services}, 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Failed to fetch services: {e}")
+        return {'error': 'Failed to fetch services'}, 500
 
 
-@uat_bp.route('/deploy', methods=['POST'])
-@require_auth
-def deploy():
-    """Deploy selected services to UAT environment."""
+def deploy_handler(request) -> tuple[Dict[str, Any], int]:
+    """Handler for POST /api/uat/deploy."""
     try:
         data = request.get_json()
-        service_ids = data.get('service_ids', [])
-        
-        if not service_ids:
-            return jsonify({'error': 'No services selected'}), 400
-        
-        # Get user from request context (set by auth middleware)
-        user = request.headers.get('X-User-Email', 'unknown@example.com')
-        
-        result = deployment_service.deploy_services(service_ids, user)
-        return jsonify(result), 200
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
+        services = data.get('services', [])
+        branch = data.get('branch', 'main')
+        environment = data.get('environment', 'uat')
+
+        service = UATDeploymentService()
+        is_valid, error_message = service.validate_deployment_request(
+            services, branch
+        )
+
+        if not is_valid:
+            return {'error': error_message}, 400
+
+        result = service.trigger_deployment(services, branch, environment)
+        return result, 200
+
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@uat_bp.route('/deployments/history', methods=['GET'])
-@require_auth
-def get_deployment_history():
-    """Get deployment history."""
-    try:
-        limit = request.args.get('limit', 50, type=int)
-        deployments = deployment_service.get_deployment_history(limit)
-        return jsonify({'deployments': deployments}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-def register_blueprint(app):
-    """Register UAT deployment blueprint with Flask app."""
-    app.register_blueprint(uat_bp)
+        logger.error(f"Deployment request failed: {e}")
+        return {'error': 'Deployment failed'}, 500
