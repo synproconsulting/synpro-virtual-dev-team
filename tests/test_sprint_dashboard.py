@@ -1,118 +1,82 @@
-"""Tests for sprint dashboard."""
+"""Tests for sprint dashboard functionality."""
 
-from datetime import datetime
-from unittest.mock import Mock
 import pytest
+
 from src.auth.sprint_dashboard import (
-    SprintDashboard, JiraTicket, PullRequest, CIBuild, StatusType, SprintMetrics
+    CIStatus,
+    IssueStatus,
+    JiraIssue,
+    PRStatus,
+    PullRequest,
+    SprintDashboard,
 )
 
 
-@pytest.fixture
-def mock_providers():
-    """Create mock data providers."""
-    jira_mock = Mock()
-    pr_mock = Mock()
-    ci_mock = Mock()
-    return jira_mock, pr_mock, ci_mock
+class TestSprintDashboard:
+    """Test cases for SprintDashboard class."""
 
+    def test_add_issue(self) -> None:
+        """Test adding a Jira issue to dashboard."""
+        dashboard = SprintDashboard()
+        issue = JiraIssue(
+            key="SDT-1",
+            summary="Test issue",
+            status=IssueStatus.TODO,
+            assignee="user@example.com",
+            story_points=5,
+        )
+        dashboard.add_issue(issue)
+        assert "SDT-1" in dashboard._issues
 
-@pytest.fixture
-def sample_data():
-    """Create sample data for testing."""
-    tickets = [
-        JiraTicket("SDT-1", "Task 1", "Done", "Alice", 5),
-        JiraTicket("SDT-2", "Task 2", "In Progress", "Bob", 3),
-    ]
-    prs = [
-        PullRequest("1", "PR 1", "Alice", StatusType.SUCCESS, ["SDT-1"], "url1"),
-        PullRequest("2", "PR 2", "Bob", StatusType.PENDING, ["SDT-2"], "url2"),
-    ]
-    builds = [
-        CIBuild("100", StatusType.SUCCESS, "1", datetime.now()),
-        CIBuild("101", StatusType.FAILED, "2", datetime.now()),
-    ]
-    return tickets, prs, builds
+    def test_add_pull_request(self) -> None:
+        """Test adding a pull request to dashboard."""
+        dashboard = SprintDashboard()
+        pr = PullRequest(
+            id="123",
+            title="Fix bug",
+            status=PRStatus.OPEN,
+            author="developer",
+            jira_key="SDT-1",
+            ci_status=CIStatus.SUCCESS,
+        )
+        dashboard.add_pull_request(pr)
+        assert "123" in dashboard._pull_requests
 
+    def test_get_metrics_empty(self) -> None:
+        """Test metrics calculation with no data."""
+        dashboard = SprintDashboard()
+        metrics = dashboard.get_metrics()
+        assert metrics.total_issues == 0
+        assert metrics.completed_issues == 0
+        assert metrics.open_prs == 0
 
-def test_dashboard_initialization(mock_providers):
-    """Test dashboard initialization."""
-    jira, pr, ci = mock_providers
-    dashboard = SprintDashboard(jira, pr, ci)
-    assert dashboard is not None
+    def test_get_metrics_with_data(self) -> None:
+        """Test metrics calculation with sample data."""
+        dashboard = SprintDashboard()
+        
+        dashboard.add_issue(JiraIssue("SDT-1", "Task 1", IssueStatus.DONE, "user1", 5))
+        dashboard.add_issue(JiraIssue("SDT-2", "Task 2", IssueStatus.IN_PROGRESS, "user2", 3))
+        dashboard.add_pull_request(PullRequest("1", "PR 1", PRStatus.OPEN, "dev1", "SDT-1", CIStatus.SUCCESS))
+        dashboard.add_pull_request(PullRequest("2", "PR 2", PRStatus.MERGED, "dev2", "SDT-2", CIStatus.FAILED))
+        
+        metrics = dashboard.get_metrics()
+        assert metrics.total_issues == 2
+        assert metrics.completed_issues == 1
+        assert metrics.in_progress_issues == 1
+        assert metrics.total_story_points == 8
+        assert metrics.completed_story_points == 5
+        assert metrics.open_prs == 1
+        assert metrics.merged_prs == 1
+        assert metrics.failed_ci_runs == 1
 
-
-def test_refresh_data(mock_providers, sample_data):
-    """Test data refresh."""
-    jira, pr, ci = mock_providers
-    tickets, prs, builds = sample_data
-    
-    jira.fetch_data.return_value = tickets
-    pr.fetch_data.return_value = prs
-    ci.fetch_data.return_value = builds
-    
-    dashboard = SprintDashboard(jira, pr, ci)
-    dashboard.refresh_data("SPRINT-1")
-    
-    jira.fetch_data.assert_called_once_with(sprint_id="SPRINT-1")
-    pr.fetch_data.assert_called_once_with(sprint_id="SPRINT-1")
-    ci.fetch_data.assert_called_once_with(sprint_id="SPRINT-1")
-
-
-def test_get_metrics(mock_providers, sample_data):
-    """Test metrics calculation."""
-    jira, pr, ci = mock_providers
-    tickets, prs, builds = sample_data
-    
-    jira.fetch_data.return_value = tickets
-    pr.fetch_data.return_value = prs
-    ci.fetch_data.return_value = builds
-    
-    dashboard = SprintDashboard(jira, pr, ci)
-    dashboard.refresh_data("SPRINT-1")
-    metrics = dashboard.get_metrics()
-    
-    assert metrics.total_tickets == 2
-    assert metrics.completed_tickets == 1
-    assert metrics.total_story_points == 8
-    assert metrics.completed_story_points == 5
-    assert metrics.open_prs == 1
-    assert metrics.merged_prs == 1
-    assert metrics.failed_builds == 1
-    assert metrics.success_rate == 0.5
-
-
-def test_get_ticket_status(mock_providers, sample_data):
-    """Test ticket status retrieval."""
-    jira, pr, ci = mock_providers
-    tickets, prs, builds = sample_data
-    
-    jira.fetch_data.return_value = tickets
-    pr.fetch_data.return_value = prs
-    ci.fetch_data.return_value = builds
-    
-    dashboard = SprintDashboard(jira, pr, ci)
-    dashboard.refresh_data("SPRINT-1")
-    status = dashboard.get_ticket_status("SDT-1")
-    
-    assert status["ticket"].key == "SDT-1"
-    assert len(status["prs"]) == 1
-    assert len(status["builds"]) == 1
-    assert status["overall_status"] == StatusType.SUCCESS
-
-
-def test_overall_status_computation(mock_providers, sample_data):
-    """Test overall status computation."""
-    jira, pr, ci = mock_providers
-    tickets, prs, builds = sample_data
-    
-    jira.fetch_data.return_value = tickets
-    pr.fetch_data.return_value = prs
-    ci.fetch_data.return_value = builds
-    
-    dashboard = SprintDashboard(jira, pr, ci)
-    dashboard.refresh_data("SPRINT-1")
-    
-    # Ticket with failed build
-    status = dashboard.get_ticket_status("SDT-2")
-    assert status["overall_status"] == StatusType.FAILED
+    def test_get_prs_for_issue(self) -> None:
+        """Test retrieving PRs linked to a specific issue."""
+        dashboard = SprintDashboard()
+        
+        dashboard.add_pull_request(PullRequest("1", "PR 1", PRStatus.OPEN, "dev", "SDT-1", None))
+        dashboard.add_pull_request(PullRequest("2", "PR 2", PRStatus.OPEN, "dev", "SDT-2", None))
+        dashboard.add_pull_request(PullRequest("3", "PR 3", PRStatus.MERGED, "dev", "SDT-1", None))
+        
+        prs = dashboard.get_prs_for_issue("SDT-1")
+        assert len(prs) == 2
+        assert all(pr.jira_key == "SDT-1" for pr in prs)
