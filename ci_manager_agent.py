@@ -136,8 +136,28 @@ def review_pr(pr_number, sha=None):
     print(f"Mergeable: {mergeable}")
 
     if mergeable is False:
-        print("PR has merge conflicts — skipping")
-        post_comment(pr_number, "⚠️ Manager Agent: merge conflicts present — please rebase.")
+        print("PR has merge conflicts — closing and retriggering")
+        requests.patch(f"{BASE}/pulls/{pr_number}", headers=GH_HEADERS,
+                      json={"state": "closed"})
+        # Try to extract ticket key from branch
+        branch_match = re.search(r'feature/([a-z0-9]+-\d+)-', branch)
+        t_key = branch_match.group(1).upper() if branch_match else None
+        if t_key:
+            clean_title = title
+            for pat in [f"[{t_key}]", f"[***-{t_key.split('-')[1]}]"]:
+                clean_title = clean_title.replace(pat, "").strip()
+            jira_comment(t_key,
+                f"PR #{pr_number} had merge conflicts and was closed. Retriggering.")
+            requests.post(
+                f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/actions/workflows/auto-implement.yml/dispatches",
+                headers=GH_HEADERS,
+                json={"ref": "main", "inputs": {
+                    "ticket": t_key,
+                    "summary": clean_title,
+                    "feedback": "Previous PR had merge conflicts. Create files in control-centre/ directory only. Do not touch any shared files.",
+                }}
+            )
+            print(f"Auto Implement retriggered for {t_key}")
         return
 
     checks     = get_ci_status(sha)
