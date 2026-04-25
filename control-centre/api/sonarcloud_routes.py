@@ -1,85 +1,115 @@
-"""Flask routes for SonarCloud integration."""
+"""Flask routes for SonarCloud operations."""
 
-from flask import Blueprint, jsonify, request, current_app
-from .sonarcloud import get_client, SonarCloudAPIError
+from flask import Blueprint, request, jsonify
+from .sonarcloud_helper import SonarCloudHelper
+import os
 
 sonarcloud_bp = Blueprint('sonarcloud', __name__, url_prefix='/api/sonarcloud')
 
 
+def get_sonarcloud_helper():
+    """Get configured SonarCloud helper instance."""
+    return SonarCloudHelper(
+        token=os.getenv('SONARCLOUD_TOKEN'),
+        organization=os.getenv('SONARCLOUD_ORG')
+    )
+
+
 @sonarcloud_bp.route('/trigger', methods=['POST'])
 def trigger_analysis():
-    """Trigger SonarCloud analysis for a project."""
+    """Trigger SonarCloud analysis for a repository.
+    
+    Expected JSON payload:
+    {
+        "repository": "owner/repo-name",
+        "branch": "main"
+    }
+    """
     try:
         data = request.get_json()
-        project_key = data.get('projectKey')
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        repository = data.get('repository')
         branch = data.get('branch', 'main')
-
-        if not project_key:
-            return jsonify({'error': 'projectKey is required'}), 400
-
-        client = get_client()
-        result = client.trigger_analysis(project_key, branch)
-
+        
+        if not repository:
+            return jsonify({'error': 'Repository is required'}), 400
+        
+        helper = get_sonarcloud_helper()
+        result = helper.trigger_analysis(repository, branch)
+        
         return jsonify(result), 200
-
-    except SonarCloudAPIError as e:
-        current_app.logger.error(f"SonarCloud API error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
-        current_app.logger.error(f"Unexpected error: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({'error': f'Failed to trigger analysis: {str(e)}'}), 500
 
 
-@sonarcloud_bp.route('/status/<task_id>', methods=['GET'])
-def get_analysis_status(task_id):
-    """Get analysis task status."""
+@sonarcloud_bp.route('/results', methods=['GET'])
+def get_results():
+    """Get SonarCloud analysis results for a repository.
+    
+    Query parameters:
+        repository: Repository name in format 'owner/repo'
+    """
     try:
-        client = get_client()
-        status = client.get_analysis_status(task_id)
-
-        return jsonify(status), 200
-
-    except SonarCloudAPIError as e:
-        current_app.logger.error(f"SonarCloud API error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-    except Exception as e:
-        current_app.logger.error(f"Unexpected error: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-
-@sonarcloud_bp.route('/results/<project_key>', methods=['GET'])
-def get_project_results(project_key):
-    """Get comprehensive results for a project."""
-    try:
-        branch = request.args.get('branch', 'main')
-
-        client = get_client()
-        results = client.get_project_results(project_key, branch)
-
+        repository = request.args.get('repository')
+        
+        if not repository:
+            return jsonify({'error': 'Repository parameter is required'}), 400
+        
+        helper = get_sonarcloud_helper()
+        results = helper.get_full_analysis(repository)
+        
         return jsonify(results), 200
-
-    except SonarCloudAPIError as e:
-        current_app.logger.error(f"SonarCloud API error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
-        current_app.logger.error(f"Unexpected error: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({'error': f'Failed to fetch results: {str(e)}'}), 500
 
 
-@sonarcloud_bp.route('/quality-gate/<project_key>', methods=['GET'])
-def get_quality_gate(project_key):
-    """Get quality gate status for a project."""
+@sonarcloud_bp.route('/status/<path:repository>', methods=['GET'])
+def get_status(repository):
+    """Get quality gate status for a repository.
+    
+    Args:
+        repository: Repository name in format 'owner/repo'
+    """
     try:
-        branch = request.args.get('branch', 'main')
-
-        client = get_client()
-        quality_gate = client.get_quality_gate_status(project_key, branch)
-
-        return jsonify(quality_gate), 200
-
-    except SonarCloudAPIError as e:
-        current_app.logger.error(f"SonarCloud API error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        helper = get_sonarcloud_helper()
+        status = helper.get_project_status(repository)
+        
+        return jsonify(status), 200
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
-        current_app.logger.error(f"Unexpected error: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({'error': f'Failed to fetch status: {str(e)}'}), 500
+
+
+@sonarcloud_bp.route('/issues/<path:repository>', methods=['GET'])
+def get_issues(repository):
+    """Get open issues for a repository.
+    
+    Args:
+        repository: Repository name in format 'owner/repo'
+        
+    Query parameters:
+        page_size: Number of issues to return (default: 20)
+    """
+    try:
+        page_size = request.args.get('page_size', 20, type=int)
+        
+        helper = get_sonarcloud_helper()
+        issues = helper.get_project_issues(repository, page_size)
+        
+        return jsonify(issues), 200
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch issues: {str(e)}'}), 500
