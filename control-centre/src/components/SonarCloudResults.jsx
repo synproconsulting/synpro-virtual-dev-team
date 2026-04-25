@@ -1,195 +1,187 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, CheckCircle, XCircle, AlertTriangle, Bug, Shield } from 'lucide-react';
-import { fetchSonarResults, fetchAnalysisStatus } from '../../api/sonarcloud';
+import { Button } from '@/components/ui/button';
+import { Loader2, RefreshCw, AlertTriangle, Bug, Code, ShieldAlert, TrendingUp } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-const SonarCloudResults = ({ projectKey, taskId }) => {
+const SonarCloudResults = ({ repository, autoRefresh = false }) => {
+  const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [results, setResults] = useState(null);
-  const [status, setStatus] = useState(null);
 
-  useEffect(() => {
-    if (projectKey) {
-      loadResults();
-    }
-  }, [projectKey]);
+  const fetchResults = async () => {
+    if (!repository) return;
 
-  useEffect(() => {
-    if (taskId) {
-      pollAnalysisStatus();
-    }
-  }, [taskId]);
-
-  const pollAnalysisStatus = async () => {
-    try {
-      const statusData = await fetchAnalysisStatus(taskId);
-      setStatus(statusData);
-
-      if (statusData.status === 'SUCCESS') {
-        loadResults();
-      } else if (statusData.status === 'PENDING' || statusData.status === 'IN_PROGRESS') {
-        setTimeout(pollAnalysisStatus, 5000);
-      }
-    } catch (err) {
-      console.error('Error polling status:', err);
-    }
-  };
-
-  const loadResults = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const data = await fetchSonarResults(projectKey);
+      const response = await fetch(`/api/sonarcloud/results?repository=${encodeURIComponent(repository)}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch results');
+      }
+
       setResults(data);
     } catch (err) {
-      setError(err.message || 'Failed to load SonarCloud results');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchResults();
+  }, [repository]);
+
+  useEffect(() => {
+    if (autoRefresh && repository) {
+      const interval = setInterval(fetchResults, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [autoRefresh, repository]);
+
   const getQualityGateColor = (status) => {
-    switch (status) {
-      case 'OK':
-      case 'PASSED':
+    switch (status?.toLowerCase()) {
+      case 'ok':
+      case 'passed':
         return 'bg-green-500';
-      case 'ERROR':
-      case 'FAILED':
+      case 'error':
+      case 'failed':
         return 'bg-red-500';
-      case 'WARN':
-        return 'bg-yellow-500';
       default:
-        return 'bg-gray-500';
+        return 'bg-yellow-500';
     }
   };
 
   const getSeverityIcon = (severity) => {
-    switch (severity) {
-      case 'CRITICAL':
-      case 'BLOCKER':
-        return <XCircle className="h-4 w-4 text-red-600" />;
-      case 'MAJOR':
-        return <AlertTriangle className="h-4 w-4 text-orange-600" />;
+    switch (severity?.toLowerCase()) {
+      case 'blocker':
+      case 'critical':
+        return <ShieldAlert className="h-4 w-4 text-red-600" />;
+      case 'major':
+        return <AlertTriangle className="h-4 w-4 text-orange-500" />;
+      case 'minor':
+        return <Bug className="h-4 w-4 text-yellow-500" />;
       default:
-        return <Bug className="h-4 w-4 text-yellow-600" />;
+        return <Code className="h-4 w-4 text-blue-500" />;
     }
   };
 
-  if (loading) {
+  if (!repository) {
     return (
-      <Card className="w-full">
-        <CardContent className="flex items-center justify-center py-8">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+      <Card>
+        <CardContent className="pt-6">
+          <p className="text-center text-muted-foreground">Select a repository to view results</p>
         </CardContent>
       </Card>
     );
-  }
-
-  if (error) {
-    return (
-      <Card className="w-full">
-        <CardContent className="py-4">
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!results) {
-    return null;
   }
 
   return (
-    <Card className="w-full">
+    <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            SonarCloud Analysis Results
-          </span>
-          {status && (
-            <Badge variant="outline" className="ml-2">
-              {status.status}
-            </Badge>
-          )}
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            SonarCloud Results
+          </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchResults}
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Quality Gate */}
-        <div className="flex items-center gap-3">
-          <div className={`h-3 w-3 rounded-full ${getQualityGateColor(results.qualityGateStatus)}`} />
-          <span className="font-semibold">Quality Gate:</span>
-          <span className="text-lg">{results.qualityGateStatus || 'N/A'}</span>
-        </div>
+      <CardContent>
+        {loading && !results ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="text-center text-red-500 py-8">{error}</div>
+        ) : results ? (
+          <Tabs defaultValue="overview" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="issues">Issues</TabsTrigger>
+              <TabsTrigger value="metrics">Metrics</TabsTrigger>
+            </TabsList>
 
-        {/* Metrics Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard
-            label="Bugs"
-            value={results.bugs || 0}
-            icon={<Bug className="h-5 w-5 text-red-500" />}
-          />
-          <MetricCard
-            label="Vulnerabilities"
-            value={results.vulnerabilities || 0}
-            icon={<Shield className="h-5 w-5 text-orange-500" />}
-          />
-          <MetricCard
-            label="Code Smells"
-            value={results.codeSmells || 0}
-            icon={<AlertTriangle className="h-5 w-5 text-yellow-500" />}
-          />
-          <MetricCard
-            label="Coverage"
-            value={results.coverage ? `${results.coverage}%` : 'N/A'}
-            icon={<CheckCircle className="h-5 w-5 text-green-500" />}
-          />
-        </div>
+            <TabsContent value="overview" className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">Quality Gate:</span>
+                <Badge className={getQualityGateColor(results.qualityGate?.status)}>
+                  {results.qualityGate?.status || 'Unknown'}
+                </Badge>
+              </div>
 
-        {/* Issues List */}
-        {results.issues && results.issues.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="font-semibold text-sm text-gray-700">Recent Issues</h4>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {results.issues.slice(0, 10).map((issue, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-start gap-2 p-2 border rounded-lg hover:bg-gray-50"
-                >
-                  {getSeverityIcon(issue.severity)}
-                  <div className="flex-1 text-sm">
-                    <div className="font-medium">{issue.message}</div>
-                    <div className="text-gray-500 text-xs">
-                      {issue.component} • Line {issue.line}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Bugs</div>
+                  <div className="text-2xl font-bold">{results.bugs || 0}</div>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Vulnerabilities</div>
+                  <div className="text-2xl font-bold">{results.vulnerabilities || 0}</div>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Code Smells</div>
+                  <div className="text-2xl font-bold">{results.codeSmells || 0}</div>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground">Coverage</div>
+                  <div className="text-2xl font-bold">{results.coverage || 0}%</div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="issues" className="space-y-3">
+              {results.issues && results.issues.length > 0 ? (
+                results.issues.map((issue, idx) => (
+                  <div key={idx} className="border rounded-lg p-3 space-y-2">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2">
+                        {getSeverityIcon(issue.severity)}
+                        <span className="font-medium">{issue.severity}</span>
+                      </div>
+                      <Badge variant="outline">{issue.type}</Badge>
                     </div>
+                    <p className="text-sm">{issue.message}</p>
+                    <p className="text-xs text-muted-foreground">{issue.component}</p>
                   </div>
-                  <Badge variant="outline" className="text-xs">
-                    {issue.severity}
-                  </Badge>
+                ))
+              ) : (
+                <p className="text-center text-muted-foreground py-4">No issues found</p>
+              )}
+            </TabsContent>
+
+            <TabsContent value="metrics" className="space-y-4">
+              {results.metrics && Object.entries(results.metrics).map(([key, value]) => (
+                <div key={key} className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="capitalize">{key.replace(/_/g, ' ')}</span>
+                    <span className="font-semibold">{value}%</span>
+                  </div>
+                  <Progress value={parseFloat(value)} className="h-2" />
                 </div>
               ))}
-            </div>
-          </div>
-        )}
+            </TabsContent>
+          </Tabs>
+        ) : null}
       </CardContent>
     </Card>
   );
 };
-
-const MetricCard = ({ label, value, icon }) => (
-  <div className="border rounded-lg p-3 space-y-1">
-    <div className="flex items-center gap-2">
-      {icon}
-      <span className="text-xs text-gray-600">{label}</span>
-    </div>
-    <div className="text-2xl font-bold">{value}</div>
-  </div>
-);
 
 export default SonarCloudResults;
