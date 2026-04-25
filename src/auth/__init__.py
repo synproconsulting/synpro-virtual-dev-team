@@ -9,6 +9,4 @@ from src.auth.feature_brief_ui import Priority
 from src.auth.feature_brief_ui import FeatureStatus
 from src.auth.dependency_graph import DependencyGraph
 from src.auth.dependency_graph import DependencyVisualizer
-from src.auth.sonarcloud_client import SonarCloudClient
-from src.auth.sonarcloud_client import SonarCloudViewer
-from src.auth.sonarcloud_client import AnalysisResults
+from src.auth.SonarCloudTrigger.jsx import control-centre/api/sonarcloud_routes.sonarcloud_bp
