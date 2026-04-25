@@ -1,4 +1,4 @@
-"""SonarCloud API client for triggering analysis and retrieving results."""
+"""SonarCloud client for triggering on-demand analysis and retrieving results."""
 
 import os
 from typing import Any
@@ -13,7 +13,7 @@ class SonarCloudClient:
         """Initialize SonarCloud client.
 
         Args:
-            token: SonarCloud authentication token. If None, reads from SONARCLOUD_TOKEN env var.
+            token: SonarCloud API token. If None, reads from SONARCLOUD_TOKEN env var.
             base_url: Base URL for SonarCloud API.
 
         Raises:
@@ -28,27 +28,15 @@ class SonarCloudClient:
             timeout=30.0,
         )
 
-    def __enter__(self) -> "SonarCloudClient":
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, *args: Any) -> None:
-        """Context manager exit."""
-        self.close()
-
-    def close(self) -> None:
-        """Close the HTTP client."""
-        self._client.close()
-
     def trigger_analysis(self, project_key: str, branch: str | None = None) -> dict[str, Any]:
-        """Trigger an on-demand analysis for a project.
+        """Trigger on-demand analysis for a project.
 
         Args:
-            project_key: The SonarCloud project key.
+            project_key: SonarCloud project key.
             branch: Optional branch name to analyze.
 
         Returns:
-            Dictionary containing the analysis task details.
+            Response data from SonarCloud API.
 
         Raises:
             httpx.HTTPStatusError: If the API request fails.
@@ -57,24 +45,24 @@ class SonarCloudClient:
         if branch:
             params["branch"] = branch
 
-        response = self._client.post(f"{self.base_url}/project_analyses/trigger", params=params)
+        response = self._client.post(f"{self.base_url}/analysis/trigger", params=params)
         response.raise_for_status()
         return response.json()
 
-    def get_analysis_status(self, project_key: str, branch: str | None = None) -> dict[str, Any]:
-        """Get the latest analysis status for a project.
+    def get_project_status(self, project_key: str, branch: str | None = None) -> dict[str, Any]:
+        """Get quality gate status for a project.
 
         Args:
-            project_key: The SonarCloud project key.
-            branch: Optional branch name to check.
+            project_key: SonarCloud project key.
+            branch: Optional branch name.
 
         Returns:
-            Dictionary containing analysis status and metrics.
+            Quality gate status data.
 
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
-        params: dict[str, str] = {"component": project_key}
+        params: dict[str, str] = {"projectKey": project_key}
         if branch:
             params["branch"] = branch
 
@@ -82,22 +70,22 @@ class SonarCloudClient:
         response.raise_for_status()
         return response.json()
 
-    def get_measures(self, project_key: str, metric_keys: list[str], branch: str | None = None) -> dict[str, Any]:
-        """Get specific measures for a project.
+    def get_measures(self, component: str, metric_keys: list[str], branch: str | None = None) -> dict[str, Any]:
+        """Get component measures for specified metrics.
 
         Args:
-            project_key: The SonarCloud project key.
+            component: Component key (project key).
             metric_keys: List of metric keys to retrieve.
             branch: Optional branch name.
 
         Returns:
-            Dictionary containing the requested measures.
+            Component measures data.
 
         Raises:
             httpx.HTTPStatusError: If the API request fails.
         """
         params: dict[str, str] = {
-            "component": project_key,
+            "component": component,
             "metricKeys": ",".join(metric_keys),
         }
         if branch:
@@ -106,3 +94,40 @@ class SonarCloudClient:
         response = self._client.get(f"{self.base_url}/measures/component", params=params)
         response.raise_for_status()
         return response.json()
+
+    def get_issues(self, component_keys: str, branch: str | None = None, page: int = 1) -> dict[str, Any]:
+        """Get issues for a component.
+
+        Args:
+            component_keys: Component key to search issues for.
+            branch: Optional branch name.
+            page: Page number for pagination (default: 1).
+
+        Returns:
+            Issues data.
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails.
+        """
+        params: dict[str, str | int] = {
+            "componentKeys": component_keys,
+            "p": page,
+        }
+        if branch:
+            params["branch"] = branch
+
+        response = self._client.get(f"{self.base_url}/issues/search", params=params)
+        response.raise_for_status()
+        return response.json()
+
+    def close(self) -> None:
+        """Close the HTTP client."""
+        self._client.close()
+
+    def __enter__(self) -> "SonarCloudClient":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        """Context manager exit."""
+        self.close()
