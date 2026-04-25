@@ -1,107 +1,111 @@
 """Tests for SonarCloud viewer."""
 
-from src.auth.sonarcloud_viewer import SonarCloudViewer
+from unittest.mock import Mock
+
+import pytest
+
+from src.auth.sonarcloud_client import SonarCloudClient
+from src.auth.sonarcloud_viewer import AnalysisResults, SonarCloudViewer
 
 
 class TestSonarCloudViewer:
     """Test cases for SonarCloudViewer."""
 
-    def test_format_quality_gate_ok(self) -> None:
-        """Test formatting quality gate with OK status."""
-        status_data = {
+    @pytest.fixture
+    def mock_client(self) -> Mock:
+        """Create a mock SonarCloud client."""
+        client = Mock(spec=SonarCloudClient)
+        client.get_project_status.return_value = {
             "projectStatus": {
                 "status": "OK",
                 "conditions": [
-                    {
-                        "metricKey": "coverage",
-                        "status": "OK",
-                        "actualValue": "85.5",
-                        "errorThreshold": "80",
-                    }
+                    {"status": "OK", "metricKey": "coverage", "actualValue": "85.2"},
                 ],
             }
         }
-
-        result = SonarCloudViewer.format_quality_gate(status_data)
-
-        assert "Quality Gate Status: OK" in result
-        assert "✓ coverage" in result
-        assert "85.5" in result
-
-    def test_format_quality_gate_error(self) -> None:
-        """Test formatting quality gate with ERROR status."""
-        status_data = {
-            "projectStatus": {
-                "status": "ERROR",
-                "conditions": [
-                    {
-                        "metricKey": "bugs",
-                        "status": "ERROR",
-                        "actualValue": "15",
-                        "errorThreshold": "10",
-                    }
-                ],
-            }
-        }
-
-        result = SonarCloudViewer.format_quality_gate(status_data)
-
-        assert "Quality Gate Status: ERROR" in result
-        assert "✗ bugs" in result
-        assert "15" in result
-
-    def test_format_quality_gate_no_conditions(self) -> None:
-        """Test formatting quality gate without conditions."""
-        status_data = {"projectStatus": {"status": "OK", "conditions": []}}
-
-        result = SonarCloudViewer.format_quality_gate(status_data)
-
-        assert "Quality Gate Status: OK" in result
-        assert "No conditions found" in result
-
-    def test_format_measures(self) -> None:
-        """Test formatting measures."""
-        measures_data = {
+        client.get_measures.return_value = {
             "component": {
-                "name": "My Project",
                 "measures": [
-                    {"metric": "coverage", "value": "85.5"},
-                    {"metric": "bugs", "value": "3"},
-                ],
+                    {"metric": "bugs", "value": "5"},
+                    {"metric": "coverage", "value": "85.2"},
+                ]
             }
         }
-
-        result = SonarCloudViewer.format_measures(measures_data)
-
-        assert "Measures for: My Project" in result
-        assert "coverage: 85.5" in result
-        assert "bugs: 3" in result
-
-    def test_format_measures_empty(self) -> None:
-        """Test formatting measures with no data."""
-        measures_data = {"component": {"name": "My Project", "measures": []}}
-
-        result = SonarCloudViewer.format_measures(measures_data)
-
-        assert "Measures for: My Project" in result
-        assert "No measures found" in result
-
-    def test_format_analysis_summary(self) -> None:
-        """Test formatting complete analysis summary."""
-        quality_gate_data = {
-            "projectStatus": {"status": "OK", "conditions": []}
+        client.get_issues.return_value = {
+            "total": 10,
+            "issues": [
+                {"key": "issue-1", "severity": "MAJOR"},
+            ],
         }
-        measures_data = {
-            "component": {
-                "name": "My Project",
-                "measures": [{"metric": "coverage", "value": "85.5"}],
-            }
-        }
+        return client
 
-        result = SonarCloudViewer.format_analysis_summary(
-            quality_gate_data, measures_data
+    def test_get_analysis_results(self, mock_client: Mock) -> None:
+        """Test retrieving analysis results."""
+        viewer = SonarCloudViewer(mock_client)
+        results = viewer.get_analysis_results("my-project", "main")
+
+        assert results.project_key == "my-project"
+        assert results.branch == "main"
+        assert results.quality_gate_status == "OK"
+        assert results.issues_count == 10
+        assert len(results.issues) == 1
+        assert results.measures["bugs"] == "5"
+        assert results.measures["coverage"] == "85.2"
+
+    def test_get_analysis_results_custom_metrics(self, mock_client: Mock) -> None:
+        """Test retrieving analysis results with custom metrics."""
+        viewer = SonarCloudViewer(mock_client)
+        results = viewer.get_analysis_results("my-project", metric_keys=["bugs"])
+
+        mock_client.get_measures.assert_called_once_with("my-project", ["bugs"], None)
+
+    def test_format_results(self, mock_client: Mock) -> None:
+        """Test formatting analysis results."""
+        viewer = SonarCloudViewer(mock_client)
+        results = AnalysisResults(
+            project_key="test-project",
+            branch="develop",
+            quality_gate_status="ERROR",
+            conditions=[
+                {"status": "ERROR", "metricKey": "coverage", "actualValue": "60.0"},
+            ],
+            measures={"bugs": "10", "coverage": "60.0"},
+            issues_count=25,
+            issues=[],
         )
 
-        assert "Quality Gate Status: OK" in result
-        assert "Measures for: My Project" in result
-        assert "coverage: 85.5" in result
+        formatted = viewer.format_results(results)
+
+        assert "Project: test-project" in formatted
+        assert "Branch: develop" in formatted
+        assert "Quality Gate: ERROR" in formatted
+        assert "bugs: 10" in formatted
+        assert "coverage: 60.0" in formatted
+        assert "Total Issues: 25" in formatted
+        assert "[ERROR] coverage: 60.0" in formatted
+
+    def test_format_results_default_branch(self, mock_client: Mock) -> None:
+        """Test formatting results with no branch specified."""
+        viewer = SonarCloudViewer(mock_client)
+        results = AnalysisResults(
+            project_key="test-project",
+            branch=None,
+            quality_gate_status="OK",
+            conditions=[],
+            measures={},
+            issues_count=0,
+            issues=[],
+        )
+
+        formatted = viewer.format_results(results)
+        assert "Branch: default" in formatted
+
+    def test_print_results(self, mock_client: Mock, capsys: pytest.CaptureFixture[str]) -> None:
+        """Test printing analysis results."""
+        viewer = SonarCloudViewer(mock_client)
+        viewer.print_results("my-project", "main")
+
+        captured = capsys.readouterr()
+        assert "Project: my-project" in captured.out
+        assert "Branch: main" in captured.out
+        assert "Quality Gate: OK" in captured.out
