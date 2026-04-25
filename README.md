@@ -271,6 +271,52 @@ Provides a chat-based interface for product managers to submit and manage featur
 
 Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
 
-## Sprint Trigger and PR Auto Review
+## Sprint Trigger & Auto Review Feature
 
-This module provides one-click sprint triggering functionality and automatic PR review capabilities. The `SprintTrigger` class enables programmatic creation and management of sprints via API, while the `PRAutoReview` class analyzes pull requests and automatically submits reviews based on configurable criteria including file count, additions, and deletions.
+### Components
+
+#### SprintTrigger
+One-click sprint pipeline trigger component. Simply click the "Trigger Sprint" button to initiate a new CI/CD pipeline.
+
+**Usage:**
+```jsx
+import SprintTrigger from './components/SprintTrigger';
+
+<SprintTrigger 
+  projectId="your-project-id" 
+  onTriggerSuccess={(data) => console.log('Pipeline started:', data.pipeline_id)}
+/>
+```
+
+#### AutoReviewPR
+Automated pull request review management. View open PRs and trigger automated code reviews with a single click.
+
+**Usage:**
+```jsx
+import AutoReviewPR from './components/AutoReviewPR';
+
+<AutoReviewPR projectId="your-project-id" />
+```
+
+### Environment Variables Required
+
+```bash
+# CI/CD Service
+CI_API_URL=https://api.ci-service.com
+CI_API_TOKEN=your_ci_token_here
+
+# Version Control Service
+VCS_API_URL=https://api.vcs-service.com
+VCS_API_TOKEN=your_vcs_token_here
+
+# Review Service (optional, defaults to internal service)
+REVIEW_SERVICE_URL=https://review-service.internal
+```
+
+### API Endpoints
+
+The feature expects the following API endpoints to be available:
+
+- `POST /api/sprint/trigger` - Trigger sprint pipeline
+- `GET /api/pull-requests?project_id={id}` - List open PRs
+- `POST /api/pull-requests/auto-review` - Trigger PR auto-review
