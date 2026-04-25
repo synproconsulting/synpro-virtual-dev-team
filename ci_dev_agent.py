@@ -114,6 +114,30 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
     print(f"Existing README: {'found' if existing_readme else 'not found'}")
     print(f"Existing requirements.txt: {'found' if existing_reqs else 'not found'}")
 
+    # Read existing control-centre files for context
+    existing_cc_files = {}
+    if is_control_centre:
+        print("Reading existing control-centre files for context...")
+        cc_paths = [
+            "control-centre/src/App.jsx",
+            "control-centre/src/components/Dashboard.jsx",
+            "control-centre/src/components/SprintStatus.jsx",
+            "control-centre/src/components/WorkflowMonitor.jsx",
+            "control-centre/src/components/SprintTrigger.jsx",
+            "control-centre/src/components/DeploymentPanel.jsx",
+            "control-centre/src/components/SonarCloud.jsx",
+            "control-centre/src/components/PMAgentChat.jsx",
+            "control-centre/src/api.js",
+            "control-centre/package.json",
+            "control-centre/README.md",
+        ]
+        for path in cc_paths:
+            content_str, _ = get_file_content(path, "main")
+            if content_str:
+                existing_cc_files[path] = content_str
+                print(f"  Found: {path}")
+        print(f"  Total existing CC files: {len(existing_cc_files)}")
+
     # Ask Claude to generate the implementation
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 
@@ -127,17 +151,25 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
     ])
 
     if is_control_centre:
+        # Build context from existing CC files
+        cc_context = ""
+        if existing_cc_files:
+            cc_context = "\n\nEXISTING CONTROL CENTRE FILES (build on top of these):\n"
+            for path, file_content in existing_cc_files.items():
+                cc_context += f"\n--- {path} ---\n{file_content[:1000]}\n"
+            cc_context += "\n(end of existing files)\n"
+
         prompt = (
-            "Implement this Jira ticket as a React/Python feature for the Control Centre dashboard.\n\n"
-            "Ticket: [" + ticket + "] " + summary + feedback_section + "\n\n"
+            "Implement this Jira ticket as a React feature for the Control Centre dashboard.\n\n"
+            "Ticket: [" + ticket + "] " + summary + feedback_section + cc_context + "\n\n"
             "Rules:\n"
             "- Create files under control-centre/ directory ONLY\n"
             "- For React components: control-centre/src/components/\n"
-            "- For Python API helpers: control-centre/api/\n"
-            "- For tests: control-centre/tests/\n"
+            "- For API helpers: control-centre/src/api/\n"
             "- Do NOT touch src/auth/, tests/, README.md, requirements.txt, or __init__.py\n"
-            "- Each file should be focused and under 200 lines\n"
-            "- No hardcoded secrets\n\n"
+            "- Build on top of existing files shown above — do not recreate what exists\n"
+            "- Each file focused and under 200 lines\n"
+            "- No hardcoded secrets — use environment variables\n\n"
             "Respond with ONLY this JSON structure:\n"
             '{"files":[{"path":"control-centre/src/components/X.jsx","content":"..."}],'
             '"readme_section":"","new_requirements":[],"new_exports":[],"pr_body":"..."}'
@@ -222,41 +254,45 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
         else:
             print(f"  ✗ {path} — commit failed")
 
-    # Append to README.md
-    if readme_section and existing_readme:
-        new_readme = existing_readme.rstrip() + "\n\n" + readme_section
-        ok = commit_file("README.md", new_readme, commit_msg, branch)
-        print(f"  {'✓' if ok else '✗'} README.md (appended)")
-        if ok:
-            committed.append("README.md")
-    elif readme_section:
-        ok = commit_file("README.md", readme_section, commit_msg, branch)
-        if ok:
-            committed.append("README.md")
-
-    # Append to requirements.txt
-    if new_requirements and existing_reqs:
-        existing_pkgs = set(l.split("==")[0].split(">=")[0].strip().lower()
-                           for l in existing_reqs.splitlines() if l.strip() and not l.startswith("#"))
-        to_add = [r for r in new_requirements
-                  if r.split("==")[0].split(">=")[0].strip().lower() not in existing_pkgs]
-        if to_add:
-            new_reqs = existing_reqs.rstrip() + "\n" + "\n".join(to_add) + "\n"
-            ok = commit_file("requirements.txt", new_reqs, commit_msg, branch)
-            print(f"  {'✓' if ok else '✗'} requirements.txt (appended {len(to_add)} packages)")
+    # Only append to shared files for non-control-centre tickets
+    if not is_control_centre:
+        # Append to README.md
+        if readme_section and existing_readme:
+            new_readme = existing_readme.rstrip() + "\n\n" + readme_section
+            ok = commit_file("README.md", new_readme, commit_msg, branch)
+            print(f"  {'✓' if ok else '✗'} README.md (appended)")
             if ok:
-                committed.append("requirements.txt")
-
-    # Update src/auth/__init__.py
-    if new_exports and existing_init:
-        additions = "\n".join(f"from src.auth.{files[0].get('path','').split('/')[-1].replace('.py','')} import {e}"
-                              for e in new_exports if e not in existing_init)
-        if additions:
-            new_init = existing_init.rstrip() + "\n" + additions + "\n"
-            ok = commit_file("src/auth/__init__.py", new_init, commit_msg, branch)
-            print(f"  {'✓' if ok else '✗'} src/auth/__init__.py (updated)")
+                committed.append("README.md")
+        elif readme_section:
+            ok = commit_file("README.md", readme_section, commit_msg, branch)
             if ok:
-                committed.append("src/auth/__init__.py")
+                committed.append("README.md")
+
+        # Append to requirements.txt
+        if new_requirements and existing_reqs:
+            existing_pkgs = set(l.split("==")[0].split(">=")[0].strip().lower()
+                               for l in existing_reqs.splitlines() if l.strip() and not l.startswith("#"))
+            to_add = [r for r in new_requirements
+                      if r.split("==")[0].split(">=")[0].strip().lower() not in existing_pkgs]
+            if to_add:
+                new_reqs = existing_reqs.rstrip() + "\n" + "\n".join(to_add) + "\n"
+                ok = commit_file("requirements.txt", new_reqs, commit_msg, branch)
+                print(f"  {'✓' if ok else '✗'} requirements.txt (appended {len(to_add)} packages)")
+                if ok:
+                    committed.append("requirements.txt")
+
+        # Update src/auth/__init__.py
+        if new_exports and existing_init:
+            additions = "\n".join(f"from src.auth.{files[0].get('path','').split('/')[-1].replace('.py','')} import {e}"
+                                  for e in new_exports if e not in existing_init)
+            if additions:
+                new_init = existing_init.rstrip() + "\n" + additions + "\n"
+                ok = commit_file("src/auth/__init__.py", new_init, commit_msg, branch)
+                print(f"  {'✓' if ok else '✗'} src/auth/__init__.py (updated)")
+                if ok:
+                    committed.append("src/auth/__init__.py")
+    else:
+        print("  ℹ Control Centre ticket — skipping shared file updates (README, requirements, __init__)")
 
     # Open PR
     print(f"\nOpening PR...")
