@@ -1,83 +1,91 @@
 """Tests for sprint trigger functionality."""
 
 import pytest
+from unittest.mock import AsyncMock, patch
 from datetime import datetime, timedelta
-from src.auth.sprint_trigger import SprintTrigger, SprintConfig
+from src.auth.sprint_trigger import SprintTrigger
+import httpx
 
 
 @pytest.fixture
-def sprint_config():
-    """Fixture for sprint configuration."""
-    return SprintConfig(
-        sprint_name="Sprint 1",
-        start_date=datetime.utcnow(),
-        duration_days=14,
-        team_id="team-alpha",
-        auto_review_enabled=True
+def sprint_trigger():
+    """Create SprintTrigger instance for testing."""
+    return SprintTrigger(
+        api_base_url="https://api.example.com",
+        api_token="test-token-123",
     )
 
 
-@pytest.fixture
-def sprint_trigger(sprint_config):
-    """Fixture for sprint trigger."""
-    return SprintTrigger(sprint_config)
-
-
-def test_sprint_trigger_initialization(sprint_trigger, sprint_config):
-    """Test sprint trigger initialization."""
-    assert sprint_trigger.config == sprint_config
-    assert sprint_trigger._status == "idle"
-    assert sprint_trigger._sprint_id is None
-
-
-def test_trigger_sprint_success(sprint_trigger):
+@pytest.mark.asyncio
+async def test_trigger_sprint_success(sprint_trigger):
     """Test successful sprint triggering."""
-    result = sprint_trigger.trigger_sprint()
-    
-    assert "sprint_id" in result
-    assert result["name"] == "Sprint 1"
-    assert result["status"] == "running"
-    assert result["team_id"] == "team-alpha"
-    assert result["auto_review_enabled"] is True
-    assert "triggered_at" in result
+    mock_response = {
+        "id": "sprint-123",
+        "name": "Test Sprint",
+        "start_date": datetime.now().isoformat(),
+        "end_date": (datetime.now() + timedelta(days=14)).isoformat(),
+    }
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value.json.return_value = mock_response
+        mock_post.return_value.raise_for_status = lambda: None
+
+        result = await sprint_trigger.trigger_sprint(
+            sprint_name="Test Sprint",
+            duration_days=14,
+            board_id="board-456",
+        )
+
+        assert result["id"] == "sprint-123"
+        assert result["name"] == "Test Sprint"
+        mock_post.assert_called_once()
 
 
-def test_trigger_sprint_already_running(sprint_trigger):
-    """Test error when triggering already running sprint."""
-    sprint_trigger.trigger_sprint()
-    
-    with pytest.raises(ValueError, match="Sprint is already running"):
-        sprint_trigger.trigger_sprint()
+@pytest.mark.asyncio
+async def test_trigger_sprint_missing_credentials():
+    """Test sprint trigger with missing credentials."""
+    trigger = SprintTrigger(api_base_url="", api_token="")
+
+    with pytest.raises(ValueError, match="Sprint API credentials not configured"):
+        await trigger.trigger_sprint("Test Sprint")
 
 
-def test_stop_sprint(sprint_trigger):
-    """Test stopping a sprint."""
-    sprint_trigger.trigger_sprint()
-    result = sprint_trigger.stop_sprint()
-    
-    assert result["status"] == "stopped"
-    assert "stopped_at" in result
-    assert "sprint_id" in result
-
-
-def test_get_status(sprint_trigger):
+@pytest.mark.asyncio
+async def test_get_sprint_status(sprint_trigger):
     """Test getting sprint status."""
-    sprint_trigger.trigger_sprint()
-    status = sprint_trigger.get_status()
-    
-    assert status["status"] == "running"
-    assert status["config"]["name"] == "Sprint 1"
-    assert status["config"]["team_id"] == "team-alpha"
-    assert status["config"]["auto_review_enabled"] is True
+    mock_response = {"id": "sprint-123", "status": "active", "progress": 45}
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value.json.return_value = mock_response
+        mock_get.return_value.raise_for_status = lambda: None
+
+        result = await sprint_trigger.get_sprint_status("sprint-123")
+
+        assert result["status"] == "active"
+        assert result["progress"] == 45
 
 
-def test_sprint_id_generation(sprint_trigger):
-    """Test sprint ID generation is unique."""
-    result1 = sprint_trigger.trigger_sprint()
-    sprint_trigger.stop_sprint()
-    
-    sprint_trigger._status = "idle"
-    result2 = sprint_trigger.trigger_sprint()
-    
-    assert result1["sprint_id"] != result2["sprint_id"]
-    assert "sprint-team-alpha-" in result1["sprint_id"]
+@pytest.mark.asyncio
+async def test_complete_sprint(sprint_trigger):
+    """Test completing a sprint."""
+    mock_response = {"id": "sprint-123", "status": "completed"}
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value.json.return_value = mock_response
+        mock_post.return_value.raise_for_status = lambda: None
+
+        result = await sprint_trigger.complete_sprint("sprint-123")
+
+        assert result["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_trigger_sprint_api_error(sprint_trigger):
+    """Test sprint trigger with API error."""
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "API Error", request=None, response=None
+        )
+
+        with pytest.raises(httpx.HTTPStatusError):
+            await sprint_trigger.trigger_sprint("Test Sprint")
