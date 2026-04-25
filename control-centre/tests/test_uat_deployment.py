@@ -1,136 +1,161 @@
 """Tests for UAT deployment functionality."""
-import pytest
+import unittest
+from unittest.mock import patch, MagicMock, mock_open
 import json
-from unittest.mock import Mock, patch
-from control-centre.api.uat_deployment import (
+import sys
+import os
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from api.uat_deployment import (
     UATDeploymentService,
-    uat_bp
+    get_services_handler,
+    deploy_handler
 )
 
 
-class TestUATDeploymentService:
+class TestUATDeploymentService(unittest.TestCase):
     """Test cases for UATDeploymentService."""
-    
-    def setup_method(self):
-        """Set up test fixtures."""
+
+    def setUp(self):
         self.service = UATDeploymentService()
-    
-    def test_get_available_services(self):
-        """Test retrieving available services."""
+
+    def test_get_default_services(self):
+        """Test getting default services."""
+        services = self.service._get_default_services()
+        self.assertIsInstance(services, list)
+        self.assertGreater(len(services), 0)
+        self.assertIn('name', services[0])
+        self.assertIn('current_version', services[0])
+
+    @patch('os.path.exists')
+    def test_get_available_services_no_config(self, mock_exists):
+        """Test getting services when config doesn't exist."""
+        mock_exists.return_value = False
         services = self.service.get_available_services()
-        
-        assert isinstance(services, list)
-        assert len(services) > 0
-        
-        for service in services:
-            assert 'id' in service
-            assert 'name' in service
-            assert 'version' in service
-            assert 'status' in service
-    
-    def test_deploy_services_success(self):
-        """Test successful service deployment."""
-        service_ids = ['api-gateway', 'user-service']
-        user = 'test@example.com'
-        
-        result = self.service.deploy_services(service_ids, user)
-        
-        assert result['status'] == 'success'
-        assert 'deployment_id' in result
-        assert len(result['services']) == 2
-        assert 'API Gateway' in result['services']
-        assert 'User Service' in result['services']
-    
-    def test_deploy_services_empty_list(self):
-        """Test deployment with empty service list."""
-        with pytest.raises(ValueError):
-            self.service.deploy_services([], 'test@example.com')
-    
-    def test_deploy_services_invalid_ids(self):
-        """Test deployment with invalid service IDs."""
-        with pytest.raises(ValueError):
-            self.service.deploy_services(['invalid-service'], 'test@example.com')
-    
-    def test_get_deployment_history(self):
-        """Test retrieving deployment history."""
-        history = self.service.get_deployment_history()
-        
-        assert isinstance(history, list)
-        
-        if len(history) > 0:
-            deployment = history[0]
-            assert 'id' in deployment
-            assert 'services' in deployment
-            assert 'status' in deployment
-            assert 'timestamp' in deployment
-            assert 'user' in deployment
-    
-    def test_get_deployment_history_with_limit(self):
-        """Test retrieving deployment history with limit."""
-        history = self.service.get_deployment_history(limit=10)
-        
-        assert isinstance(history, list)
-        assert len(history) <= 10
+        self.assertIsInstance(services, list)
+        self.assertGreater(len(services), 0)
+
+    @patch('builtins.open', new_callable=mock_open, read_data=json.dumps({
+        'services': [
+            {'name': 'test-service', 'current_version': 'v1.0.0', 'status': 'running'}
+        ]
+    }))
+    @patch('os.path.exists')
+    def test_get_available_services_with_config(self, mock_exists, mock_file):
+        """Test getting services from config file."""
+        mock_exists.return_value = True
+        services = self.service.get_available_services()
+        self.assertEqual(len(services), 1)
+        self.assertEqual(services[0]['name'], 'test-service')
+
+    def test_validate_deployment_request_empty_services(self):
+        """Test validation with empty services list."""
+        is_valid, error = self.service.validate_deployment_request([], 'main')
+        self.assertFalse(is_valid)
+        self.assertIn('No services', error)
+
+    def test_validate_deployment_request_empty_branch(self):
+        """Test validation with empty branch."""
+        is_valid, error = self.service.validate_deployment_request(['service1'], '')
+        self.assertFalse(is_valid)
+        self.assertIn('Branch name', error)
+
+    @patch.object(UATDeploymentService, 'get_available_services')
+    def test_validate_deployment_request_invalid_service(self, mock_services):
+        """Test validation with invalid service name."""
+        mock_services.return_value = [
+            {'name': 'valid-service', 'current_version': 'v1.0.0'}
+        ]
+        is_valid, error = self.service.validate_deployment_request(
+            ['invalid-service'], 'main'
+        )
+        self.assertFalse(is_valid)
+        self.assertIn('Invalid services', error)
+
+    @patch.object(UATDeploymentService, 'get_available_services')
+    def test_validate_deployment_request_valid(self, mock_services):
+        """Test validation with valid request."""
+        mock_services.return_value = [
+            {'name': 'api-gateway', 'current_version': 'v1.0.0'}
+        ]
+        is_valid, error = self.service.validate_deployment_request(
+            ['api-gateway'], 'main'
+        )
+        self.assertTrue(is_valid)
+        self.assertEqual(error, '')
+
+    def test_trigger_deployment(self):
+        """Test triggering a deployment."""
+        result = self.service.trigger_deployment(
+            ['api-gateway', 'user-service'],
+            'develop',
+            'uat'
+        )
+        self.assertIn('deployment_id', result)
+        self.assertEqual(result['status'], 'initiated')
+        self.assertEqual(result['branch'], 'develop')
+        self.assertEqual(len(result['services']), 2)
 
 
-class TestUATDeploymentAPI:
-    """Test cases for UAT deployment API endpoints."""
-    
-    @pytest.fixture
-    def client(self):
-        """Create test client."""
-        from flask import Flask
-        app = Flask(__name__)
-        app.register_blueprint(uat_bp)
-        app.config['TESTING'] = True
-        return app.test_client()
-    
-    def test_get_services_endpoint(self, client):
-        """Test GET /api/uat/services endpoint."""
-        response = client.get('/api/uat/services')
-        
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert 'services' in data
-        assert isinstance(data['services'], list)
-    
-    def test_deploy_endpoint_success(self, client):
-        """Test POST /api/uat/deploy endpoint with valid data."""
-        payload = {
-            'service_ids': ['api-gateway', 'user-service']
+class TestUATDeploymentHandlers(unittest.TestCase):
+    """Test cases for API handlers."""
+
+    @patch('api.uat_deployment.UATDeploymentService')
+    def test_get_services_handler_success(self, mock_service_class):
+        """Test successful services retrieval."""
+        mock_service = MagicMock()
+        mock_service.get_available_services.return_value = [
+            {'name': 'test-service', 'current_version': 'v1.0.0'}
+        ]
+        mock_service_class.return_value = mock_service
+
+        response, status_code = get_services_handler(None)
+        self.assertEqual(status_code, 200)
+        self.assertIn('services', response)
+        self.assertEqual(len(response['services']), 1)
+
+    @patch('api.uat_deployment.UATDeploymentService')
+    def test_deploy_handler_success(self, mock_service_class):
+        """Test successful deployment trigger."""
+        mock_service = MagicMock()
+        mock_service.validate_deployment_request.return_value = (True, '')
+        mock_service.trigger_deployment.return_value = {
+            'deployment_id': 'test-123',
+            'status': 'initiated'
         }
-        
-        response = client.post(
-            '/api/uat/deploy',
-            data=json.dumps(payload),
-            content_type='application/json',
-            headers={'X-User-Email': 'test@example.com'}
+        mock_service_class.return_value = mock_service
+
+        mock_request = MagicMock()
+        mock_request.get_json.return_value = {
+            'services': ['api-gateway'],
+            'branch': 'main',
+            'environment': 'uat'
+        }
+
+        response, status_code = deploy_handler(mock_request)
+        self.assertEqual(status_code, 200)
+        self.assertIn('deployment_id', response)
+
+    @patch('api.uat_deployment.UATDeploymentService')
+    def test_deploy_handler_validation_error(self, mock_service_class):
+        """Test deployment with validation error."""
+        mock_service = MagicMock()
+        mock_service.validate_deployment_request.return_value = (
+            False, 'Invalid services'
         )
-        
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert data['status'] == 'success'
-        assert 'deployment_id' in data
-    
-    def test_deploy_endpoint_no_services(self, client):
-        """Test POST /api/uat/deploy endpoint with no services."""
-        payload = {'service_ids': []}
-        
-        response = client.post(
-            '/api/uat/deploy',
-            data=json.dumps(payload),
-            content_type='application/json'
-        )
-        
-        assert response.status_code == 400
-        data = json.loads(response.data)
-        assert 'error' in data
-    
-    def test_get_deployment_history_endpoint(self, client):
-        """Test GET /api/uat/deployments/history endpoint."""
-        response = client.get('/api/uat/deployments/history')
-        
-        assert response.status_code == 200
-        data = json.loads(response.data)
-        assert 'deployments' in data
-        assert isinstance(data['deployments'], list)
+        mock_service_class.return_value = mock_service
+
+        mock_request = MagicMock()
+        mock_request.get_json.return_value = {
+            'services': ['invalid'],
+            'branch': 'main'
+        }
+
+        response, status_code = deploy_handler(mock_request)
+        self.assertEqual(status_code, 400)
+        self.assertIn('error', response)
+
+
+if __name__ == '__main__':
+    unittest.main()
