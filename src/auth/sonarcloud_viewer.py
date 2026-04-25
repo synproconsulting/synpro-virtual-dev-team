@@ -1,88 +1,126 @@
-"""Viewer for formatting and displaying SonarCloud analysis results."""
+"""SonarCloud analysis results viewer with formatted output."""
 
+from dataclasses import dataclass
 from typing import Any
+
+from src.auth.sonarcloud_client import SonarCloudClient
+
+
+@dataclass
+class AnalysisResults:
+    """Container for SonarCloud analysis results."""
+
+    project_key: str
+    branch: str | None
+    quality_gate_status: str
+    conditions: list[dict[str, Any]]
+    measures: dict[str, str]
+    issues_count: int
+    issues: list[dict[str, Any]]
 
 
 class SonarCloudViewer:
-    """Format and display SonarCloud analysis results."""
+    """Viewer for SonarCloud analysis results with formatting utilities."""
 
-    @staticmethod
-    def format_quality_gate(status_data: dict[str, Any]) -> str:
-        """Format quality gate status into a readable string.
+    def __init__(self, client: SonarCloudClient) -> None:
+        """Initialize viewer with a SonarCloud client.
 
         Args:
-            status_data: Quality gate status data from SonarCloud API.
+            client: Configured SonarCloudClient instance.
+        """
+        self.client = client
+
+    def get_analysis_results(
+        self,
+        project_key: str,
+        branch: str | None = None,
+        metric_keys: list[str] | None = None,
+    ) -> AnalysisResults:
+        """Retrieve comprehensive analysis results.
+
+        Args:
+            project_key: SonarCloud project key.
+            branch: Optional branch name.
+            metric_keys: List of metrics to retrieve. Defaults to common metrics.
 
         Returns:
-            Formatted string representation of quality gate status.
+            AnalysisResults object with all retrieved data.
         """
+        if metric_keys is None:
+            metric_keys = [
+                "bugs",
+                "vulnerabilities",
+                "code_smells",
+                "coverage",
+                "duplicated_lines_density",
+            ]
+
+        # Get quality gate status
+        status_data = self.client.get_project_status(project_key, branch)
         project_status = status_data.get("projectStatus", {})
-        status = project_status.get("status", "UNKNOWN")
-        conditions = project_status.get("conditions", [])
 
-        lines = [f"Quality Gate Status: {status}"]
-        lines.append("=" * 50)
+        # Get measures
+        measures_data = self.client.get_measures(project_key, metric_keys, branch)
+        measures = {
+            m["metric"]: m.get("value", "N/A")
+            for m in measures_data.get("component", {}).get("measures", [])
+        }
 
-        if conditions:
-            lines.append("\nConditions:")
-            for condition in conditions:
-                metric = condition.get("metricKey", "unknown")
-                cond_status = condition.get("status", "UNKNOWN")
-                actual_value = condition.get("actualValue", "N/A")
-                error_threshold = condition.get("errorThreshold", "N/A")
-                symbol = "✓" if cond_status == "OK" else "✗"
-                lines.append(
-                    f"  {symbol} {metric}: {actual_value} (threshold: {error_threshold}) - {cond_status}"
-                )
-        else:
-            lines.append("\nNo conditions found.")
+        # Get issues
+        issues_data = self.client.get_issues(project_key, branch)
+        issues = issues_data.get("issues", [])
+
+        return AnalysisResults(
+            project_key=project_key,
+            branch=branch,
+            quality_gate_status=project_status.get("status", "UNKNOWN"),
+            conditions=project_status.get("conditions", []),
+            measures=measures,
+            issues_count=issues_data.get("total", 0),
+            issues=issues,
+        )
+
+    def format_results(self, results: AnalysisResults) -> str:
+        """Format analysis results as readable text.
+
+        Args:
+            results: AnalysisResults object to format.
+
+        Returns:
+            Formatted string representation of results.
+        """
+        lines = [
+            f"Project: {results.project_key}",
+            f"Branch: {results.branch or 'default'}",
+            f"Quality Gate: {results.quality_gate_status}",
+            "",
+            "Metrics:",
+        ]
+
+        for metric, value in results.measures.items():
+            lines.append(f"  {metric}: {value}")
+
+        lines.extend([
+            "",
+            f"Total Issues: {results.issues_count}",
+        ])
+
+        if results.conditions:
+            lines.extend(["", "Quality Gate Conditions:"])
+            for cond in results.conditions:
+                status = cond.get("status", "UNKNOWN")
+                metric = cond.get("metricKey", "unknown")
+                actual = cond.get("actualValue", "N/A")
+                lines.append(f"  [{status}] {metric}: {actual}")
 
         return "\n".join(lines)
 
-    @staticmethod
-    def format_measures(measures_data: dict[str, Any]) -> str:
-        """Format measures into a readable string.
+    def print_results(self, project_key: str, branch: str | None = None) -> None:
+        """Retrieve and print analysis results.
 
         Args:
-            measures_data: Measures data from SonarCloud API.
-
-        Returns:
-            Formatted string representation of measures.
+            project_key: SonarCloud project key.
+            branch: Optional branch name.
         """
-        component = measures_data.get("component", {})
-        measures = component.get("measures", [])
-        component_name = component.get("name", "Unknown Project")
-
-        lines = [f"Measures for: {component_name}"]
-        lines.append("=" * 50)
-
-        if measures:
-            for measure in measures:
-                metric = measure.get("metric", "unknown")
-                value = measure.get("value", "N/A")
-                lines.append(f"  {metric}: {value}")
-        else:
-            lines.append("\nNo measures found.")
-
-        return "\n".join(lines)
-
-    @staticmethod
-    def format_analysis_summary(
-        quality_gate_data: dict[str, Any],
-        measures_data: dict[str, Any] | None = None,
-    ) -> str:
-        """Format a complete analysis summary.
-
-        Args:
-            quality_gate_data: Quality gate status data.
-            measures_data: Optional measures data.
-
-        Returns:
-            Complete formatted analysis summary.
-        """
-        sections = [SonarCloudViewer.format_quality_gate(quality_gate_data)]
-
-        if measures_data:
-            sections.append("\n" + SonarCloudViewer.format_measures(measures_data))
-
-        return "\n\n".join(sections)
+        results = self.get_analysis_results(project_key, branch)
+        print(self.format_results(results))
