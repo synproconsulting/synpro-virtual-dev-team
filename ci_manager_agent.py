@@ -210,18 +210,37 @@ def review_pr(pr_number, sha=None):
     if decision == "APPROVE":
         merge_title = review.get("merge_message", title)
 
-        # Try to update branch with main first to resolve conflicts
-        print("Attempting to update branch with main...")
-        update_r = requests.put(f"{BASE}/pulls/{pr_number}/update-branch",
-                               headers=GH_HEADERS, json={})
-        if update_r.status_code == 202:
-            print("Branch updated with main — waiting 10 seconds for CI...")
-            import time
-            time.sleep(10)
-            # Refresh PR to get new mergeable status
-            pr = get_pr(pr_number)
-            mergeable = pr.get("mergeable")
-            print(f"Mergeable after update: {mergeable}")
+        import time
+
+        # Check if mergeable — wait for GitHub to compute it
+        if mergeable is None:
+            print("Waiting for GitHub to compute mergeability...")
+            for _ in range(6):
+                time.sleep(5)
+                pr = get_pr(pr_number)
+                mergeable = pr.get("mergeable")
+                if mergeable is not None:
+                    break
+            print(f"Mergeable: {mergeable}")
+
+        if mergeable is False:
+            print("PR has merge conflicts — closing and retriggering")
+            requests.patch(f"{BASE}/pulls/{pr_number}", headers=GH_HEADERS,
+                          json={"state": "closed"})
+            if ticket_key:
+                jira_comment(ticket_key,
+                    f"PR #{pr_number} had merge conflicts and was closed. Retriggering implementation.")
+                requests.post(
+                    f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/actions/workflows/auto-implement.yml/dispatches",
+                    headers=GH_HEADERS,
+                    json={"ref": "main", "inputs": {
+                        "ticket": ticket_key,
+                        "summary": pr["title"].replace(f"[{ticket_key}] ", "").strip(),
+                        "feedback": "Previous PR had merge conflicts. Implement fresh from latest main branch. Only create new files.",
+                    }}
+                )
+                print(f"Auto Implement retriggered for {ticket_key}")
+            return
 
         ok, result = merge_pr(pr_number, merge_title, f"Auto-merged by Manager Agent.\n\n{summary}")
         if ok:
