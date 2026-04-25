@@ -1,0 +1,190 @@
+.github-actions-monitor {
+  padding: 20px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.monitor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.monitor-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #333;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.last-update {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.refresh-btn {
+  padding: 8px 16px;
+  background: #0366d6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.refresh-btn:hover {
+  background: #0256c7;
+}
+
+.workflows-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.workflow-card {
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  transition: all 0.2s;
+}
+
+.workflow-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.workflow-card.status-success {
+  border-left: 4px solid #28a745;
+}
+
+.workflow-card.status-failure {
+  border-left: 4px solid #dc3545;
+}
+
+.workflow-card.status-running {
+  border-left: 4px solid #ffc107;
+}
+
+.workflow-card.status-queued {
+  border-left: 4px solid #6c757d;
+}
+
+.workflow-card.status-cancelled {
+  border-left: 4px solid #fd7e14;
+}
+
+.workflow-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.status-icon {
+  font-size: 1.5rem;
+}
+
+.workflow-info {
+  flex: 1;
+}
+
+.workflow-info h3 {
+  margin: 0 0 4px 0;
+  font-size: 1.125rem;
+  color: #333;
+}
+
+.workflow-branch {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.workflow-meta {
+  text-align: right;
+}
+
+.workflow-duration {
+  font-size: 0.875rem;
+  color: #666;
+  font-weight: 600;
+}
+
+.workflow-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-label {
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.detail-value {
+  font-size: 0.875rem;
+  color: #333;
+}
+
+.workflow-link {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #f6f8fa;
+  color: #0366d6;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.workflow-link:hover {
+  background: #e1e4e8;
+}
+
+.loading,
+.error,
+.no-workflows {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.error {
+  color: #dc3545;
+}
+
+.error button {
+  margin-top: 15px;
+  padding: 10px 20px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.error button:hover {
+  background: #c82333;
+}
