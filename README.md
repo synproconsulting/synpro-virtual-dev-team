@@ -273,4 +273,4 @@ Define and visualize story execution order with dependency graph management. The
 
 ## GitHub Actions Workflow Monitor
 
-Real-time monitoring of GitHub Actions workflows with status tracking and polling. The `GitHubWorkflowMonitor` provides async methods to fetch workflow runs, watch specific runs for status changes, and receive real-time updates as workflows progress from queued to in-progress to completed states.
+Real-time monitoring for GitHub Actions workflows with asynchronous status tracking. The `GitHubWorkflowMonitor` class provides methods to fetch workflow runs, monitor specific runs until completion, and filter by branch or status. Supports polling with configurable intervals and timeouts, complete with type-safe enumerations for workflow status and conclusions.
