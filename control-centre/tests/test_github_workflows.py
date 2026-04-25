@@ -1,127 +1,152 @@
 """Tests for GitHub workflows API helper."""
-import unittest
-from unittest.mock import patch, Mock
-from control-centre.api.github_workflows import GitHubWorkflowsAPI
+import pytest
+from unittest.mock import Mock, patch
+from control_centre.api.github_workflows import GitHubWorkflowsAPI
 
 
-class TestGitHubWorkflowsAPI(unittest.TestCase):
-    """Test cases for GitHubWorkflowsAPI."""
+@pytest.fixture
+def mock_response():
+    """Create a mock response object."""
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        'total_count': 2,
+        'workflow_runs': [
+            {
+                'id': 123456,
+                'name': 'CI',
+                'status': 'completed',
+                'conclusion': 'success',
+                'head_branch': 'main',
+                'event': 'push',
+                'created_at': '2024-01-01T10:00:00Z',
+                'updated_at': '2024-01-01T10:05:00Z',
+                'html_url': 'https://github.com/owner/repo/actions/runs/123456',
+                'head_commit': {
+                    'message': 'Fix bug',
+                    'author': {'name': 'Developer'}
+                }
+            },
+            {
+                'id': 123457,
+                'name': 'Test',
+                'status': 'in_progress',
+                'conclusion': None,
+                'head_branch': 'feature',
+                'event': 'pull_request',
+                'created_at': '2024-01-01T11:00:00Z',
+                'updated_at': '2024-01-01T11:02:00Z',
+                'html_url': 'https://github.com/owner/repo/actions/runs/123457',
+                'head_commit': {
+                    'message': 'Add feature',
+                    'author': {'name': 'Contributor'}
+                }
+            }
+        ]
+    }
+    return response
 
-    def setUp(self):
-        """Set up test fixtures."""
-        self.api = GitHubWorkflowsAPI(token='test_token')
+
+class TestGitHubWorkflowsAPI:
+    """Test suite for GitHubWorkflowsAPI class."""
 
     def test_init_with_token(self):
-        """Test initialization with token."""
-        self.assertEqual(self.api.token, 'test_token')
-        self.assertIn('Authorization', self.api.headers)
-        self.assertEqual(self.api.headers['Authorization'], 'token test_token')
+        """Test initialization with explicit token."""
+        api = GitHubWorkflowsAPI(token='test_token')
+        assert api.token == 'test_token'
+        assert 'Authorization' in api.headers
+        assert api.headers['Authorization'] == 'Bearer test_token'
 
     @patch.dict('os.environ', {'GITHUB_TOKEN': 'env_token'})
-    def test_init_with_env_token(self):
-        """Test initialization with environment variable."""
+    def test_init_from_environment(self):
+        """Test initialization with token from environment."""
         api = GitHubWorkflowsAPI()
-        self.assertEqual(api.token, 'env_token')
+        assert api.token == 'env_token'
 
-    @patch('control-centre.api.github_workflows.requests.get')
-    def test_get_workflow_runs_success(self, mock_get):
+    @patch('requests.get')
+    def test_get_workflow_runs_success(self, mock_get, mock_response):
         """Test successful workflow runs fetch."""
+        mock_get.return_value = mock_response
+        
+        api = GitHubWorkflowsAPI(token='test_token')
+        result = api.get_workflow_runs('owner', 'repo')
+        
+        assert 'workflows' in result
+        assert len(result['workflows']) == 2
+        assert result['workflows'][0]['name'] == 'CI'
+        assert result['workflows'][0]['status'] == 'completed'
+        assert result['workflows'][1]['status'] == 'in_progress'
+        assert result['total_count'] == 2
+
+    @patch('requests.get')
+    def test_get_workflow_runs_with_status_filter(self, mock_get, mock_response):
+        """Test workflow runs fetch with status filter."""
+        mock_get.return_value = mock_response
+        
+        api = GitHubWorkflowsAPI(token='test_token')
+        api.get_workflow_runs('owner', 'repo', status='completed')
+        
+        call_args = mock_get.call_args
+        assert call_args[1]['params']['status'] == 'completed'
+
+    @patch('requests.get')
+    def test_get_workflow_runs_api_error(self, mock_get):
+        """Test handling of API errors."""
+        mock_get.side_effect = Exception('API Error')
+        
+        api = GitHubWorkflowsAPI(token='test_token')
+        with pytest.raises(Exception) as exc_info:
+            api.get_workflow_runs('owner', 'repo')
+        
+        assert 'Failed to fetch workflows' in str(exc_info.value)
+
+    @patch('requests.get')
+    def test_get_workflow_status_summary(self, mock_get, mock_response):
+        """Test workflow status summary."""
+        mock_get.return_value = mock_response
+        
+        api = GitHubWorkflowsAPI(token='test_token')
+        summary = api.get_workflow_status_summary('owner', 'repo')
+        
+        assert summary['total'] == 2
+        assert summary['success'] == 1
+        assert summary['in_progress'] == 1
+        assert summary['failure'] == 0
+
+    @patch('requests.get')
+    def test_get_latest_run_for_workflow(self, mock_get):
+        """Test fetching latest run for specific workflow."""
         mock_response = Mock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {
             'workflow_runs': [
                 {
-                    'id': 123,
-                    'name': 'Test Workflow',
+                    'id': 999,
                     'status': 'completed',
-                    'conclusion': 'success'
+                    'conclusion': 'success',
+                    'created_at': '2024-01-01T12:00:00Z',
+                    'html_url': 'https://github.com/owner/repo/actions/runs/999'
                 }
-            ],
-            'total_count': 1
+            ]
         }
-        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
+        
+        api = GitHubWorkflowsAPI(token='test_token')
+        result = api.get_latest_run_for_workflow('owner', 'repo', 'ci.yml')
+        
+        assert result is not None
+        assert result['id'] == 999
+        assert result['conclusion'] == 'success'
 
-        result = self.api.get_workflow_runs('owner', 'repo')
-
-        self.assertTrue(result['success'])
-        self.assertEqual(len(result['workflows']), 1)
-        self.assertEqual(result['workflows'][0]['name'], 'Test Workflow')
-
-    @patch('control-centre.api.github_workflows.requests.get')
-    def test_get_workflow_runs_with_filters(self, mock_get):
-        """Test workflow runs fetch with filters."""
+    @patch('requests.get')
+    def test_get_latest_run_no_runs(self, mock_get):
+        """Test fetching latest run when no runs exist."""
         mock_response = Mock()
-        mock_response.json.return_value = {'workflow_runs': [], 'total_count': 0}
-        mock_response.raise_for_status = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {'workflow_runs': []}
         mock_get.return_value = mock_response
-
-        self.api.get_workflow_runs('owner', 'repo', branch='main', status='completed')
-
-        call_args = mock_get.call_args
-        params = call_args[1]['params']
-        self.assertEqual(params['branch'], 'main')
-        self.assertEqual(params['status'], 'completed')
-
-    @patch('control-centre.api.github_workflows.requests.get')
-    def test_get_workflow_runs_error(self, mock_get):
-        """Test workflow runs fetch with error."""
-        mock_get.side_effect = Exception('API Error')
-
-        result = self.api.get_workflow_runs('owner', 'repo')
-
-        self.assertFalse(result['success'])
-        self.assertIn('error', result)
-        self.assertEqual(len(result['workflows']), 0)
-
-    @patch('control-centre.api.github_workflows.requests.get')
-    def test_get_workflow_run_details(self, mock_get):
-        """Test fetching specific workflow run details."""
-        mock_response = Mock()
-        mock_response.json.return_value = {
-            'id': 123,
-            'name': 'Test Workflow',
-            'status': 'completed'
-        }
-        mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
-
-        result = self.api.get_workflow_run_details('owner', 'repo', 123)
-
-        self.assertTrue(result['success'])
-        self.assertEqual(result['workflow']['id'], 123)
-
-    @patch('control-centre.api.github_workflows.requests.get')
-    def test_get_workflow_jobs(self, mock_get):
-        """Test fetching workflow jobs."""
-        mock_response = Mock()
-        mock_response.json.return_value = {
-            'jobs': [{'id': 1, 'name': 'build'}],
-            'total_count': 1
-        }
-        mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
-
-        result = self.api.get_workflow_jobs('owner', 'repo', 123)
-
-        self.assertTrue(result['success'])
-        self.assertEqual(len(result['jobs']), 1)
-
-    def test_format_single_workflow(self):
-        """Test workflow formatting."""
-        raw_workflow = {
-            'id': 123,
-            'name': 'Test',
-            'status': 'completed',
-            'head_sha': 'abc123',
-            'extra_field': 'ignored'
-        }
-
-        formatted = self.api._format_single_workflow(raw_workflow)
-
-        self.assertEqual(formatted['id'], 123)
-        self.assertEqual(formatted['name'], 'Test')
-        self.assertNotIn('extra_field', formatted)
-
-
-if __name__ == '__main__':
-    unittest.main()
+        
+        api = GitHubWorkflowsAPI(token='test_token')
+        result = api.get_latest_run_for_workflow('owner', 'repo', 'ci.yml')
+        
+        assert result is None
