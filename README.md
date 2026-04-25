@@ -273,29 +273,36 @@ Define and visualize story execution order with dependency graph management. The
 
 ## Sprint Status Dashboard
 
-Integrated dashboard view providing real-time sprint status with Jira tickets, GitHub pull requests, and CI/CD pipeline information.
-
 ### Features
-- Real-time sprint progress tracking
-- Jira ticket list with filtering and search
-- GitHub PR status with review information
-- CI/CD pipeline status with stage details
-- Auto-refresh every 60 seconds
+- **Jira Integration**: View sprint issues with real-time status updates
+- **Pull Request Tracking**: Monitor GitHub PRs linked to sprint tasks
+- **CI/CD Status**: Track build pipeline success rates and failures
+- **Sprint Metrics**: Completion rates, blocked issues, and trend analysis
 
-### Environment Variables Required
-```
-JIRA_BASE_URL=https://your-domain.atlassian.net
-JIRA_API_TOKEN=your_jira_token
-JIRA_EMAIL=your_email@example.com
-GITHUB_TOKEN=your_github_token
-GITHUB_ORG=your_org_name
-CI_API_URL=https://your-ci-system.com/api
-CI_API_TOKEN=your_ci_token
+### Setup
+
+1. Set required environment variables:
+```bash
+export JIRA_BASE_URL=https://your-domain.atlassian.net
+export JIRA_API_TOKEN=your_jira_token
+export GITHUB_TOKEN=your_github_token
+export CI_API_URL=https://your-ci-system.com/api
+export CI_API_TOKEN=your_ci_token
 ```
 
-### Usage
+2. Register the sprint blueprint in your Flask app:
+```python
+from control_centre.api.sprint_routes import sprint_bp
+app.register_blueprint(sprint_bp)
+```
+
+3. Use the component in your React app:
 ```jsx
 import SprintStatusDashboard from './components/SprintStatusDashboard';
 
 <SprintStatusDashboard sprintId="123" />
 ```
+
+### API Endpoints
+- `GET /api/sprint/<sprint_id>/status` - Get complete sprint status
+- `GET /api/sprint/active` - List active sprints
