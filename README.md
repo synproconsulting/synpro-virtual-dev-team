@@ -271,6 +271,6 @@ Provides a chat-based interface for product managers to submit and manage featur
 
 Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
 
-## Sprint Trigger and Auto Review
+## Sprint Trigger and PR Auto Review
 
-One-click sprint triggering system with automated PR review functionality. The `SprintTrigger` class enables teams to instantly start sprints with configurable parameters, while `PRAutoReview` automatically evaluates pull requests based on customizable rules including file count, line changes, and branch naming conventions.
+This module provides one-click sprint triggering functionality and automatic PR review capabilities. The `SprintTrigger` class enables programmatic creation and management of sprints via API, while the `PRAutoReview` class analyzes pull requests and automatically submits reviews based on configurable criteria including file count, additions, and deletions.
