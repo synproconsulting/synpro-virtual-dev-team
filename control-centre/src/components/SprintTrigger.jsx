@@ -1,84 +1,79 @@
 import React, { useState } from 'react';
-import { Play, AlertCircle, CheckCircle, Loader } from 'lucide-react';
-import './SprintTrigger.css';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2, Play, CheckCircle, AlertCircle } from 'lucide-react';
+import { triggerSprint } from '../../api/sprint';
 
-const SprintTrigger = ({ projectId, onTriggerSuccess }) => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+const SprintTrigger = () => {
+  const [isTriggering, setIsTriggering] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [message, setMessage] = useState('');
 
   const handleTriggerSprint = async () => {
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
+    setIsTriggering(true);
+    setStatus(null);
+    setMessage('');
 
     try {
-      const response = await fetch('/api/sprint/trigger', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ project_id: projectId }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to trigger sprint');
-      }
-
-      setSuccess(`Sprint triggered successfully! Pipeline ID: ${data.pipeline_id}`);
-      if (onTriggerSuccess) {
-        onTriggerSuccess(data);
-      }
-    } catch (err) {
-      setError(err.message);
+      const response = await triggerSprint();
+      setStatus('success');
+      setMessage(`Sprint triggered successfully! Run ID: ${response.run_id}`);
+    } catch (error) {
+      setStatus('error');
+      setMessage(error.message || 'Failed to trigger sprint');
     } finally {
-      setLoading(false);
+      setIsTriggering(false);
     }
   };
 
   return (
-    <div className="sprint-trigger-container">
-      <div className="sprint-trigger-card">
-        <h3>Sprint Trigger</h3>
-        <p className="description">
-          Trigger a new sprint pipeline with one click. This will initiate the CI/CD process.
-        </p>
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Play className="h-5 w-5" />
+          One-Click Sprint Trigger
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Trigger a new sprint execution with a single click. This will initiate
+            the sprint workflow and auto-review process.
+          </p>
 
-        <button
-          className="trigger-button"
-          onClick={handleTriggerSprint}
-          disabled={loading}
-        >
-          {loading ? (
-            <>
-              <Loader className="icon spinning" />
-              Triggering...
-            </>
-          ) : (
-            <>
-              <Play className="icon" />
-              Trigger Sprint
-            </>
+          <Button
+            onClick={handleTriggerSprint}
+            disabled={isTriggering}
+            className="w-full"
+            size="lg"
+          >
+            {isTriggering ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Triggering Sprint...
+              </>
+            ) : (
+              <>
+                <Play className="mr-2 h-4 w-4" />
+                Trigger Sprint
+              </>
+            )}
+          </Button>
+
+          {status && (
+            <Alert variant={status === 'success' ? 'default' : 'destructive'}>
+              {status === 'success' ? (
+                <CheckCircle className="h-4 w-4" />
+              ) : (
+                <AlertCircle className="h-4 w-4" />
+              )}
+              <AlertDescription>{message}</AlertDescription>
+            </Alert>
           )}
-        </button>
-
-        {error && (
-          <div className="message error-message">
-            <AlertCircle className="icon" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {success && (
-          <div className="message success-message">
-            <CheckCircle className="icon" />
-            <span>{success}</span>
-          </div>
-        )}
-      </div>
-    </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
