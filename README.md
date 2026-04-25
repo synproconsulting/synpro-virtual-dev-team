@@ -273,4 +273,28 @@ Define and visualize story execution order with dependency graph management. The
 
 ## PM Agent Chat Interface
 
-AI-powered sprint planning with approval workflow enabling product managers to interactively generate, review, and approve sprint plans through a chat interface with integrated AI assistance and multi-stage approval processes.
+AI-powered sprint planning assistant with approval workflow.
+
+### Features
+- Natural language sprint planning
+- Story estimation and backlog analysis
+- Interactive chat interface with approval workflow
+- OpenAI GPT-4 integration
+
+### Setup
+1. Set environment variable: `OPENAI_API_KEY=your-key-here`
+2. Import and register routes in your Flask app:
+   ```python
+   from control-centre.api.pm_agent_routes import register_routes
+   register_routes(app)
+   ```
+3. Use the React component:
+   ```jsx
+   import PMAgentChat from './components/PMAgentChat';
+   <PMAgentChat projectId="proj-1" onSprintCreated={handleSprintCreated} />
+   ```
+
+### API Endpoints
+- `POST /api/pm-agent/chat` - Send chat message
+- `POST /api/pm-agent/approve-sprint` - Approve/reject sprint plan
+- `GET /api/pm-agent/health` - Health check
