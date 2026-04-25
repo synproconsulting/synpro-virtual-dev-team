@@ -1,0 +1,34 @@
+.sprint-status-dashboard {
+  padding: 24px;
+  background-color: #f0f2f5;
+  min-height: 100vh;
+}
+
+.sprint-dashboard-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+}
+
+.sprint-overview-card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.jira-ticket-list .ant-table-row:hover {
+  cursor: pointer;
+}
+
+.pull-request-list .ant-avatar {
+  margin-right: 8px;
+}
+
+.ci-pipeline-status .ant-table-expanded-row {
+  background-color: #fafafa;
+}
+
+@media (max-width: 768px) {
+  .sprint-status-dashboard {
+    padding: 12px;
+  }
+}
