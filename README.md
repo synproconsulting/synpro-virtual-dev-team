@@ -273,47 +273,38 @@ Define and visualize story execution order with dependency graph management. The
 
 ## SonarCloud Integration
 
-The Control Centre now includes SonarCloud integration for on-demand code analysis and results viewing.
-
-### Features
-
-- **On-Demand Analysis Trigger**: Trigger SonarCloud analysis for any project/branch
-- **Results Viewer**: View quality gate status, metrics (bugs, vulnerabilities, code smells, coverage)
-- **Real-time Status**: Poll analysis status and auto-refresh results
-- **Issue Explorer**: Browse and filter recent issues by severity
+The Control Centre now includes SonarCloud integration for on-demand code quality analysis.
 
 ### Setup
 
 1. Set environment variables:
-```bash
-export SONARCLOUD_TOKEN=your_sonarcloud_token
-export SONARCLOUD_ORGANIZATION=your_org_name
-```
+   ```bash
+   export SONARCLOUD_TOKEN=your_token_here
+   export SONARCLOUD_ORG=your_organization
+   ```
 
 2. Register the blueprint in your Flask app:
-```python
-from control_centre.api.sonarcloud_routes import sonarcloud_bp
-app.register_blueprint(sonarcloud_bp)
-```
+   ```python
+   from control-centre.api.sonarcloud_routes import sonarcloud_bp
+   app.register_blueprint(sonarcloud_bp)
+   ```
 
-3. Add the dashboard component to your routes:
-```jsx
-import SonarCloudDashboard from './components/SonarCloudDashboard';
+3. Add the dashboard component to your React app:
+   ```jsx
+   import SonarCloudDashboard from './components/SonarCloudDashboard';
+   ```
 
-// In your router
-<Route path="/sonarcloud" element={<SonarCloudDashboard />} />
-```
+### Features
+
+- **Trigger Analysis**: Initiate on-demand SonarCloud analysis for any repository
+- **View Results**: Display quality gate status, bugs, vulnerabilities, and code smells
+- **Issue Tracking**: Browse and filter open issues by severity
+- **Metrics Dashboard**: Visualize code coverage, maintainability, and security ratings
+- **Auto-refresh**: Automatically update results after triggering analysis
 
 ### API Endpoints
 
-- `POST /api/sonarcloud/trigger` - Trigger analysis
-- `GET /api/sonarcloud/status/:taskId` - Get analysis status
-- `GET /api/sonarcloud/results/:projectKey` - Get comprehensive results
-- `GET /api/sonarcloud/quality-gate/:projectKey` - Get quality gate status
-
-### Usage
-
-1. Enter your SonarCloud project key and branch
-2. Click "Trigger Analysis" to start an on-demand scan
-3. Switch to "View Results" tab to see latest metrics and issues
-4. Results auto-refresh when analysis completes
+- `POST /api/sonarcloud/trigger` - Trigger analysis for a repository
+- `GET /api/sonarcloud/results?repository=owner/repo` - Get full analysis results
+- `GET /api/sonarcloud/status/:repository` - Get quality gate status
+- `GET /api/sonarcloud/issues/:repository` - Get open issues
