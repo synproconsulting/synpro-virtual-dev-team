@@ -263,6 +263,14 @@ All models use Pydantic for automatic validation:
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
 
-## SonarCloud On-Demand Analysis
+## PM Agent Chat Interface - Feature Brief Submission
 
-Provides integration with SonarCloud API for triggering on-demand code analysis and viewing results. The `SonarCloudClient` handles authentication and API communication, while `SonarCloudViewer` formats quality gate status, measures, and analysis summaries into human-readable output. Supports branch-specific analysis and customizable metric retrieval.
+Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
+
+## Dependency Management
+
+Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
+
+## SonarCloud Analysis Trigger and Viewer
+
+Provides functionality to trigger on-demand SonarCloud analyses and view formatted results including quality gate status, metrics, and issues. The `SonarCloudClient` handles API interactions while `SonarCloudViewer` formats and displays analysis results in a human-readable format.
