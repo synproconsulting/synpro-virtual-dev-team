@@ -273,4 +273,29 @@ Define and visualize story execution order with dependency graph management. The
 
 ## Sprint Status Dashboard
 
-Provides a comprehensive sprint status dashboard that integrates Jira issues, GitHub pull requests, and CI pipeline status. The dashboard tracks sprint metrics including story points, completion rates, PR status, and CI health, with support for identifying blockers and linking PRs to Jira issues.
+Integrated dashboard view providing real-time sprint status with Jira tickets, GitHub pull requests, and CI/CD pipeline information.
+
+### Features
+- Real-time sprint progress tracking
+- Jira ticket list with filtering and search
+- GitHub PR status with review information
+- CI/CD pipeline status with stage details
+- Auto-refresh every 60 seconds
+
+### Environment Variables Required
+```
+JIRA_BASE_URL=https://your-domain.atlassian.net
+JIRA_API_TOKEN=your_jira_token
+JIRA_EMAIL=your_email@example.com
+GITHUB_TOKEN=your_github_token
+GITHUB_ORG=your_org_name
+CI_API_URL=https://your-ci-system.com/api
+CI_API_TOKEN=your_ci_token
+```
+
+### Usage
+```jsx
+import SprintStatusDashboard from './components/SprintStatusDashboard';
+
+<SprintStatusDashboard sprintId="123" />
+```
