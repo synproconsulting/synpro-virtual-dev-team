@@ -271,52 +271,41 @@ Provides a chat-based interface for product managers to submit and manage featur
 
 Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
 
-## Sprint Trigger & Auto Review Feature
+## Sprint Control Centre Dashboard
 
-### Components
+### Features
 
-#### SprintTrigger
-One-click sprint pipeline trigger component. Simply click the "Trigger Sprint" button to initiate a new CI/CD pipeline.
+- **One-Click Sprint Trigger**: Initiate sprint executions with a single button click
+- **Auto Review Status**: Real-time monitoring of PR auto-review processes
+- **Live Updates**: Auto-refreshing review status every 30 seconds
 
-**Usage:**
-```jsx
-import SprintTrigger from './components/SprintTrigger';
+### Environment Variables
 
-<SprintTrigger 
-  projectId="your-project-id" 
-  onTriggerSuccess={(data) => console.log('Pipeline started:', data.pipeline_id)}
-/>
-```
-
-#### AutoReviewPR
-Automated pull request review management. View open PRs and trigger automated code reviews with a single click.
-
-**Usage:**
-```jsx
-import AutoReviewPR from './components/AutoReviewPR';
-
-<AutoReviewPR projectId="your-project-id" />
-```
-
-### Environment Variables Required
+Set the following environment variables:
 
 ```bash
-# CI/CD Service
-CI_API_URL=https://api.ci-service.com
-CI_API_TOKEN=your_ci_token_here
+# Backend (Python)
+export SPRINT_API_BASE_URL=https://your-api.com
+export SPRINT_API_TOKEN=your-secret-token
 
-# Version Control Service
-VCS_API_URL=https://api.vcs-service.com
-VCS_API_TOKEN=your_vcs_token_here
-
-# Review Service (optional, defaults to internal service)
-REVIEW_SERVICE_URL=https://review-service.internal
+# Frontend (React)
+REACT_APP_SPRINT_API_BASE_URL=https://your-api.com
 ```
 
-### API Endpoints
+### Usage
 
-The feature expects the following API endpoints to be available:
+```jsx
+import SprintDashboard from './control-centre/src/components/SprintDashboard';
 
-- `POST /api/sprint/trigger` - Trigger sprint pipeline
-- `GET /api/pull-requests?project_id={id}` - List open PRs
-- `POST /api/pull-requests/auto-review` - Trigger PR auto-review
+function App() {
+  return <SprintDashboard />;
+}
+```
+
+### API Endpoints Expected
+
+- `POST /api/v1/sprint/trigger` - Trigger new sprint
+- `GET /api/v1/sprint/{run_id}/status` - Get sprint status
+- `GET /api/v1/reviews?limit=N` - Fetch PR reviews
+- `POST /api/v1/reviews/trigger` - Trigger PR review
+- `GET /api/v1/reviews/{pr_number}` - Get review details
