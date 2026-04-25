@@ -271,35 +271,49 @@ Provides a chat-based interface for product managers to submit and manage featur
 
 Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
 
-## GitHub Actions Monitor
+## GitHub Actions Workflow Monitor
 
-Real-time monitoring component for GitHub Actions workflows.
+Real-time monitoring dashboard for GitHub Actions workflows.
 
 ### Features
-- Real-time workflow status updates
-- Auto-refresh with configurable intervals
-- Visual status indicators (success, failure, in-progress, queued)
+- Live workflow status updates
+- Auto-refresh (configurable interval)
+- Status indicators (success, failure, in-progress, cancelled)
 - Workflow duration tracking
-- Direct links to GitHub workflow runs
+- Commit messages and author information
+- Direct links to GitHub Actions runs
+- Summary statistics endpoint
 
-### Usage
+### Setup
 
+1. Set GitHub token as environment variable:
+```bash
+export GITHUB_TOKEN=your_github_personal_access_token
+```
+
+2. Register the Flask blueprint in your app:
+```python
+from control_centre.api.github_workflows_routes import github_bp
+app.register_blueprint(github_bp)
+```
+
+3. Use the React component:
 ```jsx
 import GitHubActionsMonitor from './components/GitHubActionsMonitor';
 
 <GitHubActionsMonitor 
-  repoOwner="myorg" 
-  repoName="myrepo" 
+  owner="your-org" 
+  repo="your-repo" 
   refreshInterval={30000} 
 />
 ```
 
-### Configuration
-
-Set the `GITHUB_TOKEN` environment variable with a GitHub Personal Access Token that has `repo` scope access.
-
 ### API Endpoints
+- `GET /api/github/workflows` - Get workflow runs
+- `GET /api/github/workflows/summary` - Get status summary
+- `GET /api/github/workflows/<id>/latest` - Get latest run for specific workflow
+- `GET /api/github/health` - Health check
 
-- `GET /api/github/workflows?owner=X&repo=Y` - List workflow runs
-- `GET /api/github/workflows/:run_id?owner=X&repo=Y` - Get workflow details
-- `GET /api/github/workflows/:run_id/jobs?owner=X&repo=Y` - Get workflow jobs
+### Configuration
+- `GITHUB_TOKEN`: GitHub personal access token with `repo` and `actions:read` scopes
+- Component prop `refreshInterval`: Auto-refresh interval in milliseconds (default: 30000)
