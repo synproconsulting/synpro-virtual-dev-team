@@ -271,6 +271,35 @@ Provides a chat-based interface for product managers to submit and manage featur
 
 Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
 
-## GitHub Actions Workflow Monitor
+## GitHub Actions Monitor
 
-Real-time monitoring for GitHub Actions workflows with asynchronous status tracking. The `GitHubWorkflowMonitor` class provides methods to fetch workflow runs, monitor specific runs until completion, and filter by branch or status. Supports polling with configurable intervals and timeouts, complete with type-safe enumerations for workflow status and conclusions.
+Real-time monitoring component for GitHub Actions workflows.
+
+### Features
+- Real-time workflow status updates
+- Auto-refresh with configurable intervals
+- Visual status indicators (success, failure, in-progress, queued)
+- Workflow duration tracking
+- Direct links to GitHub workflow runs
+
+### Usage
+
+```jsx
+import GitHubActionsMonitor from './components/GitHubActionsMonitor';
+
+<GitHubActionsMonitor 
+  repoOwner="myorg" 
+  repoName="myrepo" 
+  refreshInterval={30000} 
+/>
+```
+
+### Configuration
+
+Set the `GITHUB_TOKEN` environment variable with a GitHub Personal Access Token that has `repo` scope access.
+
+### API Endpoints
+
+- `GET /api/github/workflows?owner=X&repo=Y` - List workflow runs
+- `GET /api/github/workflows/:run_id?owner=X&repo=Y` - Get workflow details
+- `GET /api/github/workflows/:run_id/jobs?owner=X&repo=Y` - Get workflow jobs
