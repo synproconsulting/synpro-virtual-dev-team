@@ -273,25 +273,35 @@ Define and visualize story execution order with dependency graph management. The
 
 ## Manual UAT Deployment
 
-The Manual UAT Deployment interface allows authorized users to select and deploy specific services to the UAT environment.
+The Manual UAT Deployment interface allows operators to select and deploy specific services to the UAT environment.
 
 ### Features
-- Service selection with real-time status
-- Bulk deployment capabilities
-- Deployment history tracking
-- Success/error notifications
+- Service selection with checkboxes
+- Branch specification for deployment
+- Real-time deployment status
+- Service version and status display
 
 ### Usage
+
 1. Navigate to the UAT Deployment section in the Control Centre
 2. Select the services you want to deploy
-3. Click "Deploy to UAT"
-4. Monitor deployment status in the history panel
+3. Specify the branch (defaults to 'main')
+4. Click "Deploy" to initiate the deployment
+
+### Configuration
+
+Set these environment variables:
+- `UAT_DEPLOYMENT_CONFIG`: Path to services configuration file (default: `/etc/control-centre/uat-services.json`)
+- `UAT_DEPLOYMENT_API`: Deployment service API endpoint
 
 ### API Endpoints
-- `GET /api/uat/services` - Get available services
-- `POST /api/uat/deploy` - Deploy selected services
-- `GET /api/uat/deployments/history` - Get deployment history
 
-### Environment Variables
-- `UAT_DEPLOYMENT_API_URL` - URL for the UAT deployment API
-- `SERVICES_CONFIG_PATH` - Path to services configuration file
+- `GET /api/uat/services` - Retrieve available services
+- `POST /api/uat/deploy` - Trigger deployment for selected services
+
+### Testing
+
+Run tests with:
+```bash
+python -m pytest control-centre/tests/test_uat_deployment.py
+```
