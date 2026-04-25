@@ -1,29 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Row, Col, Spin, Alert, Tabs } from 'antd';
-import SprintOverview from './SprintOverview';
-import JiraTicketList from './JiraTicketList';
-import PullRequestList from './PullRequestList';
-import CIPipelineStatus from './CIPipelineStatus';
-import './SprintStatusDashboard.css';
-
-const { TabPane } = Tabs;
+import { Card, CardHeader, CardContent } from './ui/Card';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/Tabs';
+import SprintMetrics from './SprintMetrics';
+import JiraIntegration from './JiraIntegration';
+import PRIntegration from './PRIntegration';
+import CIIntegration from './CIIntegration';
+import { fetchSprintStatus } from '../../api/sprint_status';
 
 const SprintStatusDashboard = ({ sprintId }) => {
+  const [sprintData, setSprintData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [sprintData, setSprintData] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
-    fetchSprintStatus();
-    const interval = setInterval(fetchSprintStatus, 60000); // Refresh every minute
+    loadSprintData();
+    const interval = setInterval(loadSprintData, 60000); // Refresh every minute
     return () => clearInterval(interval);
   }, [sprintId]);
 
-  const fetchSprintStatus = async () => {
+  const loadSprintData = async () => {
     try {
-      const response = await fetch(`/api/sprint-status/${sprintId}`);
-      if (!response.ok) throw new Error('Failed to fetch sprint status');
-      const data = await response.json();
+      setLoading(true);
+      const data = await fetchSprintStatus(sprintId);
       setSprintData(data);
       setError(null);
     } catch (err) {
@@ -33,50 +32,75 @@ const SprintStatusDashboard = ({ sprintId }) => {
     }
   };
 
-  if (loading) {
+  if (loading && !sprintData) {
     return (
-      <div className="sprint-dashboard-loading">
-        <Spin size="large" tip="Loading sprint status..." />
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <Alert
-        message="Error Loading Sprint Status"
-        description={error}
-        type="error"
-        showIcon
-      />
+      <Card className="border-red-200 bg-red-50">
+        <CardContent className="pt-6">
+          <p className="text-red-600">Error loading sprint data: {error}</p>
+          <button
+            onClick={loadSprintData}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="sprint-status-dashboard">
-      <Row gutter={[16, 16]}>
-        <Col span={24}>
-          <SprintOverview data={sprintData?.overview} />
-        </Col>
-      </Row>
-      
-      <Row gutter={[16, 16]} style={{ marginTop: '16px' }}>
-        <Col span={24}>
-          <Card>
-            <Tabs defaultActiveKey="jira">
-              <TabPane tab="Jira Tickets" key="jira">
-                <JiraTicketList tickets={sprintData?.jiraTickets} />
-              </TabPane>
-              <TabPane tab="Pull Requests" key="prs">
-                <PullRequestList pullRequests={sprintData?.pullRequests} />
-              </TabPane>
-              <TabPane tab="CI/CD Status" key="ci">
-                <CIPipelineStatus pipelines={sprintData?.pipelines} />
-              </TabPane>
-            </Tabs>
-          </Card>
-        </Col>
-      </Row>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <h2 className="text-2xl font-bold">Sprint Status - {sprintData?.name}</h2>
+          <p className="text-gray-600">
+            {sprintData?.startDate} - {sprintData?.endDate}
+          </p>
+        </CardHeader>
+        <CardContent>
+          <SprintMetrics metrics={sprintData?.metrics} />
+        </CardContent>
+      </Card>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="prs">Pull Requests</TabsTrigger>
+          <TabsTrigger value="ci">CI/CD Status</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-4">
+          <JiraIntegration
+            sprintId={sprintId}
+            issues={sprintData?.jiraIssues}
+            onRefresh={loadSprintData}
+          />
+        </TabsContent>
+
+        <TabsContent value="prs" className="space-y-4">
+          <PRIntegration
+            sprintId={sprintId}
+            pullRequests={sprintData?.pullRequests}
+            onRefresh={loadSprintData}
+          />
+        </TabsContent>
+
+        <TabsContent value="ci" className="space-y-4">
+          <CIIntegration
+            sprintId={sprintId}
+            builds={sprintData?.ciBuilds}
+            onRefresh={loadSprintData}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
