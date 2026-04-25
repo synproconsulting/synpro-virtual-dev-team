@@ -1,104 +1,113 @@
-"""Sprint trigger functionality for one-click sprint execution."""
+"""Sprint trigger functionality for one-click sprint activation."""
 
-import logging
-from datetime import datetime
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
-
-logger = logging.getLogger(__name__)
-
-
-@dataclass
-class SprintConfig:
-    """Configuration for sprint execution."""
-    sprint_name: str
-    start_date: datetime
-    duration_days: int
-    team_id: str
-    auto_review_enabled: bool = True
+import os
+from typing import Optional
+from datetime import datetime, timedelta
+import httpx
 
 
 class SprintTrigger:
-    """Handles one-click sprint triggering and orchestration."""
+    """Handles one-click sprint triggering via API."""
 
-    def __init__(self, config: SprintConfig) -> None:
-        """Initialize sprint trigger with configuration.
-        
+    def __init__(self, api_base_url: Optional[str] = None, api_token: Optional[str] = None):
+        """
+        Initialize sprint trigger.
+
         Args:
-            config: Sprint configuration details
+            api_base_url: Base URL for the sprint API
+            api_token: Authentication token for API access
         """
-        self.config = config
-        self._status: str = "idle"
-        self._sprint_id: Optional[str] = None
+        self.api_base_url = api_base_url or os.getenv("SPRINT_API_URL", "")
+        self.api_token = api_token or os.getenv("SPRINT_API_TOKEN", "")
+        self.headers = {
+            "Authorization": f"Bearer {self.api_token}",
+            "Content-Type": "application/json",
+        }
 
-    def trigger_sprint(self) -> Dict[str, Any]:
-        """Trigger a new sprint execution.
-        
+    async def trigger_sprint(
+        self,
+        sprint_name: str,
+        duration_days: int = 14,
+        board_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Trigger a new sprint with one click.
+
+        Args:
+            sprint_name: Name of the sprint to create
+            duration_days: Duration of the sprint in days
+            board_id: Optional board ID to associate sprint with
+
         Returns:
-            Dictionary containing sprint execution details
-            
+            Dictionary containing sprint details
+
         Raises:
-            ValueError: If sprint is already running
+            ValueError: If API credentials are not configured
+            httpx.HTTPStatusError: If API request fails
         """
-        if self._status == "running":
-            raise ValueError("Sprint is already running")
+        if not self.api_base_url or not self.api_token:
+            raise ValueError("Sprint API credentials not configured")
 
-        logger.info(f"Triggering sprint: {self.config.sprint_name}")
-        
-        self._status = "running"
-        self._sprint_id = self._generate_sprint_id()
-        
-        result = {
-            "sprint_id": self._sprint_id,
-            "name": self.config.sprint_name,
-            "status": self._status,
-            "start_date": self.config.start_date.isoformat(),
-            "duration_days": self.config.duration_days,
-            "team_id": self.config.team_id,
-            "auto_review_enabled": self.config.auto_review_enabled,
-            "triggered_at": datetime.utcnow().isoformat()
-        }
-        
-        logger.info(f"Sprint triggered successfully: {self._sprint_id}")
-        return result
+        start_date = datetime.now()
+        end_date = start_date + timedelta(days=duration_days)
 
-    def stop_sprint(self) -> Dict[str, Any]:
-        """Stop the current sprint.
-        
-        Returns:
-            Dictionary containing sprint stop details
-        """
-        logger.info(f"Stopping sprint: {self._sprint_id}")
-        
-        self._status = "stopped"
-        
-        return {
-            "sprint_id": self._sprint_id,
-            "status": self._status,
-            "stopped_at": datetime.utcnow().isoformat()
+        payload = {
+            "name": sprint_name,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "board_id": board_id,
         }
 
-    def get_status(self) -> Dict[str, Any]:
-        """Get current sprint status.
-        
-        Returns:
-            Dictionary containing current sprint status
-        """
-        return {
-            "sprint_id": self._sprint_id,
-            "status": self._status,
-            "config": {
-                "name": self.config.sprint_name,
-                "team_id": self.config.team_id,
-                "auto_review_enabled": self.config.auto_review_enabled
-            }
-        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.api_base_url}/sprints",
+                json=payload,
+                headers=self.headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()
 
-    def _generate_sprint_id(self) -> str:
-        """Generate unique sprint identifier.
-        
-        Returns:
-            Unique sprint ID string
+    async def get_sprint_status(self, sprint_id: str) -> dict:
         """
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-        return f"sprint-{self.config.team_id}-{timestamp}"
+        Get current status of a sprint.
+
+        Args:
+            sprint_id: ID of the sprint
+
+        Returns:
+            Dictionary containing sprint status
+        """
+        if not self.api_base_url or not self.api_token:
+            raise ValueError("Sprint API credentials not configured")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.api_base_url}/sprints/{sprint_id}",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def complete_sprint(self, sprint_id: str) -> dict:
+        """
+        Mark a sprint as complete.
+
+        Args:
+            sprint_id: ID of the sprint to complete
+
+        Returns:
+            Dictionary containing updated sprint details
+        """
+        if not self.api_base_url or not self.api_token:
+            raise ValueError("Sprint API credentials not configured")
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.api_base_url}/sprints/{sprint_id}/complete",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()
