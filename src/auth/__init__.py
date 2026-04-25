@@ -10,6 +10,6 @@ from src.auth.feature_brief_ui import FeatureStatus
 from src.auth.dependency_graph import DependencyGraph
 from src.auth.dependency_graph import DependencyVisualizer
 from src.auth.github_workflow_monitor import GitHubWorkflowMonitor
-from src.auth.github_workflow_monitor import WorkflowRun
 from src.auth.github_workflow_monitor import WorkflowStatus
 from src.auth.github_workflow_monitor import WorkflowConclusion
+from src.auth.github_workflow_monitor import WorkflowRun
