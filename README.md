@@ -267,6 +267,10 @@ This implementation is part of the SDT1-22 ticket for in-app notification storag
 
 Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
 
+## Dependency Management
+
+Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
+
 ## Sprint Status Dashboard
 
-Provides a unified dashboard view integrating Jira tickets, GitHub pull requests, and CI build statuses for sprint tracking. The `SprintDashboard` class aggregates data from multiple providers to calculate sprint metrics, track ticket progress, and correlate development artifacts across platforms with comprehensive status reporting.
+Provides a comprehensive sprint status dashboard that integrates Jira issues, GitHub pull requests, and CI pipeline status. The dashboard tracks sprint metrics including story points, completion rates, PR status, and CI health, with support for identifying blockers and linking PRs to Jira issues.
