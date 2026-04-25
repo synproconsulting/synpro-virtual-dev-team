@@ -263,6 +263,14 @@ All models use Pydantic for automatic validation:
 
 This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
 
-## PM Agent Chat Interface - AI Sprint Planning
+## PM Agent Chat Interface - Feature Brief Submission
 
-AI-powered sprint planning agent with interactive chat interface for Product Managers. Features automated task estimation, capacity planning, and approval workflows. The system generates sprint plans from backlog items using AI inference, provides confidence scores for estimates, and implements a complete approval/rejection workflow for PM oversight.
+Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
+
+## Dependency Management
+
+Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
+
+## PM Agent Chat Interface
+
+AI-powered sprint planning with approval workflow enabling product managers to interactively generate, review, and approve sprint plans through a chat interface with integrated AI assistance and multi-stage approval processes.
