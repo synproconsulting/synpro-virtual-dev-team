@@ -1,35 +1,65 @@
 import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, PlayCircle, AlertCircle } from 'lucide-react';
-import { triggerSonarAnalysis } from '../../api/sonarcloud';
+import { Loader2, PlayCircle, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
-const SonarCloudTrigger = ({ projectKey, branch = 'main', onAnalysisTriggered }) => {
+const SonarCloudTrigger = ({ onAnalysisTriggered }) => {
+  const [repository, setRepository] = useState('');
+  const [branch, setBranch] = useState('main');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [success, setSuccess] = useState(false);
 
   const handleTrigger = async () => {
+    if (!repository.trim()) {
+      setError('Repository name is required');
+      return;
+    }
+
     setLoading(true);
     setError(null);
-    setSuccess(null);
+    setSuccess(false);
 
     try {
-      const result = await triggerSonarAnalysis(projectKey, branch);
-      setSuccess(`Analysis triggered successfully. Task ID: ${result.taskId}`);
-      if (onAnalysisTriggered) {
-        onAnalysisTriggered(result);
+      const response = await fetch('/api/sonarcloud/trigger', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          repository: repository.trim(),
+          branch: branch.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to trigger analysis');
       }
+
+      setSuccess(true);
+      if (onAnalysisTriggered) {
+        onAnalysisTriggered(data);
+      }
+
+      setTimeout(() => {
+        setSuccess(false);
+        setRepository('');
+        setBranch('main');
+      }, 3000);
     } catch (err) {
-      setError(err.message || 'Failed to trigger SonarCloud analysis');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Card className="w-full">
+    <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <PlayCircle className="h-5 w-5" />
@@ -37,13 +67,26 @@ const SonarCloudTrigger = ({ projectKey, branch = 'main', onAnalysisTriggered })
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-col gap-2">
-          <div className="text-sm text-gray-600">
-            <span className="font-semibold">Project:</span> {projectKey}
-          </div>
-          <div className="text-sm text-gray-600">
-            <span className="font-semibold">Branch:</span> {branch}
-          </div>
+        <div className="space-y-2">
+          <Label htmlFor="repository">Repository</Label>
+          <Input
+            id="repository"
+            placeholder="owner/repo-name"
+            value={repository}
+            onChange={(e) => setRepository(e.target.value)}
+            disabled={loading}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="branch">Branch</Label>
+          <Input
+            id="branch"
+            placeholder="main"
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
+            disabled={loading}
+          />
         </div>
 
         {error && (
@@ -54,23 +97,29 @@ const SonarCloudTrigger = ({ projectKey, branch = 'main', onAnalysisTriggered })
         )}
 
         {success && (
-          <Alert className="bg-green-50 text-green-800 border-green-200">
-            <AlertDescription>{success}</AlertDescription>
+          <Alert className="border-green-500 bg-green-50">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-green-600">
+              Analysis triggered successfully!
+            </AlertDescription>
           </Alert>
         )}
 
         <Button
           onClick={handleTrigger}
-          disabled={loading || !projectKey}
+          disabled={loading}
           className="w-full"
         >
           {loading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Triggering Analysis...
+              Triggering...
             </>
           ) : (
-            'Trigger Analysis'
+            <>
+              <PlayCircle className="mr-2 h-4 w-4" />
+              Trigger Analysis
+            </>
           )}
         </Button>
       </CardContent>
