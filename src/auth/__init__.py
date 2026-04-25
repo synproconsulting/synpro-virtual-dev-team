@@ -9,9 +9,5 @@ from src.auth.feature_brief_ui import Priority
 from src.auth.feature_brief_ui import FeatureStatus
 from src.auth.dependency_graph import DependencyGraph
 from src.auth.dependency_graph import DependencyVisualizer
-from src.auth.sprint_planner import PMAgentChat
-from src.auth.sprint_planner import SprintPlanApprovalWorkflow
-from src.auth.sprint_planner import SprintPlan
-from src.auth.sprint_planner import SprintTask
-from src.auth.sprint_planner import ApprovalStatus
-from src.auth.sprint_planner import ChatMessage
+from src.auth.PMAgentChat.jsx import control-centre/src/components/PMAgentChat.jsx
+from src.auth.PMAgentChat.jsx import control-centre/api/pm_agent_routes.py
