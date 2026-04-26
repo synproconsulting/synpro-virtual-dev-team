@@ -46,15 +46,18 @@ def get_branch_sha(branch):
     return r.json()["object"]["sha"]
 
 def create_branch(branch_name, from_branch="main"):
+    # Always get latest SHA from main
     sha = get_branch_sha(from_branch)
     if not sha:
         print(f"Could not get SHA for {from_branch}")
         return False
-    # Check if branch exists
+
+    # Delete existing branch if it exists (ensures fresh start from latest main)
     existing = get_branch_sha(branch_name)
     if existing:
-        print(f"Branch {branch_name} already exists")
-        return True
+        print(f"Branch {branch_name} exists — deleting and recreating from latest main")
+        requests.delete(f"{BASE}/git/refs/heads/{branch_name}", headers=GH_HEADERS)
+
     r = requests.post(f"{BASE}/git/refs", headers=GH_HEADERS, json={
         "ref": f"refs/heads/{branch_name}",
         "sha": sha,
