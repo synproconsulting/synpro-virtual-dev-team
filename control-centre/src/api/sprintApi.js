@@ -1,49 +1,63 @@
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
+const GITHUB_API = "https://api.github.com";
+const JIRA_API  = import.meta.env.VITE_JIRA_URL || "";
+const GH_REPO   = import.meta.env.VITE_GITHUB_REPO || "synproconsulting/synpro-virtual-dev-team";
+const GH_TOKEN  = import.meta.env.VITE_GITHUB_TOKEN || "";
 
-export const triggerSprint = async (sprintConfig) => {
-  const response = await fetch(`${API_BASE_URL}/api/sprints/trigger`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
-    },
-    body: JSON.stringify(sprintConfig),
-  });
+const ghHeaders = () => ({
+  "Accept": "application/vnd.github+json",
+  ...(GH_TOKEN ? { "Authorization": `Bearer ${GH_TOKEN}` } : {}),
+});
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Failed to trigger sprint');
+export const fetchSprintData = async () => {
+  try {
+    const [prsRes, runsRes] = await Promise.all([
+      fetch(`${GITHUB_API}/repos/${GH_REPO}/pulls?state=open&per_page=20`, { headers: ghHeaders() }),
+      fetch(`${GITHUB_API}/repos/${GH_REPO}/actions/runs?per_page=10`, { headers: ghHeaders() }),
+    ]);
+    const prs   = prsRes.ok   ? (await prsRes.json()) : [];
+    const runs  = runsRes.ok  ? (await runsRes.json()).workflow_runs || [] : [];
+    return { prs, runs, tickets: [] };
+  } catch (e) {
+    console.error("fetchSprintData error:", e);
+    return { prs: [], runs: [], tickets: [] };
   }
-
-  return response.json();
 };
 
-export const getSprintStatus = async (sprintId) => {
-  const response = await fetch(`${API_BASE_URL}/api/sprints/${sprintId}/status`, {
-    headers: {
-      'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Failed to fetch sprint status');
+export const triggerSprintRun = async (tickets) => {
+  const [owner, repo] = GH_REPO.split("/");
+  const results = [];
+  for (const ticket of tickets) {
+    try {
+      const r = await fetch(
+        `${GITHUB_API}/repos/${owner}/${repo}/actions/workflows/auto-implement.yml/dispatches`,
+        {
+          method: "POST",
+          headers: { ...ghHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ ref: "main", inputs: { ticket: ticket.key, summary: ticket.summary, feedback: "" } }),
+        }
+      );
+      results.push({ ticket: ticket.key, status: r.status === 204 ? "triggered" : "failed" });
+    } catch (e) {
+      results.push({ ticket: ticket.key, status: "error", error: e.message });
+    }
   }
-
-  return response.json();
+  return results;
 };
 
-export const getAllSprints = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/sprints`, {
-    headers: {
-      'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
-    },
-  });
+export const triggerAutoReview = async (prNumber) => {
+  const [owner, repo] = GH_REPO.split("/");
+  const r = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/actions/workflows/auto-review.yml/dispatches`,
+    {
+      method: "POST",
+      headers: { ...ghHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ ref: "main", inputs: { pr_number: String(prNumber) } }),
+    }
+  );
+  return { success: r.status === 204 };
+};
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Failed to fetch sprints');
-  }
-
-  return response.json();
+export const fetchOpenPRs = async () => {
+  const r = await fetch(`${GITHUB_API}/repos/${GH_REPO}/pulls?state=open&per_page=20`, { headers: ghHeaders() });
+  return r.ok ? r.json() : [];
 };
