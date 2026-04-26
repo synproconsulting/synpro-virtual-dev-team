@@ -416,3 +416,69 @@ async def proxy_jira_transition(issue_key: str, body: dict):
         )
         return {"success": r.status_code in (200, 204)}
 
+# ── Sprint Proxy Endpoints ──────────────────────────────────────────────────────
+
+@app.get("/proxy/jira/sprints")
+async def proxy_jira_sprints():
+    """Get all sprint versions from Jira."""
+    if not JIRA_BASE_URL:
+        return {"sprints": [], "error": "JIRA_BASE_URL not configured"}
+    async with httpx.AsyncClient() as client:
+        try:
+            r = await client.get(
+                f"{JIRA_BASE_URL}/rest/api/3/project/{JIRA_PROJECT}/versions",
+                headers=jira_auth(), timeout=10.0
+            )
+            if r.status_code == 200:
+                versions = r.json()
+                sprints = [
+                    {
+                        "id":       v["id"],
+                        "name":     v["name"],
+                        "released": v.get("released", False),
+                        "archived": v.get("archived", False),
+                    }
+                    for v in versions
+                    if not v.get("archived", False)
+                ]
+                return {"sprints": sorted(sprints, key=lambda x: x["id"])}
+            return {"sprints": [], "error": f"Jira returned {r.status_code}"}
+        except Exception as e:
+            return {"sprints": [], "error": str(e)}
+
+
+@app.get("/proxy/jira/sprint/{version_id}/issues")
+async def proxy_sprint_issues(version_id: str):
+    """Get issues for a specific sprint (version)."""
+    if not JIRA_BASE_URL:
+        return {"issues": [], "error": "JIRA_BASE_URL not configured"}
+    jql = f"project = {JIRA_PROJECT} AND fixVersion = {version_id} ORDER BY priority DESC"
+    fields = "summary,status,priority,issuetype,assignee,customfield_10016,customfield_10071,fixVersions"
+    async with httpx.AsyncClient() as client:
+        try:
+            r = await client.get(
+                f"{JIRA_BASE_URL}/rest/api/3/search/jql",
+                headers=jira_auth(),
+                params={"jql": jql, "maxResults": 100, "fields": fields},
+                timeout=15.0
+            )
+            if r.status_code == 200:
+                data = r.json()
+                issues = [
+                    {
+                        "key":      i["key"],
+                        "summary":  i["fields"]["summary"],
+                        "status":   i["fields"].get("status", {}).get("name", "Unknown"),
+                        "priority": i["fields"].get("priority", {}).get("name", "Medium"),
+                        "type":     i["fields"].get("issuetype", {}).get("name", "Story"),
+                        "points":   i["fields"].get("customfield_10016") or 0,
+                        "order":    i["fields"].get("customfield_10071") or 999,
+                        "assignee": i["fields"].get("assignee", {}).get("displayName") if i["fields"].get("assignee") else None,
+                    }
+                    for i in data.get("issues", [])
+                ]
+                return {"issues": issues, "total": data.get("total", 0)}
+            return {"issues": [], "error": f"Jira returned {r.status_code}"}
+        except Exception as e:
+            return {"issues": [], "error": str(e)}
+
