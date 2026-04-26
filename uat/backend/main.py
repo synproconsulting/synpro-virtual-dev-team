@@ -327,3 +327,92 @@ def get_current_user(authorization: str = "", db=Depends(get_db)):
     return UserResponse(id=str(user["id"]), email=user["email"],
                         username=user["username"],
                         created_at=user["created_at"].isoformat())
+
+# ── Jira Proxy Endpoints ────────────────────────────────────────────────────────
+
+import httpx
+from fastapi import Query
+from fastapi.middleware.cors import CORSMiddleware
+
+JIRA_BASE_URL  = os.getenv("JIRA_BASE_URL", "")
+JIRA_EMAIL     = os.getenv("JIRA_EMAIL", "")
+JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
+JIRA_PROJECT   = os.getenv("JIRA_PROJECT_KEY", "SDT1")
+
+
+def jira_auth():
+    import base64 as b64
+    creds = f"{JIRA_EMAIL}:{JIRA_API_TOKEN}"
+    encoded = b64.b64encode(creds.encode()).decode()
+    return {"Authorization": f"Basic {encoded}", "Accept": "application/json", "Content-Type": "application/json"}
+
+
+@app.get("/proxy/jira/issues")
+async def proxy_jira_issues(
+    status: str = Query(None, description="Filter by status e.g. 'To Do', 'Done'"),
+    max_results: int = Query(100)
+):
+    """Proxy Jira issues to avoid CORS issues in the browser."""
+    if not JIRA_BASE_URL:
+        return {"issues": [], "error": "JIRA_BASE_URL not configured"}
+    
+    jql = f"project = {JIRA_PROJECT} ORDER BY updated DESC"
+    if status:
+        jql = f"project = {JIRA_PROJECT} AND status = \"{status}\" ORDER BY updated DESC"
+    
+    fields = "summary,status,priority,issuetype,assignee,customfield_10016,customfield_10071"
+    url = f"{JIRA_BASE_URL}/rest/api/3/search/jql"
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            r = await client.get(
+                url,
+                headers=jira_auth(),
+                params={"jql": jql, "maxResults": max_results, "fields": fields},
+                timeout=15.0
+            )
+            if r.status_code == 200:
+                data = r.json()
+                issues = [
+                    {
+                        "key":      i["key"],
+                        "summary":  i["fields"]["summary"],
+                        "status":   i["fields"].get("status", {}).get("name", "Unknown"),
+                        "priority": i["fields"].get("priority", {}).get("name", "Medium"),
+                        "type":     i["fields"].get("issuetype", {}).get("name", "Story"),
+                        "points":   i["fields"].get("customfield_10016") or 0,
+                        "order":    i["fields"].get("customfield_10071") or 999,
+                    }
+                    for i in data.get("issues", [])
+                ]
+                return {"issues": issues, "total": data.get("total", 0)}
+            return {"issues": [], "error": f"Jira returned {r.status_code}"}
+        except Exception as e:
+            return {"issues": [], "error": str(e)}
+
+
+@app.get("/proxy/jira/issue/{issue_key}/transitions")
+async def proxy_jira_transitions(issue_key: str):
+    """Get available transitions for a Jira issue."""
+    if not JIRA_BASE_URL:
+        return {"transitions": []}
+    async with httpx.AsyncClient() as client:
+        r = await client.get(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions",
+            headers=jira_auth(), timeout=10.0
+        )
+        return r.json() if r.status_code == 200 else {"transitions": []}
+
+
+@app.post("/proxy/jira/issue/{issue_key}/transition")
+async def proxy_jira_transition(issue_key: str, body: dict):
+    """Transition a Jira issue to a new status."""
+    if not JIRA_BASE_URL:
+        return {"success": False, "error": "JIRA not configured"}
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions",
+            headers=jira_auth(), json=body, timeout=10.0
+        )
+        return {"success": r.status_code in (200, 204)}
+
