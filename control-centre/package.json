@@ -15,7 +15,10 @@
     "@mui/material": "^5.15.0",
     "@mui/icons-material": "^5.15.0",
     "@emotion/react": "^11.11.0",
-    "@emotion/styled": "^11.11.0"
+    "@emotion/styled": "^11.11.0",
+    "lucide-react": "^0.383.0",
+    "recharts": "^2.10.0",
+    "axios": "^1.6.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",
