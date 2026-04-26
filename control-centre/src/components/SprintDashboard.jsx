@@ -87,16 +87,27 @@ const SprintDashboard = () => {
       {/* Sprint selector + Run button */}
       <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"1rem"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",flex:1}}>
-            {sprints.map(sprint => (
-              <button key={sprint.id} onClick={() => onSprintChange(sprint)} style={{
-                background: selected?.id===sprint.id ? "var(--accent)" : "var(--bg)",
-                color: selected?.id===sprint.id ? "white" : "var(--muted)",
-                border: `1px solid ${selected?.id===sprint.id ? "var(--accent)" : "var(--border)"}`,
-                borderRadius:20, padding:"4px 14px", fontSize:12,
-                cursor:"pointer", fontFamily:"inherit", fontWeight:500,
-              }}>{sprint.name.split(" - ")[0]}</button>
-            ))}
+          <div style={{position:"relative",flex:1,minWidth:0}}>
+            <div style={{
+              display:"flex", gap:6, overflowX:"auto", paddingBottom:2,
+              scrollbarWidth:"none", msOverflowStyle:"none",
+            }}>
+              {sprints.map(sprint => (
+                <button key={sprint.id} onClick={() => onSprintChange(sprint)} style={{
+                  background: selected?.id===sprint.id ? "var(--accent)" : "var(--bg)",
+                  color: selected?.id===sprint.id ? "white" : "var(--muted)",
+                  border: `1px solid ${selected?.id===sprint.id ? "var(--accent)" : "var(--border)"}`,
+                  borderRadius:20, padding:"4px 14px", fontSize:12,
+                  cursor:"pointer", fontFamily:"inherit", fontWeight:500,
+                  flexShrink:0,
+                }}>{sprint.name.split(" - ")[0]}</button>
+              ))}
+            </div>
+            <div style={{
+              position:"absolute", right:0, top:0, bottom:0, width:32,
+              background:"linear-gradient(to right, transparent, var(--bg-card))",
+              pointerEvents:"none",
+            }}/>
           </div>
           <button onClick={handleRunSprint} disabled={triggering||todo.length===0} style={{
             background: todo.length===0 ? "rgba(99,102,241,0.2)" : "var(--accent)",
