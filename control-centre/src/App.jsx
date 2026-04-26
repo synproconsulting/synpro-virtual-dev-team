@@ -1,20 +1,20 @@
 import React, { useState } from "react";
 import DashboardMain from "./components/DashboardMain";
 import SprintDashboard from "./components/SprintDashboard";
-import GitHubWorkflowDashboard from "./components/GitHubWorkflowDashboard";
+import GitHubWorkflowMonitor from "./components/GitHubWorkflowMonitor";
 import SprintTrigger from "./components/SprintTrigger";
 import UATDeployment from "./components/UATDeployment";
 import SonarCloudTrigger from "./components/SonarCloudTrigger";
 import PMAgentChat from "./components/PMAgentChat";
 
 const TABS = [
-  { id: "overview",    label: "Overview",         component: DashboardMain },
-  { id: "sprint",      label: "Sprint Status",    component: SprintDashboard },
-  { id: "workflows",   label: "Workflows",        component: GitHubWorkflowDashboard },
-  { id: "trigger",     label: "Sprint Trigger",   component: SprintTrigger },
-  { id: "deploy",      label: "UAT Deploy",       component: UATDeployment },
-  { id: "sonarcloud",  label: "SonarCloud",       component: SonarCloudTrigger },
-  { id: "pm-agent",    label: "PM Agent",         component: PMAgentChat },
+  { id: "overview",   label: "Overview",       component: DashboardMain },
+  { id: "sprint",     label: "Sprint Status",  component: SprintDashboard },
+  { id: "workflows",  label: "Workflows",      component: GitHubWorkflowMonitor },
+  { id: "trigger",    label: "Sprint Trigger", component: SprintTrigger },
+  { id: "deploy",     label: "UAT Deploy",     component: UATDeployment },
+  { id: "sonarcloud", label: "SonarCloud",     component: SonarCloudTrigger },
+  { id: "pm-agent",   label: "PM Agent",       component: PMAgentChat },
 ];
 
 export default function App() {
