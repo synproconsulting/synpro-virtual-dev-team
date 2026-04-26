@@ -105,6 +105,14 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
     branch = f"feature/{ticket.lower()}-{slug}"
     print(f"Branch: {branch}")
 
+    # Detect if this is a Control Centre / dashboard ticket
+    is_control_centre = any(kw in summary.lower() for kw in [
+        "control centre", "control center", "dashboard", "ui", "sprint status",
+        "workflow monitor", "deployment interface", "sonarcloud", "pm agent chat",
+        "sprint trigger", "auto review"
+    ])
+    print(f"Control Centre ticket: {is_control_centre}")
+
     # Read existing shared files from main
     existing_readme, _ = get_file_content("README.md", "main")
     existing_reqs, _   = get_file_content("requirements.txt", "main")
@@ -142,13 +150,6 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 
     feedback_section = f"\n\nFEEDBACK FROM PREVIOUS ATTEMPT (must address these):\n{feedback}" if feedback else ""
-
-    # Detect if this is a Control Centre / dashboard ticket
-    is_control_centre = any(kw in summary.lower() for kw in [
-        "control centre", "control center", "dashboard", "ui", "sprint status",
-        "workflow monitor", "deployment interface", "sonarcloud", "pm agent chat",
-        "sprint trigger", "auto review"
-    ])
 
     if is_control_centre:
         # Build context from existing CC files
