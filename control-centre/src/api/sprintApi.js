@@ -1,60 +1,49 @@
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || '/api';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
 
-const handleResponse = async (response) => {
+export const triggerSprint = async (sprintConfig) => {
+  const response = await fetch(`${API_BASE_URL}/api/sprints/trigger`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
+    },
+    body: JSON.stringify(sprintConfig),
+  });
+
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || 'Failed to trigger sprint');
   }
+
   return response.json();
 };
 
-const getAuthHeaders = () => {
-  const token = localStorage.getItem('authToken');
-  return {
-    'Content-Type': 'application/json',
-    ...(token && { Authorization: `Bearer ${token}` })
-  };
+export const getSprintStatus = async (sprintId) => {
+  const response = await fetch(`${API_BASE_URL}/api/sprints/${sprintId}/status`, {
+    headers: {
+      'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || 'Failed to fetch sprint status');
+  }
+
+  return response.json();
 };
 
-export const fetchSprintData = async (sprintId) => {
-  const response = await fetch(`${API_BASE_URL}/sprints/${sprintId}`, {
-    headers: getAuthHeaders()
+export const getAllSprints = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/sprints`, {
+    headers: {
+      'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
+    },
   });
-  return handleResponse(response);
-};
 
-export const fetchJiraIssues = async (sprintId) => {
-  const response = await fetch(`${API_BASE_URL}/sprints/${sprintId}/jira`, {
-    headers: getAuthHeaders()
-  });
-  return handleResponse(response);
-};
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.message || 'Failed to fetch sprints');
+  }
 
-export const fetchPullRequests = async (sprintId) => {
-  const response = await fetch(`${API_BASE_URL}/sprints/${sprintId}/pull-requests`, {
-    headers: getAuthHeaders()
-  });
-  return handleResponse(response);
-};
-
-export const fetchCIPipelines = async (sprintId) => {
-  const response = await fetch(`${API_BASE_URL}/sprints/${sprintId}/ci-pipelines`, {
-    headers: getAuthHeaders()
-  });
-  return handleResponse(response);
-};
-
-export const fetchSprintMetrics = async (sprintId) => {
-  const response = await fetch(`${API_BASE_URL}/sprints/${sprintId}/metrics`, {
-    headers: getAuthHeaders()
-  });
-  return handleResponse(response);
-};
-
-export const refreshSprintData = async (sprintId) => {
-  const response = await fetch(`${API_BASE_URL}/sprints/${sprintId}/refresh`, {
-    method: 'POST',
-    headers: getAuthHeaders()
-  });
-  return handleResponse(response);
+  return response.json();
 };
