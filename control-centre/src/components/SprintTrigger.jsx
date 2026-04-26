@@ -1,79 +1,82 @@
 import React, { useState } from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Play, CheckCircle, AlertCircle } from 'lucide-react';
-import { triggerSprint } from '../../api/sprint';
+import { triggerSprint } from '../api/sprintApi';
+import './SprintTrigger.css';
 
 const SprintTrigger = () => {
-  const [isTriggering, setIsTriggering] = useState(false);
-  const [status, setStatus] = useState(null);
-  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const [sprintName, setSprintName] = useState('');
+  const [duration, setDuration] = useState(2);
 
-  const handleTriggerSprint = async () => {
-    setIsTriggering(true);
-    setStatus(null);
-    setMessage('');
+  const handleTrigger = async () => {
+    if (!sprintName.trim()) {
+      setError('Sprint name is required');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
 
     try {
-      const response = await triggerSprint();
-      setStatus('success');
-      setMessage(`Sprint triggered successfully! Run ID: ${response.run_id}`);
-    } catch (error) {
-      setStatus('error');
-      setMessage(error.message || 'Failed to trigger sprint');
+      const result = await triggerSprint({
+        name: sprintName,
+        duration_weeks: duration
+      });
+      setSuccess(`Sprint "${result.name}" triggered successfully! ID: ${result.sprint_id}`);
+      setSprintName('');
+    } catch (err) {
+      setError(err.message || 'Failed to trigger sprint');
     } finally {
-      setIsTriggering(false);
+      setLoading(false);
     }
   };
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Play className="h-5 w-5" />
-          One-Click Sprint Trigger
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Trigger a new sprint execution with a single click. This will initiate
-            the sprint workflow and auto-review process.
-          </p>
-
-          <Button
-            onClick={handleTriggerSprint}
-            disabled={isTriggering}
-            className="w-full"
-            size="lg"
-          >
-            {isTriggering ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Triggering Sprint...
-              </>
-            ) : (
-              <>
-                <Play className="mr-2 h-4 w-4" />
-                Trigger Sprint
-              </>
-            )}
-          </Button>
-
-          {status && (
-            <Alert variant={status === 'success' ? 'default' : 'destructive'}>
-              {status === 'success' ? (
-                <CheckCircle className="h-4 w-4" />
-              ) : (
-                <AlertCircle className="h-4 w-4" />
-              )}
-              <AlertDescription>{message}</AlertDescription>
-            </Alert>
-          )}
+    <div className="sprint-trigger-container">
+      <h2>One-Click Sprint Trigger</h2>
+      
+      <div className="sprint-form">
+        <div className="form-group">
+          <label htmlFor="sprintName">Sprint Name:</label>
+          <input
+            id="sprintName"
+            type="text"
+            value={sprintName}
+            onChange={(e) => setSprintName(e.target.value)}
+            placeholder="e.g., Sprint 42"
+            disabled={loading}
+          />
         </div>
-      </CardContent>
-    </Card>
+
+        <div className="form-group">
+          <label htmlFor="duration">Duration (weeks):</label>
+          <select
+            id="duration"
+            value={duration}
+            onChange={(e) => setDuration(parseInt(e.target.value))}
+            disabled={loading}
+          >
+            <option value="1">1 week</option>
+            <option value="2">2 weeks</option>
+            <option value="3">3 weeks</option>
+            <option value="4">4 weeks</option>
+          </select>
+        </div>
+
+        <button
+          className="trigger-button"
+          onClick={handleTrigger}
+          disabled={loading}
+        >
+          {loading ? 'Triggering...' : 'Trigger Sprint'}
+        </button>
+      </div>
+
+      {error && <div className="message error-message">{error}</div>}
+      {success && <div className="message success-message">{success}</div>}
+    </div>
   );
 };
 
