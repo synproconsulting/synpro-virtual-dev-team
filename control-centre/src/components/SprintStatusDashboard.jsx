@@ -1,35 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardContent } from './ui/Card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/Tabs';
-import SprintMetrics from './SprintMetrics';
-import JiraIntegration from './JiraIntegration';
-import PRIntegration from './PRIntegration';
-import CIIntegration from './CIIntegration';
-import { fetchSprintStatus } from '../../api/sprint_status';
+import JiraSprintView from './JiraSprintView';
+import PullRequestView from './PullRequestView';
+import CIStatusView from './CIStatusView';
+import { fetchSprintData } from '../api/sprintApi';
 
-const SprintStatusDashboard = ({ sprintId }) => {
+const SprintStatusDashboard = () => {
   const [sprintData, setSprintData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
-
-  useEffect(() => {
-    loadSprintData();
-    const interval = setInterval(loadSprintData, 60000); // Refresh every minute
-    return () => clearInterval(interval);
-  }, [sprintId]);
+  const [refreshInterval, setRefreshInterval] = useState(null);
 
   const loadSprintData = async () => {
     try {
       setLoading(true);
-      const data = await fetchSprintStatus(sprintId);
+      const data = await fetchSprintData();
       setSprintData(data);
       setError(null);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to load sprint data');
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    loadSprintData();
+    const interval = setInterval(loadSprintData, 300000); // Refresh every 5 minutes
+    setRefreshInterval(interval);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleManualRefresh = () => {
+    loadSprintData();
   };
 
   if (loading && !sprintData) {
@@ -44,13 +49,16 @@ const SprintStatusDashboard = ({ sprintId }) => {
     return (
       <Card className="border-red-200 bg-red-50">
         <CardContent className="pt-6">
-          <p className="text-red-600">Error loading sprint data: {error}</p>
-          <button
-            onClick={loadSprintData}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            Retry
-          </button>
+          <div className="text-red-800">
+            <p className="font-semibold">Error loading sprint data</p>
+            <p className="text-sm mt-1">{error}</p>
+            <button
+              onClick={handleManualRefresh}
+              className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+            >
+              Retry
+            </button>
+          </div>
         </CardContent>
       </Card>
     );
@@ -58,51 +66,86 @@ const SprintStatusDashboard = ({ sprintId }) => {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <h2 className="text-2xl font-bold">Sprint Status - {sprintData?.name}</h2>
-          <p className="text-gray-600">
-            {sprintData?.startDate} - {sprintData?.endDate}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Sprint Status Dashboard</h1>
+          <p className="text-gray-600 mt-1">
+            {sprintData?.sprint?.name || 'Current Sprint'}
           </p>
-        </CardHeader>
-        <CardContent>
-          <SprintMetrics metrics={sprintData?.metrics} />
-        </CardContent>
-      </Card>
+        </div>
+        <button
+          onClick={handleManualRefresh}
+          disabled={loading}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="jira">Jira Issues</TabsTrigger>
           <TabsTrigger value="prs">Pull Requests</TabsTrigger>
           <TabsTrigger value="ci">CI/CD Status</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          <JiraIntegration
-            sprintId={sprintId}
-            issues={sprintData?.jiraIssues}
-            onRefresh={loadSprintData}
-          />
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <SprintMetricCard
+              title="Sprint Progress"
+              value={sprintData?.metrics?.completionRate || 0}
+              suffix="%"
+              icon="📊"
+            />
+            <SprintMetricCard
+              title="Open PRs"
+              value={sprintData?.prs?.open || 0}
+              icon="🔀"
+            />
+            <SprintMetricCard
+              title="CI Success Rate"
+              value={sprintData?.ci?.successRate || 0}
+              suffix="%"
+              icon="✓"
+            />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <JiraSprintView data={sprintData?.jira} compact />
+            <PullRequestView data={sprintData?.prs} compact />
+          </div>
         </TabsContent>
 
-        <TabsContent value="prs" className="space-y-4">
-          <PRIntegration
-            sprintId={sprintId}
-            pullRequests={sprintData?.pullRequests}
-            onRefresh={loadSprintData}
-          />
+        <TabsContent value="jira">
+          <JiraSprintView data={sprintData?.jira} />
         </TabsContent>
 
-        <TabsContent value="ci" className="space-y-4">
-          <CIIntegration
-            sprintId={sprintId}
-            builds={sprintData?.ciBuilds}
-            onRefresh={loadSprintData}
-          />
+        <TabsContent value="prs">
+          <PullRequestView data={sprintData?.prs} />
+        </TabsContent>
+
+        <TabsContent value="ci">
+          <CIStatusView data={sprintData?.ci} />
         </TabsContent>
       </Tabs>
     </div>
   );
 };
+
+const SprintMetricCard = ({ title, value, suffix = '', icon }) => (
+  <Card>
+    <CardContent className="pt-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-gray-600">{title}</p>
+          <p className="text-3xl font-bold text-gray-900 mt-2">
+            {value}{suffix}
+          </p>
+        </div>
+        <div className="text-4xl">{icon}</div>
+      </div>
+    </CardContent>
+  </Card>
+);
 
 export default SprintStatusDashboard;
