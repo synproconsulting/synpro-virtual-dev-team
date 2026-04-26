@@ -1,75 +1,50 @@
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
-const GITHUB_TOKEN = process.env.REACT_APP_GITHUB_TOKEN;
+const GITHUB_API = "https://api.github.com";
+const GH_REPO   = import.meta.env.VITE_GITHUB_REPO || "synproconsulting/synpro-virtual-dev-team";
+const GH_TOKEN  = import.meta.env.VITE_GITHUB_TOKEN || "";
 
-export const fetchOpenPRs = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/prs/open`, {
-    headers: {
-      'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
-    },
-  });
+const ghHeaders = () => ({
+  "Accept": "application/vnd.github+json",
+  "Content-Type": "application/json",
+  ...(GH_TOKEN ? { "Authorization": `Bearer ${GH_TOKEN}` } : {}),
+});
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Failed to fetch open PRs');
-  }
-
-  return response.json();
+export const fetchPullRequests = async (state = "open") => {
+  const r = await fetch(`${GITHUB_API}/repos/${GH_REPO}/pulls?state=${state}&per_page=20`, { headers: ghHeaders() });
+  return r.ok ? r.json() : [];
 };
 
-export const triggerAutoReview = async (prNumber, repository) => {
-  const response = await fetch(`${API_BASE_URL}/api/prs/auto-review`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
-    },
-    body: JSON.stringify({
-      prNumber,
-      repository,
-      githubToken: GITHUB_TOKEN,
-    }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Failed to trigger auto-review');
-  }
-
-  return response.json();
-};
-
-export const getReviewStatus = async (prNumber, repository) => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/prs/review-status?prNumber=${prNumber}&repository=${repository}`,
-    {
-      headers: {
-        'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
-      },
-    }
+export const triggerAutoReview = async (prNumber) => {
+  const [owner, repo] = GH_REPO.split("/");
+  const r = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/actions/workflows/auto-review.yml/dispatches`,
+    { method: "POST", headers: ghHeaders(),
+      body: JSON.stringify({ ref: "main", inputs: { pr_number: String(prNumber) } }) }
   );
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Failed to fetch review status');
-  }
-
-  return response.json();
+  return { success: r.status === 204 };
 };
 
-export const getPRDetails = async (prNumber, repository) => {
-  const response = await fetch(
-    `${API_BASE_URL}/api/prs/details?prNumber=${prNumber}&repository=${repository}`,
-    {
-      headers: {
-        'Authorization': `Bearer ${process.env.REACT_APP_API_TOKEN || ''}`,
-      },
-    }
+export const mergePR = async (prNumber) => {
+  const [owner, repo] = GH_REPO.split("/");
+  const r = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}/merge`,
+    { method: "PUT", headers: ghHeaders(),
+      body: JSON.stringify({ merge_method: "squash" }) }
   );
+  return { success: r.ok, data: await r.json() };
+};
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.message || 'Failed to fetch PR details');
-  }
+export const closePR = async (prNumber) => {
+  const [owner, repo] = GH_REPO.split("/");
+  const r = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}`,
+    { method: "PATCH", headers: ghHeaders(),
+      body: JSON.stringify({ state: "closed" }) }
+  );
+  return { success: r.ok };
+};
 
-  return response.json();
+export const getPRDetails = async (prNumber) => {
+  const [owner, repo] = GH_REPO.split("/");
+  const r = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}`, { headers: ghHeaders() });
+  return r.ok ? r.json() : null;
 };
