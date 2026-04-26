@@ -8,8 +8,16 @@ const ghHeaders = () => ({
   ...(GH_TOKEN ? { "Authorization": `Bearer ${GH_TOKEN}` } : {}),
 });
 
-export const fetchPullRequests = async (state = "open") => {
-  const r = await fetch(`${GITHUB_API}/repos/${GH_REPO}/pulls?state=${state}&per_page=20`, { headers: ghHeaders() });
+export const fetchOpenPRs = async () => {
+  const r = await fetch(`${GITHUB_API}/repos/${GH_REPO}/pulls?state=open&per_page=20`, { headers: ghHeaders() });
+  return r.ok ? r.json() : [];
+};
+
+export const fetchPullRequests = fetchOpenPRs;
+
+export const getReviewStatus = async (prNumber) => {
+  const [owner, repo] = GH_REPO.split("/");
+  const r = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, { headers: ghHeaders() });
   return r.ok ? r.json() : [];
 };
 
@@ -47,4 +55,14 @@ export const getPRDetails = async (prNumber) => {
   const [owner, repo] = GH_REPO.split("/");
   const r = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pulls/${prNumber}`, { headers: ghHeaders() });
   return r.ok ? r.json() : null;
+};
+
+export const getPRCIStatus = async (prNumber) => {
+  const [owner, repo] = GH_REPO.split("/");
+  const pr = await getPRDetails(prNumber);
+  if (!pr) return [];
+  const sha = pr.head?.sha;
+  if (!sha) return [];
+  const r = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/commits/${sha}/check-runs`, { headers: ghHeaders() });
+  return r.ok ? (await r.json()).check_runs || [] : [];
 };
