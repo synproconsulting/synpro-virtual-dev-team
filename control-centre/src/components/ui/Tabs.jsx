@@ -1,34 +1,63 @@
-import React from 'react';
+import React, { createContext, useContext, useState } from 'react';
 
-export const Tabs = ({ children, value, onValueChange }) => (
-  <div className="w-full" data-value={value}>
-    {React.Children.map(children, child =>
-      React.cloneElement(child, { activeTab: value, onTabChange: onValueChange })
-    )}
-  </div>
-);
+const TabsContext = createContext();
 
-export const TabsList = ({ children, className = '', activeTab, onTabChange }) => (
-  <div className={`flex border-b ${className}`}>
-    {React.Children.map(children, child =>
-      React.cloneElement(child, { activeTab, onTabChange })
-    )}
-  </div>
-);
+export const Tabs = ({ children, value, onValueChange, defaultValue, className = '' }) => {
+  const [internalValue, setInternalValue] = useState(defaultValue || '');
+  const activeValue = value !== undefined ? value : internalValue;
+  const handleChange = value !== undefined ? onValueChange : setInternalValue;
 
-export const TabsTrigger = ({ children, value, activeTab, onTabChange, className = '' }) => (
-  <button
-    onClick={() => onTabChange(value)}
-    className={`px-4 py-2 font-medium transition-colors ${
-      activeTab === value
-        ? 'border-b-2 border-blue-600 text-blue-600'
-        : 'text-gray-600 hover:text-gray-900'
-    } ${className}`}
-  >
-    {children}
-  </button>
-);
+  return (
+    <TabsContext.Provider value={{ activeValue, onChange: handleChange }}>
+      <div className={className}>{children}</div>
+    </TabsContext.Provider>
+  );
+};
 
-export const TabsContent = ({ children, value, activeTab, className = '' }) => (
-  activeTab === value ? <div className={`mt-4 ${className}`}>{children}</div> : null
-);
+export const TabsList = ({ children, className = '' }) => {
+  return (
+    <div
+      className={`inline-flex h-10 items-center justify-center rounded-md bg-gray-100 p-1 text-gray-600 ${className}`}
+      role="tablist"
+    >
+      {children}
+    </div>
+  );
+};
+
+export const TabsTrigger = ({ children, value, className = '' }) => {
+  const { activeValue, onChange } = useContext(TabsContext);
+  const isActive = activeValue === value;
+
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={isActive}
+      onClick={() => onChange(value)}
+      className={`inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-white transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${
+        isActive
+          ? 'bg-white text-gray-900 shadow-sm'
+          : 'text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+      } ${className}`}
+    >
+      {children}
+    </button>
+  );
+};
+
+export const TabsContent = ({ children, value, className = '' }) => {
+  const { activeValue } = useContext(TabsContext);
+  const isActive = activeValue === value;
+
+  if (!isActive) return null;
+
+  return (
+    <div
+      role="tabpanel"
+      className={`mt-2 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${className}`}
+    >
+      {children}
+    </div>
+  );
+};
