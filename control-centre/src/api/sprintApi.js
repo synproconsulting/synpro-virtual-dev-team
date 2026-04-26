@@ -104,3 +104,31 @@ export const fetchWorkflowRuns = async (perPage = 10) => {
 
 export const getSprintStatus = fetchSprintData;
 export const getOpenPRs = fetchOpenPRs;
+
+export const fetchSprints = async () => {
+  const API_URL = import.meta.env.VITE_API_URL || "";
+  if (!API_URL) return [];
+  try {
+    const r = await fetch(`${API_URL}/proxy/jira/sprints`);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return data.sprints || [];
+  } catch (e) {
+    console.error("Sprint fetch error:", e);
+    return [];
+  }
+};
+
+export const fetchSprintIssues = async (versionId) => {
+  const API_URL = import.meta.env.VITE_API_URL || "";
+  if (!API_URL || !versionId) return [];
+  try {
+    const r = await fetch(`${API_URL}/proxy/jira/sprint/${versionId}/issues`);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return data.issues || [];
+  } catch (e) {
+    console.error("Sprint issues fetch error:", e);
+    return [];
+  }
+};
