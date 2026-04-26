@@ -21,39 +21,72 @@ const PRIORITY_COLORS = {
 
 const STATUS_ORDER = ["To Do", "In Progress", "In Review", "Blocked", "Done"];
 
+// Jira-style issue type icons
+const IssueTypeIcon = ({ type }) => {
+  const types = {
+    "Story": { bg: "#22c55e", symbol: "▶", title: "Story" },
+    "Epic":  { bg: "#a855f7", symbol: "⚡", title: "Epic" },
+    "Bug":   { bg: "#ef4444", symbol: "⬡", title: "Bug" },
+    "Task":  { bg: "#3b82f6", symbol: "✓", title: "Task" },
+    "Sub-task": { bg: "#60a5fa", symbol: "↳", title: "Sub-task" },
+    "Subtask":  { bg: "#60a5fa", symbol: "↳", title: "Subtask" },
+  };
+  const t = types[type] || { bg: "#94a3b8", symbol: "◆", title: type || "Issue" };
+  return (
+    <span title={t.title} style={{
+      display:"inline-flex", alignItems:"center", justifyContent:"center",
+      width:16, height:16, borderRadius:3, background:t.bg,
+      fontSize:9, color:"white", fontWeight:700, flexShrink:0,
+    }}>{t.symbol}</span>
+  );
+};
+
+const PriorityIcon = ({ priority }) => {
+  const icons = {
+    "Highest": "↑↑",
+    "High":    "↑",
+    "Medium":  "→",
+    "Low":     "↓",
+    "Lowest":  "↓↓",
+  };
+  const color = PRIORITY_COLORS[priority] || "#94a3b8";
+  return (
+    <span title={priority} style={{
+      fontSize:10, color, fontWeight:700, minWidth:14, textAlign:"center"
+    }}>{icons[priority] || "→"}</span>
+  );
+};
+
 const IssueRow = ({ issue }) => {
-  const sc = STATUS_COLORS[issue.status] || { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" };
-  const pc = PRIORITY_COLORS[issue.priority] || "#94a3b8";
+  const sc  = STATUS_COLORS[issue.status] || { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" };
   const url = `${JIRA_URL}/browse/${issue.key}`;
 
   return (
     <div style={{
-      display:"flex", alignItems:"flex-start", justifyContent:"space-between",
-      padding:"10px 12px", background:"var(--bg)", borderRadius:8,
-      border:"1px solid var(--border)", marginBottom:6,
+      display:"flex", alignItems:"center", justifyContent:"space-between",
+      padding:"8px 12px", background:"var(--bg)", borderRadius:8,
+      border:"1px solid var(--border)", marginBottom:5,
+      gap:10,
     }}>
-      <div style={{flex:1, minWidth:0}}>
-        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:4}}>
-          <a href={url} target="_blank" rel="noopener noreferrer"
-            style={{color:"var(--accent)", fontWeight:600, fontSize:13,
-              textDecoration:"none", display:"flex", alignItems:"center", gap:4}}>
-            {issue.key}
-            <ExternalLink size={11} />
-          </a>
-          <span style={{fontSize:11, color:pc, fontWeight:500}}>{issue.priority}</span>
-          {issue.points > 0 && (
-            <span style={{fontSize:11, color:"var(--muted)",
-              background:"var(--bg-hover)", padding:"1px 6px", borderRadius:10}}>
-              {issue.points}pts
-            </span>
-          )}
-        </div>
-        <div style={{fontSize:13, color:"var(--text)", overflow:"hidden",
-          textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{issue.summary}</div>
+      <div style={{display:"flex", alignItems:"center", gap:8, flex:1, minWidth:0}}>
+        <IssueTypeIcon type={issue.type} />
+        <PriorityIcon priority={issue.priority} />
+        <a href={url} target="_blank" rel="noopener noreferrer"
+          style={{color:"var(--accent)", fontWeight:600, fontSize:12,
+            textDecoration:"none", flexShrink:0, display:"flex", alignItems:"center", gap:3}}>
+          {issue.key}
+          <ExternalLink size={10} />
+        </a>
+        <span style={{fontSize:13, color:"var(--text)", overflow:"hidden",
+          textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{issue.summary}</span>
+        {issue.points > 0 && (
+          <span style={{fontSize:11, color:"var(--muted)", background:"var(--bg-hover)",
+            padding:"1px 6px", borderRadius:10, flexShrink:0}}>{issue.points}pts</span>
+        )}
       </div>
       <span style={{
         fontSize:11, padding:"2px 8px", borderRadius:10, fontWeight:500,
-        background:sc.bg, color:sc.color, marginLeft:12, whiteSpace:"nowrap", flexShrink:0
+        background:sc.bg, color:sc.color, whiteSpace:"nowrap", flexShrink:0
       }}>{issue.status}</span>
     </div>
   );
@@ -71,29 +104,51 @@ const JiraSprintView = ({ issues = [] }) => {
     return acc;
   }, {});
 
+  // Legend
+  const typeStats = issues.reduce((acc, i) => {
+    acc[i.type] = (acc[i.type] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <div>
-      <div style={{display:"flex", gap:6, marginBottom:16, flexWrap:"wrap"}}>
-        {statuses.map(s => {
-          const count = s === "All" ? issues.length : issues.filter(i => i.status === s).length;
-          const sc = s !== "All" ? STATUS_COLORS[s] : null;
-          return (
-            <button key={s} onClick={() => setFilter(s)} style={{
-              background: filter === s ? (sc?.bg || "var(--accent)") : "transparent",
-              color: filter === s ? (sc?.color || "white") : "var(--muted)",
-              border: `1px solid ${filter === s ? (sc?.color || "var(--accent)") : "var(--border)"}`,
-              borderRadius:20, padding:"3px 12px", fontSize:12,
-              cursor:"pointer", fontFamily:"inherit"
-            }}>{s} ({count})</button>
-          );
-        })}
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12}}>
+        <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+          {statuses.map(s => {
+            const count = s === "All" ? issues.length : issues.filter(i => i.status === s).length;
+            const sc = s !== "All" ? STATUS_COLORS[s] : null;
+            return (
+              <button key={s} onClick={() => setFilter(s)} style={{
+                background: filter === s ? (sc?.bg || "var(--accent)") : "transparent",
+                color: filter === s ? (sc?.color || "white") : "var(--muted)",
+                border: `1px solid ${filter === s ? (sc?.color || "var(--accent)") : "var(--border)"}`,
+                borderRadius:20, padding:"3px 12px", fontSize:12,
+                cursor:"pointer", fontFamily:"inherit"
+              }}>{s} ({count})</button>
+            );
+          })}
+        </div>
+        <div style={{display:"flex", gap:8, alignItems:"center"}}>
+          {Object.entries(typeStats).map(([type, count]) => (
+            <div key={type} style={{display:"flex", alignItems:"center", gap:4, fontSize:11, color:"var(--muted)"}}>
+              <IssueTypeIcon type={type} />
+              <span>{count} {type}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {filter === "All" ? (
         Object.entries(grouped).map(([status, group]) => (
           <div key={status} style={{marginBottom:20}}>
-            <div style={{fontSize:12, fontWeight:600, color:"var(--muted)",
-              textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:8}}>
+            <div style={{fontSize:11, fontWeight:600, color:"var(--muted)",
+              textTransform:"uppercase", letterSpacing:"0.05em", marginBottom:8,
+              display:"flex", alignItems:"center", gap:6}}>
+              <span style={{
+                width:6, height:6, borderRadius:"50%",
+                background:STATUS_COLORS[status]?.color || "#94a3b8",
+                display:"inline-block"
+              }}/>
               {status} ({group.length})
             </div>
             {group.map(issue => <IssueRow key={issue.key} issue={issue} />)}
