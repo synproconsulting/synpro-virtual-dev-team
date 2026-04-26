@@ -1,198 +1,159 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Box,
-  Card,
-  CardContent,
-  Typography,
-  Chip,
-  Grid,
-  CircularProgress,
-  Alert,
-  IconButton,
-  Tooltip,
-  Stack,
-  LinearProgress
-} from '@mui/material';
-import {
-  CheckCircle,
-  Error,
-  Schedule,
-  Refresh,
-  PlayArrow,
-  Link as LinkIcon
-} from '@mui/icons-material';
+import React, { useState, useEffect, useCallback } from 'react';
 import { fetchGitHubWorkflows } from '../api/githubApi';
+import { ExternalLink, RefreshCw } from 'lucide-react';
 
-const GitHubWorkflowMonitor = ({ repository, pollingInterval = 30000 }) => {
-  const [workflows, setWorkflows] = useState([]);
+const GH_REPO = import.meta.env.VITE_GITHUB_REPO || "synproconsulting/synpro-virtual-dev-team";
+
+const STATUS_STYLE = {
+  success:     { bg: "rgba(34,197,94,0.15)",   color: "#4ade80",  label: "✓ Success",   dot: "#4ade80" },
+  failure:     { bg: "rgba(239,68,68,0.15)",   color: "#f87171",  label: "✗ Failed",    dot: "#f87171" },
+  cancelled:   { bg: "rgba(100,116,139,0.15)", color: "#94a3b8",  label: "⊘ Cancelled", dot: "#94a3b8" },
+  skipped:     { bg: "rgba(100,116,139,0.15)", color: "#94a3b8",  label: "— Skipped",   dot: "#94a3b8" },
+  in_progress: { bg: "rgba(59,130,246,0.15)",  color: "#60a5fa",  label: "↻ Running",   dot: "#60a5fa" },
+  queued:      { bg: "rgba(245,158,11,0.15)",  color: "#fbbf24",  label: "⏳ Queued",    dot: "#fbbf24" },
+};
+
+const timeAgo = (dateStr) => {
+  if (!dateStr) return "";
+  const diff = Math.floor((Date.now() - new Date(dateStr)) / 1000);
+  if (diff < 60)    return `${diff}s ago`;
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+};
+
+const WORKFLOW_FILTERS = ["All", "Auto Review and Merge", "Auto Implement", "CI Pipeline", "Deploy to UAT"];
+
+const GitHubWorkflowMonitor = () => {
+  const [runs, setRuns]       = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [error, setError]     = useState(null);
+  const [filter, setFilter]   = useState("All");
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const loadWorkflows = async () => {
+  const loadWorkflows = useCallback(async () => {
     try {
+      const data = await fetchGitHubWorkflows(GH_REPO);
+      setRuns(data);
+      setLastUpdated(new Date());
       setError(null);
-      const data = await fetchGitHubWorkflows(repository);
-      setWorkflows(data);
-      setLastUpdate(new Date());
-    } catch (err) {
-      setError(err.message || 'Failed to fetch workflows');
+    } catch (e) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadWorkflows();
-    const interval = setInterval(loadWorkflows, pollingInterval);
+    const interval = setInterval(loadWorkflows, 30000);
     return () => clearInterval(interval);
-  }, [repository, pollingInterval]);
+  }, [loadWorkflows]);
 
-  const getStatusIcon = (status, conclusion) => {
-    if (status === 'in_progress' || status === 'queued') {
-      return <Schedule color="warning" />;
-    }
-    if (conclusion === 'success') {
-      return <CheckCircle color="success" />;
-    }
-    if (conclusion === 'failure') {
-      return <Error color="error" />;
-    }
-    return <PlayArrow color="action" />;
-  };
-
-  const getStatusColor = (status, conclusion) => {
-    if (status === 'in_progress' || status === 'queued') return 'warning';
-    if (conclusion === 'success') return 'success';
-    if (conclusion === 'failure') return 'error';
-    return 'default';
-  };
-
-  const getStatusLabel = (status, conclusion) => {
-    if (status === 'in_progress') return 'Running';
-    if (status === 'queued') return 'Queued';
-    if (conclusion === 'success') return 'Success';
-    if (conclusion === 'failure') return 'Failed';
-    if (conclusion === 'cancelled') return 'Cancelled';
-    return status;
-  };
-
-  const formatDuration = (startTime, endTime) => {
-    if (!startTime) return 'N/A';
-    const start = new Date(startTime);
-    const end = endTime ? new Date(endTime) : new Date();
-    const diffMs = end - start;
-    const minutes = Math.floor(diffMs / 60000);
-    const seconds = Math.floor((diffMs % 60000) / 1000);
-    return `${minutes}m ${seconds}s`;
-  };
-
-  if (loading && workflows.length === 0) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
-        <CircularProgress />
-      </Box>
-    );
-  }
+  const filtered = filter === "All"
+    ? runs
+    : runs.filter(r => (r.name || "").includes(filter));
 
   return (
-    <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h5" component="h2">
-          GitHub Actions Monitor
-        </Typography>
-        <Stack direction="row" spacing={1} alignItems="center">
-          {lastUpdate && (
-            <Typography variant="caption" color="text.secondary">
-              Last updated: {lastUpdate.toLocaleTimeString()}
-            </Typography>
-          )}
-          <Tooltip title="Refresh">
-            <IconButton onClick={loadWorkflows} size="small" disabled={loading}>
-              <Refresh />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-      </Box>
+    <div>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16}}>
+        <div>
+          <div style={{fontSize:16, fontWeight:600, marginBottom:4}}>GitHub Actions Monitor</div>
+          <div style={{fontSize:12, color:"var(--muted)"}}>
+            {GH_REPO} · Auto-refreshes every 30s
+            {lastUpdated && ` · Updated ${timeAgo(lastUpdated.toISOString())}`}
+          </div>
+        </div>
+        <button onClick={loadWorkflows} disabled={loading} style={{
+          background:"transparent", border:"1px solid var(--border)",
+          borderRadius:8, padding:"6px 12px", cursor:"pointer",
+          color:"var(--text)", display:"flex", alignItems:"center", gap:6, fontSize:13
+        }}>
+          <RefreshCw size={13} style={{animation: loading ? "spin 1s linear infinite" : "none"}} />
+          Refresh
+        </button>
+      </div>
+
+      <div style={{display:"flex", gap:6, marginBottom:16, flexWrap:"wrap"}}>
+        {WORKFLOW_FILTERS.map(f => {
+          const count = f === "All" ? runs.length : runs.filter(r => (r.name||"").includes(f)).length;
+          return (
+            <button key={f} onClick={() => setFilter(f)} style={{
+              background: filter === f ? "var(--accent)" : "transparent",
+              color: filter === f ? "white" : "var(--muted)",
+              border: `1px solid ${filter === f ? "var(--accent)" : "var(--border)"}`,
+              borderRadius:20, padding:"3px 12px", fontSize:12,
+              cursor:"pointer", fontFamily:"inherit"
+            }}>{f} ({count})</button>
+          );
+        })}
+      </div>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
+        <div style={{background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.3)",
+          borderRadius:8, padding:"10px 14px", color:"#f87171", fontSize:13, marginBottom:12}}>
+          Error loading workflows: {error}
+        </div>
       )}
 
-      <Grid container spacing={2}>
-        {workflows.map((workflow) => (
-          <Grid item xs={12} md={6} lg={4} key={workflow.id}>
-            <Card>
-              <CardContent>
-                <Stack spacing={2}>
-                  <Box display="flex" justifyContent="space-between" alignItems="start">
-                    <Box display="flex" alignItems="center" gap={1}>
-                      {getStatusIcon(workflow.status, workflow.conclusion)}
-                      <Typography variant="h6" component="div" noWrap>
-                        {workflow.name}
-                      </Typography>
-                    </Box>
-                    <Tooltip title="View on GitHub">
-                      <IconButton
-                        size="small"
-                        href={workflow.html_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <LinkIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
+      {loading && runs.length === 0 ? (
+        <div style={{textAlign:"center", color:"var(--muted)", padding:"2rem"}}>
+          Loading workflow runs...
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{textAlign:"center", color:"var(--muted)", padding:"2rem"}}>
+          No workflow runs found
+        </div>
+      ) : (
+        <div style={{display:"flex", flexDirection:"column", gap:6}}>
+          {filtered.map(run => {
+            const status = run.status === "completed" ? run.conclusion : run.status;
+            const style  = STATUS_STYLE[status] || STATUS_STYLE.queued;
+            const duration = run.updated_at && run.created_at
+              ? Math.round((new Date(run.updated_at) - new Date(run.created_at)) / 1000)
+              : null;
 
-                  <Box>
-                    <Chip
-                      label={getStatusLabel(workflow.status, workflow.conclusion)}
-                      color={getStatusColor(workflow.status, workflow.conclusion)}
-                      size="small"
-                    />
-                  </Box>
-
-                  {workflow.status === 'in_progress' && (
-                    <LinearProgress color="primary" />
-                  )}
-
-                  <Box>
-                    <Typography variant="body2" color="text.secondary">
-                      Branch: <strong>{workflow.head_branch}</strong>
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Event: {workflow.event}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Duration: {formatDuration(workflow.created_at, workflow.updated_at)}
-                    </Typography>
-                    {workflow.actor && (
-                      <Typography variant="body2" color="text.secondary">
-                        Triggered by: {workflow.actor.login}
-                      </Typography>
-                    )}
-                  </Box>
-
-                  {workflow.head_commit && (
-                    <Typography variant="caption" color="text.secondary" noWrap>
-                      {workflow.head_commit.message}
-                    </Typography>
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-
-      {workflows.length === 0 && !loading && !error && (
-        <Alert severity="info">
-          No workflow runs found for this repository.
-        </Alert>
+            return (
+              <div key={run.id} style={{
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"10px 14px", background:"var(--bg)",
+                border:"1px solid var(--border)", borderRadius:8,
+              }}>
+                <div style={{display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0}}>
+                  <div style={{width:8, height:8, borderRadius:"50%",
+                    background:style.dot, flexShrink:0}} />
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{display:"flex", alignItems:"center", gap:6, marginBottom:2}}>
+                      <span style={{fontSize:13, fontWeight:500, color:"var(--text)"}}>
+                        {typeof run.name === "string" ? run.name : "Workflow Run"}
+                      </span>
+                      <a href={run.html_url} target="_blank" rel="noopener noreferrer"
+                        style={{color:"var(--muted)"}}>
+                        <ExternalLink size={11} />
+                      </a>
+                    </div>
+                    <div style={{fontSize:11, color:"var(--muted)", display:"flex", gap:10}}>
+                      <span style={{overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:300}}>
+                        {typeof run.display_title === "string" ? run.display_title :
+                         typeof run.head_commit?.message === "string"
+                           ? run.head_commit.message.split("\n")[0].slice(0, 60) : ""}
+                      </span>
+                      <span style={{flexShrink:0}}>{timeAgo(run.created_at)}</span>
+                      {duration && <span style={{flexShrink:0}}>{duration < 60 ? `${duration}s` : `${Math.floor(duration/60)}m ${duration%60}s`}</span>}
+                    </div>
+                  </div>
+                </div>
+                <span style={{
+                  fontSize:11, padding:"2px 10px", borderRadius:10, fontWeight:500,
+                  background:style.bg, color:style.color, marginLeft:12,
+                  whiteSpace:"nowrap", flexShrink:0
+                }}>{style.label}</span>
+              </div>
+            );
+          })}
+        </div>
       )}
-    </Box>
+    </div>
   );
 };
 
