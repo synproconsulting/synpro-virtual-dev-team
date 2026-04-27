@@ -270,3 +270,7 @@ Provides a chat-based interface for product managers to submit and manage featur
 ## Dependency Management
 
 Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
+
+## Notification Service and Email Integration
+
+Provides a flexible notification service with support for multiple notification types (email, SMS, push) through a provider-based architecture. Includes an SMTP email provider implementation with async support, configurable via environment variables, and designed for easy extension with additional providers.
