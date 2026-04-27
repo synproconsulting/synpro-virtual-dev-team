@@ -119,11 +119,15 @@ export const fetchSprints = async () => {
   }
 };
 
-export const fetchSprintIssues = async (versionId) => {
+export const fetchSprintIssues = async (sprint) => {
   const API_URL = import.meta.env.VITE_API_URL || "";
-  if (!API_URL || !versionId) return [];
+  if (!API_URL || !sprint) return [];
   try {
-    const r = await fetch(`${API_URL}/proxy/jira/sprint/${versionId}/issues`);
+    // Pass combined "versionId|nativeId" so backend can query both
+    const id = sprint.nativeId
+      ? `${sprint.id}|${sprint.nativeId}`
+      : sprint.id || sprint;
+    const r = await fetch(`${API_URL}/proxy/jira/sprint/${id}/issues`);
     if (!r.ok) return [];
     const data = await r.json();
     return data.issues || [];
