@@ -440,32 +440,32 @@ async def proxy_jira_sprints():
             sprints = []
             seen_names = set()
 
-            # Build native sprint name->id map
+            # Build native sprint number->id map (e.g. sprint 4 -> id 71)
+            import re as _re
             native_sprint_map = {}
             if sprints_r.status_code == 200:
                 for s in sprints_r.json().get("values", []):
-                    native_sprint_map[s.get("name", "").lower()] = str(s["id"])
+                    m = _re.search(r'sprint\s+(\d+)', s.get("name", ""), _re.IGNORECASE)
+                    if m:
+                        native_sprint_map[int(m.group(1))] = str(s["id"])
 
-            # Add fix versions, enriched with native sprint ID
+            # Add fix versions, enriched with matching native sprint ID by number
             if versions_r.status_code == 200:
-                for v in versions_r.json():
+                for idx, v in enumerate(versions_r.json(), start=1):
                     if not v.get("archived", False):
-                        # Try to find matching native sprint by name similarity
-                        vname = v["name"].lower()
-                        native_id = None
-                        for sname, sid in native_sprint_map.items():
-                            # Match e.g. "sprint 4" in both names
-                            if any(part in sname for part in vname.split() if part.startswith("sprint") or part.isdigit()):
-                                native_id = sid
-                                break
+                        vname = v["name"]
+                        # Extract sprint number from version name
+                        m = _re.search(r'sprint\s+(\d+)', vname, _re.IGNORECASE)
+                        sprint_num = int(m.group(1)) if m else idx
+                        native_id = native_sprint_map.get(sprint_num)
                         sprints.append({
                             "id":        v["id"],
                             "nativeId":  native_id,
-                            "name":      v["name"],
+                            "name":      vname,
                             "released":  v.get("released", False),
                             "type":      "version",
                         })
-                        seen_names.add(vname)
+                        seen_names.add(vname.lower())
 
             # Add native sprints only if no fix versions exist at all
             if sprints_r.status_code == 200 and not sprints:
