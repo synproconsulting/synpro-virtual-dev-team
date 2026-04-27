@@ -449,11 +449,17 @@ async def proxy_jira_sprints():
 
 @app.get("/proxy/jira/sprint/{version_id}/issues")
 async def proxy_sprint_issues(version_id: str):
-    """Get issues for a specific sprint (version)."""
+    """Get issues for a specific sprint (version or native sprint ID)."""
     if not JIRA_BASE_URL:
         return {"issues": [], "error": "JIRA_BASE_URL not configured"}
-    jql = f"project = {JIRA_PROJECT} AND fixVersion = {version_id} ORDER BY priority DESC"
-    fields = "summary,status,priority,issuetype,assignee,customfield_10016,customfield_10071,fixVersions"
+
+    # Query by fixVersion AND native sprint to catch all tickets
+    jql = (
+        f"project = {JIRA_PROJECT} AND ("
+        f"fixVersion = {version_id} OR sprint = {version_id}"
+        f") ORDER BY priority DESC"
+    )
+    fields = "summary,status,priority,issuetype,assignee,customfield_10016,customfield_10071,fixVersions,customfield_10020"
     async with httpx.AsyncClient() as client:
         try:
             r = await client.get(
@@ -476,8 +482,16 @@ async def proxy_sprint_issues(version_id: str):
                         "assignee": i["fields"].get("assignee", {}).get("displayName") if i["fields"].get("assignee") else None,
                     }
                     for i in data.get("issues", [])
+                    if i["fields"].get("issuetype", {}).get("name") not in ("Epic", "Sub-task", "Subtask")
                 ]
-                return {"issues": issues, "total": data.get("total", 0)}
+                # Deduplicate by key
+                seen = set()
+                unique = []
+                for i in issues:
+                    if i["key"] not in seen:
+                        seen.add(i["key"])
+                        unique.append(i)
+                return {"issues": unique, "total": len(unique)}
             return {"issues": [], "error": f"Jira returned {r.status_code}"}
         except Exception as e:
             return {"issues": [], "error": str(e)}
