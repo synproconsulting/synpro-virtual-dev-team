@@ -14,3 +14,8 @@ from src.auth.email_notifier import RegistrationEvent
 from src.auth.email_notifier import EmailProvider
 from src.auth.email_notifier import EmailTemplate
 from src.auth.email_notifier import WelcomeEmailTemplate
+from src.auth.notification_preferences import NotificationPreferencesManager
+from src.auth.notification_preferences import NotificationChannel
+from src.auth.notification_preferences import NotificationCategory
+from src.auth.notification_preferences import ChannelPreference
+from src.auth.notification_preferences import CategoryPreferences
