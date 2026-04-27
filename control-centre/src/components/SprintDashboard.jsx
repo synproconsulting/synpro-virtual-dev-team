@@ -37,7 +37,7 @@ const SprintDashboard = () => {
       if (sprintList.length) {
         const latest = sprintList[sprintList.length - 1];
         setSelected(latest);
-        setIssues(await fetchSprintIssues(latest.id));
+        setIssues(await fetchSprintIssues(latest));
       }
       setLoading(false);
     };
@@ -48,7 +48,7 @@ const SprintDashboard = () => {
 
   const onSprintChange = async (sprint) => {
     setSelected(sprint); setLoading(true); setMsg(null);
-    setIssues(await fetchSprintIssues(sprint.id));
+    setIssues(await fetchSprintIssues(sprint));
     setLoading(false);
   };
 
