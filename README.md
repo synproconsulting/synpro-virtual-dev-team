@@ -278,3 +278,7 @@ This module provides email notification functionality for account registration e
 ## Notification Preferences Management
 
 Provides a flexible interface for managing user notification preferences across multiple channels (email, SMS, push, in-app, webhook) and categories (security, account, marketing, updates, alerts, social). Supports global channel overrides, category-specific settings, and quiet hours configuration for granular control over notification delivery.
+
+## Notification Service and Email Integration
+
+Provides a flexible notification service with email provider support for authentication workflows. Includes pre-built email templates for welcome messages, password resets, and email verification with both plain text and HTML formatting.
