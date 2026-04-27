@@ -21,7 +21,7 @@ const IssueTypeIcon = ({ type }) => {
   return <span title={type} style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:16,height:16,borderRadius:3,background:t.bg,fontSize:9,color:"white",fontWeight:700,flexShrink:0}}>{t.s}</span>;
 };
 
-const IssueRow = ({ issue }) => {
+const IssueRow = ({ issue, mergedPR }) => {
   const sc = getStatusColor(issue.status);
   return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:"var(--bg)",borderRadius:8,border:"1px solid var(--border)",marginBottom:5,gap:10}}>
@@ -34,17 +34,32 @@ const IssueRow = ({ issue }) => {
         </a>
         <span style={{fontSize:13,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{issue.summary}</span>
         {issue.points > 0 && <span style={{fontSize:11,color:"var(--muted)",background:"var(--bg-hover)",padding:"1px 6px",borderRadius:10,flexShrink:0}}>{issue.points}pts</span>}
+      {mergedPR && (
+        <a href={mergedPR.url} target="_blank" rel="noopener noreferrer" style={{
+          fontSize:11, color:"#4ade80", textDecoration:"none",
+          background:"rgba(34,197,94,0.1)", padding:"1px 8px",
+          borderRadius:10, flexShrink:0, display:"flex", alignItems:"center", gap:3,
+        }}>
+          ✓ PR #{mergedPR.number}
+        </a>
+      )}
       </div>
       <span style={{fontSize:11,padding:"2px 8px",borderRadius:10,fontWeight:500,background:sc.bg,color:sc.color,whiteSpace:"nowrap",flexShrink:0}}>{issue.status}</span>
     </div>
   );
 };
 
-const JiraSprintView = ({ issues = [] }) => {
+const JiraSprintView = ({ issues = [], mergedPRs = [] }) => {
   const [filter, setFilter] = useState("All");
 
   // Dynamic: derive unique statuses from actual data
   const uniqueStatuses = ["All", ...Array.from(new Set(issues.map(i => i.status)))];
+
+  // Build a map of ticketKey -> merged PR for quick lookup
+  const prByTicket = mergedPRs.reduce((acc, pr) => {
+    if (pr.ticketKey) acc[pr.ticketKey] = pr;
+    return acc;
+  }, {});
   const filtered = filter === "All" ? issues : issues.filter(i => i.status === filter);
 
   // For "All" view group by status in order they appear
@@ -92,11 +107,11 @@ const JiraSprintView = ({ issues = [] }) => {
                   <span style={{width:6,height:6,borderRadius:"50%",background:sc.color,display:"inline-block"}}/>
                   {status} ({group.length})
                 </div>
-                {group.map(issue => <IssueRow key={issue.key} issue={issue}/>)}
+                {group.map(issue => <IssueRow key={issue.key} issue={issue} mergedPR={prByTicket[issue.key]}/>)}
               </div>
             );
           })
-        : filtered.map(issue => <IssueRow key={issue.key} issue={issue}/>)
+        : filtered.map(issue => <IssueRow key={issue.key} issue={issue} mergedPR={prByTicket[issue.key]}/>)
       }
 
       {filtered.length === 0 && (
