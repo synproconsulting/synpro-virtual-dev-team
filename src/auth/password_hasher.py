@@ -1,45 +1,76 @@
-"""
-Password hashing utilities using industry-standard algorithms.
-"""
-from passlib.context import CryptContext
+"""Password hashing utilities using PBKDF2."""
+
+import hashlib
+import secrets
+from typing import Tuple
 
 
 class PasswordHasher:
-    """
-    Handles password hashing and verification using bcrypt.
+    """Handles password hashing and verification using PBKDF2-HMAC-SHA256."""
     
-    Uses passlib with bcrypt for secure password hashing.
-    """
-    
-    def __init__(self):
-        """Initialize the password context with bcrypt."""
-        self.context = CryptContext(
-            schemes=["bcrypt"],
-            deprecated="auto",
-            bcrypt__rounds=12,  # Cost factor for bcrypt
-        )
-    
-    def hash_password(self, password: str) -> str:
-        """
-        Hash a plaintext password.
+    def __init__(self, iterations: int = 600000, salt_length: int = 32) -> None:
+        """Initialize password hasher.
         
         Args:
-            password: The plaintext password to hash
+            iterations: Number of PBKDF2 iterations (default: 600000)
+            salt_length: Length of salt in bytes (default: 32)
+        """
+        self.iterations = iterations
+        self.salt_length = salt_length
+    
+    def generate_salt(self) -> str:
+        """Generate a cryptographically secure random salt.
+        
+        Returns:
+            Hexadecimal string representation of the salt
+        """
+        return secrets.token_hex(self.salt_length)
+    
+    def hash_password(self, password: str, salt: str) -> str:
+        """Hash a password with the given salt.
+        
+        Args:
+            password: Plain text password to hash
+            salt: Hexadecimal salt string
             
         Returns:
-            The hashed password string
+            Hexadecimal string representation of the password hash
         """
-        return self.context.hash(password)
+        password_bytes = password.encode('utf-8')
+        salt_bytes = bytes.fromhex(salt)
+        
+        hash_bytes = hashlib.pbkdf2_hmac(
+            'sha256',
+            password_bytes,
+            salt_bytes,
+            self.iterations
+        )
+        
+        return hash_bytes.hex()
     
-    def verify_password(self, plaintext: str, hashed: str) -> bool:
-        """
-        Verify a plaintext password against a hash.
+    def hash_new_password(self, password: str) -> Tuple[str, str]:
+        """Generate salt and hash for a new password.
         
         Args:
-            plaintext: The plaintext password to verify
-            hashed: The hashed password to verify against
+            password: Plain text password
+            
+        Returns:
+            Tuple of (password_hash, salt) as hexadecimal strings
+        """
+        salt = self.generate_salt()
+        password_hash = self.hash_password(password, salt)
+        return password_hash, salt
+    
+    def verify_password(self, password: str, password_hash: str, salt: str) -> bool:
+        """Verify a password against a stored hash.
+        
+        Args:
+            password: Plain text password to verify
+            password_hash: Stored password hash (hexadecimal)
+            salt: Salt used for hashing (hexadecimal)
             
         Returns:
             True if password matches, False otherwise
         """
-        return self.context.verify(plaintext, hashed)
+        computed_hash = self.hash_password(password, salt)
+        return secrets.compare_digest(computed_hash, password_hash)
