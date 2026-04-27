@@ -22,6 +22,7 @@ const SprintDashboard = () => {
   const [triggering, setTriggering] = useState(false);
   const [msg, setMsg]               = useState(null);
   const [activeTab, setActiveTab]   = useState("jira");
+  const [mergedPRs, setMergedPRs]     = useState([]);
 
   const loadGlobal = useCallback(async () => {
     setGlobalData(await fetchSprintData());
