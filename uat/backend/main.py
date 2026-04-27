@@ -452,11 +452,11 @@ async def proxy_jira_sprints():
                         })
                         seen_names.add(v["name"].lower())
 
-            # Add native sprints that don't already have a matching version
-            if sprints_r.status_code == 200:
+            # Add native sprints only if no fix versions exist at all
+            if sprints_r.status_code == 200 and not sprints:
                 for s in sprints_r.json().get("values", []):
                     name = s.get("name", "")
-                    if name.lower() not in seen_names and s.get("state") != "future":
+                    if s.get("state") != "future":
                         sprints.append({
                             "id":       str(s["id"]),
                             "name":     name,
