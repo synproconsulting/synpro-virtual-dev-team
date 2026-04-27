@@ -6,6 +6,7 @@ import SprintTrigger from "./components/SprintTrigger";
 import UATDeployment from "./components/UATDeployment";
 import SonarCloudTrigger from "./components/SonarCloudTrigger";
 import PMAgentChat from "./components/PMAgentChat";
+import ProfilePage from "./components/ProfilePage";
 
 const TABS = [
   { id: "overview",   label: "Overview",       component: DashboardMain },
@@ -15,36 +16,32 @@ const TABS = [
   { id: "deploy",     label: "UAT Deploy",     component: UATDeployment },
   { id: "sonarcloud", label: "SonarCloud",     component: SonarCloudTrigger },
   { id: "pm-agent",   label: "PM Agent",       component: PMAgentChat },
+  { id: "profile",    label: "Profile",        component: ProfilePage },
 ];
 
-export default function App() {
+function App() {
   const [activeTab, setActiveTab] = useState("overview");
-  const ActiveComponent = TABS.find(t => t.id === activeTab)?.component || DashboardMain;
+
+  const ActiveComponent = TABS.find(tab => tab.id === activeTab)?.component || DashboardMain;
 
   return (
-    <div className="cc-app">
-      <header className="cc-header">
-        <div className="cc-header-inner">
-          <div className="cc-logo">
-            <span className="cc-logo-icon">⚡</span>
-            <span className="cc-logo-text">SynPro Control Centre</span>
-          </div>
-          <nav className="cc-nav">
-            {TABS.map(tab => (
-              <button
-                key={tab.id}
-                className={`cc-nav-btn ${activeTab === tab.id ? "active" : ""}`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </header>
-      <main className="cc-main">
+    <div className="app">
+      <nav className="nav-tabs">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+      <main className="main-content">
         <ActiveComponent />
       </main>
     </div>
   );
 }
+
+export default App;
