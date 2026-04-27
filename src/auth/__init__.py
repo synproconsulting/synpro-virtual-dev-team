@@ -23,3 +23,10 @@ from src.auth.notification_service import NotificationProvider
 from src.auth.notification_service import NotificationMessage
 from src.auth.notification_service import NotificationType
 from src.auth.notification_service import EmailTemplates
+from src.auth.credentials import Credentials
+from src.auth.credentials import UserRecord
+from src.auth.credentials import PasswordHasher
+from src.auth.credentials import UserRepository
+from src.auth.credentials import InMemoryUserRepository
+from src.auth.credentials import LoginService
+from src.auth.credentials import LoginResult
