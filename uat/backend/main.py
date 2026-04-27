@@ -420,29 +420,51 @@ async def proxy_jira_transition(issue_key: str, body: dict):
 
 @app.get("/proxy/jira/sprints")
 async def proxy_jira_sprints():
-    """Get all sprint versions from Jira."""
+    """Get all sprints from Jira - combines fix versions and native sprints."""
     if not JIRA_BASE_URL:
         return {"sprints": [], "error": "JIRA_BASE_URL not configured"}
     async with httpx.AsyncClient() as client:
         try:
-            r = await client.get(
+            # Get fix versions (our manual sprint tracking)
+            versions_r = await client.get(
                 f"{JIRA_BASE_URL}/rest/api/3/project/{JIRA_PROJECT}/versions",
                 headers=jira_auth(), timeout=10.0
             )
-            if r.status_code == 200:
-                versions = r.json()
-                sprints = [
-                    {
-                        "id":       v["id"],
-                        "name":     v["name"],
-                        "released": v.get("released", False),
-                        "archived": v.get("archived", False),
-                    }
-                    for v in versions
-                    if not v.get("archived", False)
-                ]
-                return {"sprints": sorted(sprints, key=lambda x: x["id"])}
-            return {"sprints": [], "error": f"Jira returned {r.status_code}"}
+            # Get native Jira sprints from agile board
+            sprints_r = await client.get(
+                f"{JIRA_BASE_URL}/rest/agile/1.0/board/34/sprint",
+                headers=jira_auth(), timeout=10.0,
+                params={"maxResults": 50}
+            )
+
+            sprints = []
+            seen_names = set()
+
+            # Add fix versions first (our primary sprint tracking)
+            if versions_r.status_code == 200:
+                for v in versions_r.json():
+                    if not v.get("archived", False):
+                        sprints.append({
+                            "id":       v["id"],
+                            "name":     v["name"],
+                            "released": v.get("released", False),
+                            "type":     "version",
+                        })
+                        seen_names.add(v["name"].lower())
+
+            # Add native sprints that don't already have a matching version
+            if sprints_r.status_code == 200:
+                for s in sprints_r.json().get("values", []):
+                    name = s.get("name", "")
+                    if name.lower() not in seen_names and s.get("state") != "future":
+                        sprints.append({
+                            "id":       str(s["id"]),
+                            "name":     name,
+                            "released": s.get("state") == "closed",
+                            "type":     "sprint",
+                        })
+
+            return {"sprints": sorted(sprints, key=lambda x: str(x["id"]))}
         except Exception as e:
             return {"sprints": [], "error": str(e)}
 
