@@ -132,3 +132,34 @@ export const fetchSprintIssues = async (versionId) => {
     return [];
   }
 };
+
+export const fetchMergedPRs = async () => {
+  try {
+    const r = await fetch(
+      `${GITHUB_API}/repos/${GH_REPO}/pulls?state=closed&per_page=100`,
+      { headers: ghHeaders() }
+    );
+    if (!r.ok) return [];
+    const prs = await r.json();
+    // Return only merged PRs with their ticket key extracted from title/branch
+    return prs
+      .filter(pr => pr.merged_at)
+      .map(pr => {
+        const match = pr.title.match(/\[([A-Z]+-\d+)\]/) ||
+                      pr.head?.ref.match(/feature\/([a-z]+-\d+)-/);
+        const ticketKey = match
+          ? match[1].toUpperCase()
+          : null;
+        return {
+          number:    pr.number,
+          title:     pr.title,
+          url:       pr.html_url,
+          mergedAt:  pr.merged_at,
+          ticketKey,
+        };
+      })
+      .filter(pr => pr.ticketKey);
+  } catch (e) {
+    return [];
+  }
+};
