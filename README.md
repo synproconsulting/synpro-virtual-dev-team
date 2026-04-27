@@ -270,3 +270,7 @@ Provides a chat-based interface for product managers to submit and manage featur
 ## Dependency Management
 
 Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
+
+## Email Notifications for Account Registration
+
+This module provides email notification functionality for account registration events. It includes a flexible `RegistrationEmailNotifier` that works with any email provider implementation through the `EmailProvider` protocol, customizable email templates via the `EmailTemplate` base class, and a pre-built `WelcomeEmailTemplate` for standard registration welcome emails with optional email verification links.
