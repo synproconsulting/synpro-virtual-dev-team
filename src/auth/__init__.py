@@ -19,3 +19,7 @@ from src.auth.notification_preferences import NotificationChannel
 from src.auth.notification_preferences import NotificationCategory
 from src.auth.notification_preferences import ChannelPreference
 from src.auth.notification_preferences import CategoryPreferences
+from src.auth.notification_service import NotificationProvider
+from src.auth.notification_service import NotificationMessage
+from src.auth.notification_service import NotificationType
+from src.auth.notification_service import EmailTemplates
