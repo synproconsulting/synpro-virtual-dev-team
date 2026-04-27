@@ -274,3 +274,7 @@ Define and visualize story execution order with dependency graph management. The
 ## Email Notifications for Account Registration
 
 This module provides email notification functionality for account registration events. It includes a flexible `RegistrationEmailNotifier` that works with any email provider implementation through the `EmailProvider` protocol, customizable email templates via the `EmailTemplate` base class, and a pre-built `WelcomeEmailTemplate` for standard registration welcome emails with optional email verification links.
+
+## Notification Service and Email Integration
+
+A flexible notification service with email provider integration for authentication-related communications. The service supports multiple notification types (email, SMS, push) through a provider-based architecture, with SMTP email implementation and pre-built templates for welcome emails, password resets, and email verification. All configurations are externalized to avoid hardcoded credentials.
