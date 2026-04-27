@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { fetchSprints, fetchSprintIssues, fetchSprintData, triggerSprint, triggerAutoReview } from '../api/sprintApi';
+import { fetchSprints, fetchSprintIssues, fetchSprintData, triggerSprint, triggerAutoReview, fetchMergedPRs } from '../api/sprintApi';
 import JiraSprintView from './JiraSprintView';
 import PullRequestView from './PullRequestView';
 import CIPipelineView from './CIPipelineView';
@@ -29,7 +29,8 @@ const SprintDashboard = () => {
 
   useEffect(() => {
     const init = async () => {
-      const [sprintList, global] = await Promise.all([fetchSprints(), fetchSprintData()]);
+      const [sprintList, global, merged] = await Promise.all([fetchSprints(), fetchSprintData(), fetchMergedPRs()]);
+      setMergedPRs(merged);
       setSprints(sprintList);
       setGlobalData(global);
       if (sprintList.length) {
@@ -172,7 +173,7 @@ const SprintDashboard = () => {
         <div style={{textAlign:"center",color:"var(--muted)",padding:"2rem"}}>Loading...</div>
       ) : (
         <>
-          {activeTab === "jira" && <JiraSprintView issues={issues}/>}
+          {activeTab === "jira" && <JiraSprintView issues={issues} mergedPRs={mergedPRs}/>}
           {activeTab === "prs" && (
             <div>
               {prs.length === 0 ? (
