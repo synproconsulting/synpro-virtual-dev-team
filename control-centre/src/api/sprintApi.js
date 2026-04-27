@@ -135,31 +135,36 @@ export const fetchSprintIssues = async (versionId) => {
 
 export const fetchMergedPRs = async () => {
   try {
+    // Fetch up to 100 closed PRs
     const r = await fetch(
-      `${GITHUB_API}/repos/${GH_REPO}/pulls?state=closed&per_page=100`,
+      `${GITHUB_API}/repos/${GH_REPO}/pulls?state=closed&per_page=100&sort=updated&direction=desc`,
       { headers: ghHeaders() }
     );
     if (!r.ok) return [];
     const prs = await r.json();
-    // Return only merged PRs with their ticket key extracted from title/branch
     return prs
-      .filter(pr => pr.merged_at)
+      .filter(pr => pr.merged_at) // only actually merged PRs
       .map(pr => {
-        const match = pr.title.match(/\[([A-Z]+-\d+)\]/) ||
-                      pr.head?.ref.match(/feature\/([a-z]+-\d+)-/);
-        const ticketKey = match
-          ? match[1].toUpperCase()
-          : null;
+        // Try matching [SDT1-26] pattern in title
+        const titleMatch = pr.title.match(/\[([A-Z][A-Z0-9]+-\d+)\]/i);
+        // Try matching feature/sdt1-26-... in branch name
+        const branchMatch = pr.head?.ref?.match(/feature\/([a-zA-Z]+-\d+)[\-_]/i);
+        const ticketKey = titleMatch
+          ? titleMatch[1].toUpperCase()
+          : branchMatch
+            ? branchMatch[1].toUpperCase()
+            : null;
         return {
-          number:    pr.number,
-          title:     pr.title,
-          url:       pr.html_url,
-          mergedAt:  pr.merged_at,
+          number:   pr.number,
+          title:    pr.title,
+          url:      pr.html_url,
+          mergedAt: pr.merged_at,
           ticketKey,
         };
       })
       .filter(pr => pr.ticketKey);
   } catch (e) {
+    console.error("fetchMergedPRs error:", e);
     return [];
   }
 };
