@@ -282,3 +282,7 @@ Provides a flexible interface for managing user notification preferences across 
 ## Notification Service and Email Integration
 
 Provides a flexible notification service with email provider support for authentication workflows. Includes pre-built email templates for welcome messages, password resets, and email verification with both plain text and HTML formatting.
+
+## User Login with Credential Verification
+
+Provides secure user authentication functionality with password hashing using PBKDF2-HMAC-SHA256. The login service validates user credentials against stored hashed passwords, supports account activation status checks, and provides detailed login results. Includes an abstract repository interface with an in-memory implementation for flexible storage backends.
