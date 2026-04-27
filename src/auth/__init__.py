@@ -9,3 +9,8 @@ from src.auth.feature_brief_ui import Priority
 from src.auth.feature_brief_ui import FeatureStatus
 from src.auth.dependency_graph import DependencyGraph
 from src.auth.dependency_graph import DependencyVisualizer
+from src.auth.notification_preferences import NotificationChannel
+from src.auth.notification_preferences import NotificationType
+from src.auth.notification_preferences import ChannelPreference
+from src.auth.notification_preferences import NotificationPreferences
+from src.auth.notification_preferences import NotificationPreferencesManager
