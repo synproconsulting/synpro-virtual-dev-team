@@ -31,3 +31,6 @@ export const rejectSprint = async (plan, feedback) => {
   // Sprint plan rejected with feedback
   return { success: true, feedback };
 };
+
+// Aliases
+export const sendPMMessage = sendPMAgentMessage;
