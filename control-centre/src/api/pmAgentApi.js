@@ -21,3 +21,13 @@ export const generateSprintPlan = async (brief, conversationHistory = []) => {
   if (!r.ok) throw new Error(`Sprint generation error: ${r.status}`);
   return r.json();
 };
+
+export const approveSprint = async (plan) => {
+  // Sprint plan approved - could trigger PM Agent to create Jira tickets
+  return { success: true, plan };
+};
+
+export const rejectSprint = async (plan, feedback) => {
+  // Sprint plan rejected with feedback
+  return { success: true, feedback };
+};
