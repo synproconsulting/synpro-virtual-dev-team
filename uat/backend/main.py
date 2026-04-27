@@ -440,17 +440,32 @@ async def proxy_jira_sprints():
             sprints = []
             seen_names = set()
 
-            # Add fix versions first (our primary sprint tracking)
+            # Build native sprint name->id map
+            native_sprint_map = {}
+            if sprints_r.status_code == 200:
+                for s in sprints_r.json().get("values", []):
+                    native_sprint_map[s.get("name", "").lower()] = str(s["id"])
+
+            # Add fix versions, enriched with native sprint ID
             if versions_r.status_code == 200:
                 for v in versions_r.json():
                     if not v.get("archived", False):
+                        # Try to find matching native sprint by name similarity
+                        vname = v["name"].lower()
+                        native_id = None
+                        for sname, sid in native_sprint_map.items():
+                            # Match e.g. "sprint 4" in both names
+                            if any(part in sname for part in vname.split() if part.startswith("sprint") or part.isdigit()):
+                                native_id = sid
+                                break
                         sprints.append({
-                            "id":       v["id"],
-                            "name":     v["name"],
-                            "released": v.get("released", False),
-                            "type":     "version",
+                            "id":        v["id"],
+                            "nativeId":  native_id,
+                            "name":      v["name"],
+                            "released":  v.get("released", False),
+                            "type":      "version",
                         })
-                        seen_names.add(v["name"].lower())
+                        seen_names.add(vname)
 
             # Add native sprints only if no fix versions exist at all
             if sprints_r.status_code == 200 and not sprints:
@@ -459,6 +474,7 @@ async def proxy_jira_sprints():
                     if s.get("state") != "future":
                         sprints.append({
                             "id":       str(s["id"]),
+                            "nativeId": str(s["id"]),
                             "name":     name,
                             "released": s.get("state") == "closed",
                             "type":     "sprint",
@@ -476,9 +492,13 @@ async def proxy_sprint_issues(version_id: str):
         return {"issues": [], "error": "JIRA_BASE_URL not configured"}
 
     # Query by fixVersion AND native sprint to catch all tickets
+    # version_id may be "versionId|nativeSprintId" format
+    parts = version_id.split("|")
+    fix_id = parts[0]
+    native_id = parts[1] if len(parts) > 1 else fix_id
     jql = (
         f"project = {JIRA_PROJECT} AND ("
-        f"fixVersion = {version_id} OR sprint = {version_id}"
+        f"fixVersion = {fix_id} OR sprint = {native_id}"
         f") ORDER BY priority DESC"
     )
     fields = "summary,status,priority,issuetype,assignee,customfield_10016,customfield_10071,fixVersions,customfield_10020"
