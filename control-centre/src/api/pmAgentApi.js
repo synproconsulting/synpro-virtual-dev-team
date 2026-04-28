@@ -8,7 +8,13 @@ export const sendPMAgentMessage = async (message, conversationHistory = []) => {
     body: JSON.stringify({ message, history: conversationHistory }),
   });
   if (!r.ok) throw new Error(`PM Agent error: ${r.status}`);
-  return r.json();
+  const data = await r.json();
+  // Map backend 'reply' field to 'message' for component compatibility
+  return {
+    message:    data.reply || data.message || "",
+    sprintPlan: data.plan  || data.sprintPlan || null,
+    role:       data.role  || "assistant",
+  };
 };
 
 export const generateSprintPlan = async (brief, conversationHistory = []) => {
