@@ -81,7 +81,16 @@ const PMAgentChat = () => {
   const handleGeneratePlan = async () => {
     setLoading(true);
     try {
-      const plan = await generateSprintPlan(messages);
+      // Extract the conversation as a brief for the PM Agent
+      const brief = messages
+        .filter(m => m.type === 'user')
+        .map(m => m.content)
+        .join('\n');
+      const history = messages.map(m => ({
+        role: m.type === 'user' ? 'user' : 'assistant',
+        content: m.content
+      }));
+      const plan = await generateSprintPlan(brief, history);
       setSprintPlan(plan);
       setShowApproval(true);
       
