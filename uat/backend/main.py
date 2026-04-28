@@ -584,7 +584,7 @@ async def pm_agent_chat(request: PMAgentMessage):
     try:
         client = _get_anthropic_client()
         messages = []
-        for h in (req.history or []):
+        for h in (history_raw or []):
             if h.get("role") in ("user", "assistant"):
                 messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": request.message})
@@ -608,13 +608,6 @@ async def pm_agent_generate_sprint(request: dict):
         # Accept brief from multiple possible field names
         brief = request.get("brief") or request.get("message") or request.get("content", "")
         history_raw = request.get("history") or request.get("conversationHistory") or []
-        # Create a compatible request object
-        class _Req:
-            pass
-        req = _Req()
-        req.brief = brief
-        req.history = history_raw
-        request = req
         prompt = f"""Given this feature brief, create a complete sprint plan:
 
 {request.brief}
@@ -643,7 +636,7 @@ Return a JSON object with this structure:
 Return ONLY valid JSON, no markdown."""
 
         messages = []
-        for h in (req.history or []):
+        for h in (history_raw or []):
             if h.get("role") in ("user", "assistant"):
                 messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": prompt})
