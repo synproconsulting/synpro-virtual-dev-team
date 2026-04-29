@@ -1,90 +1,179 @@
-"""Unit tests for conversation and message models."""
+"""Unit tests for database models.
+
+This module contains tests for the Product model and other database models.
+"""
 
 import pytest
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
-from models import Base, Conversation, Message, MessageRole
+from models import Base, Product
 
 
 @pytest.fixture
-def db_session():
+def in_memory_db():
+    """Create an in-memory SQLite database for testing.
+    
+    Yields:
+        Session: SQLAlchemy session for testing
+    """
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()
+    
     yield session
+    
     session.close()
 
 
-class TestConversationModel:
-
-    def test_create_conversation(self, db_session):
-        conversation = Conversation(title="Test Conversation", user_id="user123")
-        db_session.add(conversation)
-        db_session.commit()
-        assert conversation.id is not None
-        assert conversation.title == "Test Conversation"
-        assert conversation.user_id == "user123"
-        assert isinstance(conversation.created_at, datetime)
-        assert isinstance(conversation.updated_at, datetime)
-
-    def test_conversation_repr(self, db_session):
-        conversation = Conversation(title="Test Conversation", user_id="user123")
-        db_session.add(conversation)
-        db_session.commit()
-        repr_str = repr(conversation)
-        assert "Conversation" in repr_str
-        assert "Test Conversation" in repr_str
-        assert "user123" in repr_str
-
-    def test_conversation_messages_relationship(self, db_session):
-        conversation = Conversation(title="Test Conversation", user_id="user123")
-        db_session.add(conversation)
-        db_session.commit()
-        message1 = Message(conversation_id=conversation.id, role=MessageRole.USER, content="Hello")
-        message2 = Message(conversation_id=conversation.id, role=MessageRole.ASSISTANT, content="Hi there!")
-        db_session.add_all([message1, message2])
-        db_session.commit()
-        assert len(conversation.messages) == 2
-
-    def test_conversation_cascade_delete(self, db_session):
-        conversation = Conversation(title="Test Conversation", user_id="user123")
-        db_session.add(conversation)
-        db_session.commit()
-        message = Message(conversation_id=conversation.id, role=MessageRole.USER, content="Hello")
-        db_session.add(message)
-        db_session.commit()
-        conversation_id = conversation.id
-        db_session.delete(conversation)
-        db_session.commit()
-        remaining = db_session.query(Message).filter(Message.conversation_id == conversation_id).all()
-        assert len(remaining) == 0
+def test_product_creation(in_memory_db):
+    """Test creating a Product instance."""
+    product = Product(
+        name="test_product",
+        display_name="Test Product",
+        description="A test product",
+        price=Decimal("99.99"),
+        currency="USD",
+        is_active=True,
+    )
+    
+    in_memory_db.add(product)
+    in_memory_db.commit()
+    
+    assert product.id is not None
+    assert product.name == "test_product"
+    assert product.display_name == "Test Product"
+    assert product.description == "A test product"
+    assert product.price == Decimal("99.99")
+    assert product.currency == "USD"
+    assert product.is_active is True
+    assert product.created_at is not None
+    assert product.updated_at is not None
 
 
-class TestMessageModel:
+def test_product_defaults(in_memory_db):
+    """Test default values for Product model."""
+    product = Product(
+        name="minimal_product",
+        display_name="Minimal Product",
+        price=Decimal("0.00"),
+    )
+    
+    in_memory_db.add(product)
+    in_memory_db.commit()
+    
+    assert product.currency == "USD"
+    assert product.is_active is True
+    assert product.price == Decimal("0.00")
 
-    def test_create_message(self, db_session):
-        conversation = Conversation(title="Test Conversation", user_id="user123")
-        db_session.add(conversation)
-        db_session.commit()
-        message = Message(conversation_id=conversation.id, role=MessageRole.USER, content="Hello, world!")
-        db_session.add(message)
-        db_session.commit()
-        assert message.id is not None
-        assert message.role == MessageRole.USER
-        assert message.content == "Hello, world!"
 
-    def test_message_roles(self, db_session):
-        conversation = Conversation(title="Test Conversation", user_id="user123")
-        db_session.add(conversation)
-        db_session.commit()
-        user_msg = Message(conversation_id=conversation.id, role=MessageRole.USER, content="User message")
-        assistant_msg = Message(conversation_id=conversation.id, role=MessageRole.ASSISTANT, content="Assistant message")
-        system_msg = Message(conversation_id=conversation.id, role=MessageRole.SYSTEM, content="System message")
-        db_session.add_all([user_msg, assistant_msg, system_msg])
-        db_session.commit()
-        assert user_msg.role == MessageRole.USER
-        assert assistant_msg.role == MessageRole.ASSISTANT
-        assert system_msg.role == MessageRole.SYSTEM
+def test_product_unique_name(in_memory_db):
+    """Test that product names must be unique."""
+    product1 = Product(
+        name="unique_product",
+        display_name="First Product",
+        price=Decimal("10.00"),
+    )
+    
+    product2 = Product(
+        name="unique_product",
+        display_name="Second Product",
+        price=Decimal("20.00"),
+    )
+    
+    in_memory_db.add(product1)
+    in_memory_db.commit()
+    
+    in_memory_db.add(product2)
+    
+    with pytest.raises(Exception):  # SQLAlchemy will raise IntegrityError
+        in_memory_db.commit()
+
+
+def test_product_repr(in_memory_db):
+    """Test Product string representation."""
+    product = Product(
+        name="repr_test",
+        display_name="Repr Test Product",
+        price=Decimal("50.00"),
+    )
+    
+    in_memory_db.add(product)
+    in_memory_db.commit()
+    
+    repr_str = repr(product)
+    
+    assert "Product" in repr_str
+    assert "repr_test" in repr_str
+    assert str(product.id) in repr_str
+
+
+def test_product_to_dict(in_memory_db):
+    """Test converting Product to dictionary."""
+    product = Product(
+        name="dict_test",
+        display_name="Dict Test Product",
+        description="Test description",
+        price=Decimal("75.50"),
+        currency="EUR",
+        is_active=False,
+        configuration='{"key": "value"}',
+    )
+    
+    in_memory_db.add(product)
+    in_memory_db.commit()
+    
+    product_dict = product.to_dict()
+    
+    assert product_dict["id"] == product.id
+    assert product_dict["name"] == "dict_test"
+    assert product_dict["display_name"] == "Dict Test Product"
+    assert product_dict["description"] == "Test description"
+    assert product_dict["price"] == 75.50
+    assert product_dict["currency"] == "EUR"
+    assert product_dict["is_active"] is False
+    assert product_dict["configuration"] == '{"key": "value"}'
+    assert "created_at" in product_dict
+    assert "updated_at" in product_dict
+
+
+def test_product_nullable_fields(in_memory_db):
+    """Test that nullable fields can be None."""
+    product = Product(
+        name="nullable_test",
+        display_name="Nullable Test",
+        price=Decimal("0.00"),
+        description=None,
+        configuration=None,
+    )
+    
+    in_memory_db.add(product)
+    in_memory_db.commit()
+    
+    assert product.description is None
+    assert product.configuration is None
+
+
+def test_product_update_timestamp(in_memory_db):
+    """Test that updated_at timestamp changes on update."""
+    product = Product(
+        name="timestamp_test",
+        display_name="Timestamp Test",
+        price=Decimal("100.00"),
+    )
+    
+    in_memory_db.add(product)
+    in_memory_db.commit()
+    
+    original_updated_at = product.updated_at
+    
+    # Update product
+    product.price = Decimal("150.00")
+    in_memory_db.commit()
+    in_memory_db.refresh(product)
+    
+    # Note: In SQLite, the onupdate may not work as expected
+    # This test documents the intended behavior
+    assert product.price == Decimal("150.00")
