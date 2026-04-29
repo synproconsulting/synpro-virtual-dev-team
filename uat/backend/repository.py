@@ -1,167 +1,156 @@
-"""Repository layer for database operations.
+"""Repository layer for conversations, messages, and products."""
 
-This module provides data access layer for products and other entities,
-abstracting database operations from business logic.
-"""
-
+from datetime import datetime
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from models import Product
-from schemas import ProductCreate, ProductUpdate
+from uuid import UUID
 
+from sqlalchemy import desc
+from sqlalchemy.orm import Session
+
+from models import Conversation, Message, MessageRole, Product
+
+
+# ?? Conversation / Message repositories (SDT1-49) ????????????????????????????
+
+class ConversationRepository:
+    """Repository for conversation database operations."""
+
+    def __init__(self, db_session: Session):
+        self.db = db_session
+
+    def create_conversation(self, title: str, user_id: str) -> Conversation:
+        conversation = Conversation(title=title, user_id=user_id)
+        self.db.add(conversation)
+        self.db.commit()
+        self.db.refresh(conversation)
+        return conversation
+
+    def get_conversation_by_id(self, conversation_id: int) -> Optional[Conversation]:
+        return self.db.query(Conversation).filter(Conversation.id == conversation_id).first()
+
+    def get_user_conversations(self, user_id: str, skip: int = 0, limit: int = 100) -> List[Conversation]:
+        return (
+            self.db.query(Conversation)
+            .filter(Conversation.user_id == user_id)
+            .order_by(desc(Conversation.updated_at))
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    def count_user_conversations(self, user_id: str) -> int:
+        return self.db.query(Conversation).filter(Conversation.user_id == user_id).count()
+
+    def update_conversation(self, conversation_id: int, title: str) -> Optional[Conversation]:
+        conversation = self.get_conversation_by_id(conversation_id)
+        if conversation:
+            conversation.title = title
+            conversation.updated_at = datetime.utcnow()
+            self.db.commit()
+            self.db.refresh(conversation)
+        return conversation
+
+    def delete_conversation(self, conversation_id: int) -> bool:
+        conversation = self.get_conversation_by_id(conversation_id)
+        if conversation:
+            self.db.delete(conversation)
+            self.db.commit()
+            return True
+        return False
+
+
+class MessageRepository:
+    """Repository for message database operations."""
+
+    def __init__(self, db_session: Session):
+        self.db = db_session
+
+    def create_message(self, conversation_id: int, role: str, content: str) -> Message:
+        message = Message(conversation_id=conversation_id, role=MessageRole(role), content=content)
+        self.db.add(message)
+        conversation = self.db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if conversation:
+            conversation.updated_at = datetime.utcnow()
+        self.db.commit()
+        self.db.refresh(message)
+        return message
+
+    def get_conversation_messages(self, conversation_id: int, skip: int = 0, limit: int = 100) -> List[Message]:
+        return (
+            self.db.query(Message)
+            .filter(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at)
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
+
+    def get_message_by_id(self, message_id: int) -> Optional[Message]:
+        return self.db.query(Message).filter(Message.id == message_id).first()
+
+    def delete_message(self, message_id: int) -> bool:
+        message = self.get_message_by_id(message_id)
+        if message:
+            self.db.delete(message)
+            self.db.commit()
+            return True
+        return False
+
+
+# ?? Product repository (SDT1-51) ??????????????????????????????????????????????
 
 class ProductRepository:
-    """Repository for Product database operations."""
-    
-    def __init__(self, db: Session):
-        """Initialize repository with database session.
-        
-        Args:
-            db: SQLAlchemy database session
-        """
-        self.db = db
-    
-    def create_product(self, product_data: ProductCreate) -> Product:
-        """Create a new product.
-        
-        Args:
-            product_data: Product creation data
-            
-        Returns:
-            Product: Created product instance
-            
-        Raises:
-            IntegrityError: If product name already exists
-        """
-        product = Product(**product_data.dict())
+    """Repository for product configuration database operations."""
+
+    def __init__(self, db_session: Session):
+        self.db = db_session
+
+    def create_product(
+        self,
+        name: str,
+        jira_project_key: str,
+        github_repo: str,
+        railway_service_id: Optional[str] = None,
+        sonarcloud_key: Optional[str] = None,
+    ) -> Product:
+        product = Product(
+            name=name,
+            jira_project_key=jira_project_key,
+            github_repo=github_repo,
+            railway_service_id=railway_service_id,
+            sonarcloud_key=sonarcloud_key,
+        )
         self.db.add(product)
         self.db.commit()
         self.db.refresh(product)
         return product
-    
-    def get_product_by_id(self, product_id: int) -> Optional[Product]:
-        """Get product by ID.
-        
-        Args:
-            product_id: Product ID
-            
-        Returns:
-            Product or None: Product instance if found
-        """
+
+    def get_by_id(self, product_id: UUID) -> Optional[Product]:
         return self.db.query(Product).filter(Product.id == product_id).first()
-    
-    def get_product_by_name(self, name: str) -> Optional[Product]:
-        """Get product by name.
-        
-        Args:
-            name: Product name
-            
-        Returns:
-            Product or None: Product instance if found
-        """
+
+    def get_by_name(self, name: str) -> Optional[Product]:
         return self.db.query(Product).filter(Product.name == name).first()
-    
-    def get_all_products(
-        self, 
-        skip: int = 0, 
-        limit: int = 100, 
-        active_only: bool = False
-    ) -> List[Product]:
-        """Get all products with pagination.
-        
-        Args:
-            skip: Number of records to skip
-            limit: Maximum number of records to return
-            active_only: Filter for active products only
-            
-        Returns:
-            List[Product]: List of product instances
-        """
-        query = self.db.query(Product)
-        
-        if active_only:
-            query = query.filter(Product.is_active == True)
-        
-        return query.offset(skip).limit(limit).all()
-    
-    def update_product(
-        self, 
-        product_id: int, 
-        product_data: ProductUpdate
-    ) -> Optional[Product]:
-        """Update an existing product.
-        
-        Args:
-            product_id: Product ID to update
-            product_data: Updated product data
-            
-        Returns:
-            Product or None: Updated product instance if found
-        """
-        product = self.get_product_by_id(product_id)
-        
-        if not product:
-            return None
-        
-        update_data = product_data.dict(exclude_unset=True)
-        
-        for field, value in update_data.items():
-            setattr(product, field, value)
-        
-        self.db.commit()
-        self.db.refresh(product)
+
+    def list_products(self, skip: int = 0, limit: int = 100) -> List[Product]:
+        return self.db.query(Product).order_by(Product.name).offset(skip).limit(limit).all()
+
+    def update_product(self, product_id: UUID, **kwargs) -> Optional[Product]:
+        product = self.get_by_id(product_id)
+        if product:
+            for key, value in kwargs.items():
+                if hasattr(product, key):
+                    setattr(product, key, value)
+            self.db.commit()
+            self.db.refresh(product)
         return product
-    
-    def delete_product(self, product_id: int) -> bool:
-        """Delete a product (hard delete).
-        
-        Args:
-            product_id: Product ID to delete
-            
-        Returns:
-            bool: True if deleted, False if not found
-        """
-        product = self.get_product_by_id(product_id)
-        
-        if not product:
-            return False
-        
-        self.db.delete(product)
-        self.db.commit()
-        return True
-    
-    def deactivate_product(self, product_id: int) -> Optional[Product]:
-        """Soft delete: deactivate a product.
-        
-        Args:
-            product_id: Product ID to deactivate
-            
-        Returns:
-            Product or None: Deactivated product instance if found
-        """
-        product = self.get_product_by_id(product_id)
-        
-        if not product:
-            return None
-        
-        product.is_active = False
-        self.db.commit()
-        self.db.refresh(product)
-        return product
-    
-    def count_products(self, active_only: bool = False) -> int:
-        """Count total products.
-        
-        Args:
-            active_only: Count only active products
-            
-        Returns:
-            int: Total product count
-        """
-        query = self.db.query(Product)
-        
-        if active_only:
-            query = query.filter(Product.is_active == True)
-        
-        return query.count()
+
+    def delete_product(self, product_id: UUID) -> bool:
+        product = self.get_by_id(product_id)
+        if product:
+            self.db.delete(product)
+            self.db.commit()
+            return True
+        return False
+
+    def count_products(self) -> int:
+        return self.db.query(Product).count()

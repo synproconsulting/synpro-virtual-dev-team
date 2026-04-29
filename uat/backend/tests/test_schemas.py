@@ -1,251 +1,128 @@
-"""Unit tests for Pydantic schemas.
-
-This module contains tests for request/response validation schemas.
-"""
+"""Tests for all Pydantic schemas."""
 
 import pytest
-from decimal import Decimal
 from datetime import datetime
+from uuid import uuid4
 from pydantic import ValidationError
-from schemas import ProductCreate, ProductUpdate, ProductResponse
+
+from schemas import (
+    MessageBase, MessageCreate, MessageResponse,
+    ConversationBase, ConversationCreate, ConversationUpdate,
+    ConversationResponse, ConversationWithMessages, ConversationListResponse,
+    ProductBase, ProductCreate, ProductUpdate, ProductResponse,
+)
 
 
-def test_product_create_valid():
-    """Test creating a valid ProductCreate schema."""
-    product = ProductCreate(
-        name="test_product",
-        display_name="Test Product",
-        description="A test product",
-        price=Decimal("99.99"),
-        currency="USD",
-        is_active=True,
-        configuration='{"key": "value"}',
-    )
-    
-    assert product.name == "test_product"
-    assert product.display_name == "Test Product"
-    assert product.price == Decimal("99.99")
-    assert product.currency == "USD"
-    assert product.is_active is True
+# ?? Conversation / Message schema tests ???????????????????????????????????????
+
+class TestMessageSchemas:
+
+    def test_valid(self):
+        m = MessageBase(role="user", content="hello")
+        assert m.content == "hello"
+
+    def test_empty_content_invalid(self):
+        with pytest.raises(ValidationError):
+            MessageBase(role="user", content="")
+
+    def test_message_create_invalid_id(self):
+        with pytest.raises(ValidationError):
+            MessageCreate(conversation_id=0, role="user", content="x")
 
 
-def test_product_create_defaults():
-    """Test default values in ProductCreate schema."""
-    product = ProductCreate(
-        name="minimal",
-        display_name="Minimal Product",
-        price=Decimal("10.00"),
-    )
-    
-    assert product.currency == "USD"
-    assert product.is_active is True
-    assert product.description is None
-    assert product.configuration is None
+class TestConversationSchemas:
+
+    def test_base_valid(self):
+        assert ConversationBase(title="My Chat").title == "My Chat"
+
+    def test_empty_title_invalid(self):
+        with pytest.raises(ValidationError):
+            ConversationBase(title="")
+
+    def test_title_too_long(self):
+        with pytest.raises(ValidationError):
+            ConversationBase(title="x" * 256)
+
+    def test_update_all_optional(self):
+        assert ConversationUpdate().title is None
+
+    def test_list_response_negative_total(self):
+        with pytest.raises(ValidationError):
+            ConversationListResponse(conversations=[], total=-1, page=1, page_size=10)
+
+    def test_list_response_invalid_page(self):
+        with pytest.raises(ValidationError):
+            ConversationListResponse(conversations=[], total=0, page=0, page_size=10)
 
 
-def test_product_create_currency_uppercase():
-    """Test that currency code is converted to uppercase."""
-    product = ProductCreate(
-        name="test",
-        display_name="Test",
-        price=Decimal("10.00"),
-        currency="eur",
-    )
-    
-    assert product.currency == "EUR"
+# ?? Product schema tests ???????????????????????????????????????????????????????
 
+class TestProductSchemas:
 
-def test_product_create_missing_required_fields():
-    """Test that missing required fields raise validation error."""
-    with pytest.raises(ValidationError) as exc_info:
-        ProductCreate(
-            name="test",
-            # Missing display_name and price
+    def test_create_valid(self):
+        p = ProductCreate(
+            name="synpro-vdt",
+            jira_project_key="SDT1",
+            github_repo="synproconsulting/synpro-virtual-dev-team",
         )
-    
-    errors = exc_info.value.errors()
-    field_names = {error["loc"][0] for error in errors}
-    
-    assert "display_name" in field_names
-    assert "price" in field_names
+        assert p.jira_project_key == "SDT1"
+        assert p.railway_service_id is None
+        assert p.sonarcloud_key is None
 
-
-def test_product_create_negative_price():
-    """Test that negative prices are rejected."""
-    with pytest.raises(ValidationError) as exc_info:
-        ProductCreate(
-            name="test",
-            display_name="Test",
-            price=Decimal("-10.00"),
+    def test_create_with_optional(self):
+        p = ProductCreate(
+            name="full",
+            jira_project_key="FULL",
+            github_repo="org/full",
+            railway_service_id="svc-abc",
+            sonarcloud_key="org_full",
         )
-    
-    errors = exc_info.value.errors()
-    assert any("price" in str(error["loc"]) for error in errors)
+        assert p.railway_service_id == "svc-abc"
+        assert p.sonarcloud_key == "org_full"
 
+    def test_name_required(self):
+        with pytest.raises(ValidationError):
+            ProductCreate(jira_project_key="K", github_repo="o/r")
 
-def test_product_create_invalid_currency_length():
-    """Test that invalid currency code length is rejected."""
-    with pytest.raises(ValidationError):
-        ProductCreate(
-            name="test",
-            display_name="Test",
-            price=Decimal("10.00"),
-            currency="US",  # Too short
+    def test_jira_key_required(self):
+        with pytest.raises(ValidationError):
+            ProductCreate(name="p", github_repo="o/r")
+
+    def test_github_repo_required(self):
+        with pytest.raises(ValidationError):
+            ProductCreate(name="p", jira_project_key="K")
+
+    def test_name_empty_invalid(self):
+        with pytest.raises(ValidationError):
+            ProductCreate(name="", jira_project_key="K", github_repo="o/r")
+
+    def test_jira_key_too_long(self):
+        with pytest.raises(ValidationError):
+            ProductCreate(name="p", jira_project_key="K" * 51, github_repo="o/r")
+
+    def test_update_all_optional(self):
+        u = ProductUpdate()
+        assert u.name is None
+        assert u.jira_project_key is None
+        assert u.github_repo is None
+
+    def test_update_partial(self):
+        u = ProductUpdate(sonarcloud_key="org_new")
+        assert u.sonarcloud_key == "org_new"
+        assert u.name is None
+
+    def test_response_has_uuid_id(self):
+        now = datetime.utcnow()
+        r = ProductResponse(
+            id=uuid4(),
+            name="p",
+            jira_project_key="K",
+            github_repo="o/r",
+            created_at=now,
+            updated_at=now,
         )
-    
-    with pytest.raises(ValidationError):
-        ProductCreate(
-            name="test",
-            display_name="Test",
-            price=Decimal("10.00"),
-            currency="USDD",  # Too long
-        )
+        assert r.id is not None
 
-
-def test_product_create_empty_name():
-    """Test that empty name is rejected."""
-    with pytest.raises(ValidationError):
-        ProductCreate(
-            name="",
-            display_name="Test",
-            price=Decimal("10.00"),
-        )
-
-
-def test_product_update_partial():
-    """Test ProductUpdate with partial data."""
-    update = ProductUpdate(
-        display_name="Updated Name",
-        price=Decimal("150.00"),
-    )
-    
-    assert update.display_name == "Updated Name"
-    assert update.price == Decimal("150.00")
-    assert update.name is None
-    assert update.currency is None
-
-
-def test_product_update_all_fields():
-    """Test ProductUpdate with all fields."""
-    update = ProductUpdate(
-        name="updated_name",
-        display_name="Updated Display Name",
-        description="Updated description",
-        price=Decimal("200.00"),
-        currency="eur",
-        is_active=False,
-        configuration='{"updated": true}',
-    )
-    
-    assert update.name == "updated_name"
-    assert update.display_name == "Updated Display Name"
-    assert update.currency == "EUR"  # Should be uppercase
-    assert update.is_active is False
-
-
-def test_product_update_empty():
-    """Test ProductUpdate with no fields (all optional)."""
-    update = ProductUpdate()
-    
-    assert update.name is None
-    assert update.display_name is None
-    assert update.price is None
-
-
-def test_product_update_currency_uppercase():
-    """Test that currency code is converted to uppercase in updates."""
-    update = ProductUpdate(currency="gbp")
-    
-    assert update.currency == "GBP"
-
-
-def test_product_update_negative_price():
-    """Test that negative prices are rejected in updates."""
-    with pytest.raises(ValidationError):
-        ProductUpdate(price=Decimal("-50.00"))
-
-
-def test_product_response_valid():
-    """Test creating a valid ProductResponse schema."""
-    response = ProductResponse(
-        id=1,
-        name="test_product",
-        display_name="Test Product",
-        description="A test product",
-        price=Decimal("99.99"),
-        currency="USD",
-        is_active=True,
-        configuration='{"key": "value"}',
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
-    )
-    
-    assert response.id == 1
-    assert response.name == "test_product"
-    assert response.display_name == "Test Product"
-    assert isinstance(response.created_at, datetime)
-    assert isinstance(response.updated_at, datetime)
-
-
-def test_product_response_missing_required():
-    """Test that ProductResponse requires all fields."""
-    with pytest.raises(ValidationError) as exc_info:
-        ProductResponse(
-            name="test",
-            display_name="Test",
-            price=Decimal("10.00"),
-            # Missing id, created_at, updated_at
-        )
-    
-    errors = exc_info.value.errors()
-    field_names = {error["loc"][0] for error in errors}
-    
-    assert "id" in field_names
-    assert "created_at" in field_names
-    assert "updated_at" in field_names
-
-
-def test_price_decimal_places():
-    """Test that price respects decimal place limits."""
-    # Valid: 2 decimal places
-    product = ProductCreate(
-        name="test",
-        display_name="Test",
-        price=Decimal("99.99"),
-    )
-    assert product.price == Decimal("99.99")
-    
-    # Valid: 1 decimal place
-    product = ProductCreate(
-        name="test2",
-        display_name="Test",
-        price=Decimal("99.9"),
-    )
-    assert product.price == Decimal("99.9")
-    
-    # Valid: no decimal places
-    product = ProductCreate(
-        name="test3",
-        display_name="Test",
-        price=Decimal("99"),
-    )
-    assert product.price == Decimal("99")
-
-
-def test_product_name_max_length():
-    """Test that name respects maximum length."""
-    long_name = "a" * 255
-    product = ProductCreate(
-        name=long_name,
-        display_name="Test",
-        price=Decimal("10.00"),
-    )
-    assert product.name == long_name
-    
-    # Test exceeding max length
-    with pytest.raises(ValidationError):
-        ProductCreate(
-            name="a" * 256,  # Too long
-            display_name="Test",
-            price=Decimal("10.00"),
-        )
+    def test_no_price_or_currency_fields(self):
+        with pytest.raises((ValidationError, TypeError)):
+            ProductCreate(name="p", jira_project_key="K", github_repo="o/r", price=9.99, currency="USD")
