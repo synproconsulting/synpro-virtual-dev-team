@@ -1,3 +1,3 @@
 """
-Tests package initialization.
+Test package for PM Agent chat module.
 """
