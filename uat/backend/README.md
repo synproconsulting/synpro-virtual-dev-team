@@ -349,3 +349,136 @@ Internal use only - Synpro Consulting
 ## Support
 
 For questions or issues, contact the development team.
+
+---
+
+# Router Modularization (SDT1-47)
+
+## Overview
+
+The main.py file has been refactored to split routes into separate, focused router modules for better code organization and maintainability.
+
+## Router Modules
+
+### Authentication Router (`auth_router.py`)
+
+Handles all authentication-related endpoints:
+
+- `POST /auth/register` - User registration
+- `POST /auth/login` - User authentication
+- `POST /auth/reset-password` - Initiate password reset
+- `POST /auth/confirm-reset` - Confirm password reset with token
+- `GET /auth/verify` - Verify JWT token
+
+### Profile Router (`profile_router.py`)
+
+User profile management endpoints (placeholder for future implementation):
+
+- `GET /profile/` - Get user profile information
+
+### Notifications Router (`notifications_router.py`)
+
+Notification management endpoints (placeholder for future implementation):
+
+- `GET /notifications/` - Get user notifications
+
+### Proxy Router (`proxy_router.py`)
+
+API proxy/forwarding endpoints (placeholder for future implementation):
+
+- `GET /proxy/` - Handle proxy requests
+
+### PM Agent Router (`pm_agent_router.py`)
+
+Product Manager Agent endpoints (placeholder for future implementation):
+
+- `GET /pm-agent/` - PM Agent operations
+
+## Main Application (`main.py`)
+
+The main application file now:
+- Configures the FastAPI app
+- Sets up CORS middleware
+- Includes all router modules
+- Provides a root health check endpoint
+
+## Migration from Monolithic Structure
+
+The refactoring maintains 100% backward compatibility:
+- All existing endpoints work identically
+- No changes to request/response formats
+- No behavioral changes
+- Same authentication mechanisms
+- Same error handling
+
+## Testing
+
+Run router-specific tests:
+
+```bash
+# Test authentication router
+pytest tests/test_auth_router.py -v
+
+# Test router integration
+pytest tests/test_routers.py -v
+
+# Test all
+pytest tests/ -v
+```
+
+## Benefits
+
+1. **Modularity** - Each router is self-contained and focused
+2. **Maintainability** - Easier to locate and update specific functionality
+3. **Scalability** - Simple to add new routers for new features
+4. **Testing** - Each router can be tested independently
+5. **Team Collaboration** - Multiple developers can work on different routers simultaneously
+
+## Adding New Routers
+
+To add a new router module:
+
+1. Create a new file in `uat/backend/` (e.g., `new_feature_router.py`)
+2. Define your router with appropriate prefix:
+   ```python
+   from fastapi import APIRouter
+   router = APIRouter(prefix="/new-feature", tags=["new-feature"])
+   ```
+3. Add your endpoints to the router
+4. Import and include in `main.py`:
+   ```python
+   from new_feature_router import router as new_feature_router
+   app.include_router(new_feature_router)
+   ```
+
+## File Structure
+
+```
+uat/backend/
+├── main.py                      # Main FastAPI application
+├── auth_router.py               # Authentication routes
+├── profile_router.py            # Profile management routes
+├── notifications_router.py      # Notifications routes
+├── proxy_router.py              # Proxy routes
+├── pm_agent_router.py          # PM Agent routes
+├── database.py                  # Database configuration
+├── models.py                    # SQLAlchemy models
+├── schemas.py                   # Pydantic schemas
+├── repository.py                # Data access layer
+├── requirements.txt             # Python dependencies
+└── tests/
+    ├── test_auth_router.py     # Authentication router tests
+    └── test_routers.py         # Integration tests
+```
+
+## Backward Compatibility
+
+All endpoints remain accessible at their original URLs:
+- `/` - Health check
+- `/auth/*` - Authentication endpoints
+- `/profile/*` - Profile endpoints (new)
+- `/notifications/*` - Notification endpoints (new)
+- `/proxy/*` - Proxy endpoints (new)
+- `/pm-agent/*` - PM Agent endpoints (new)
+
+Existing client applications require no changes.
