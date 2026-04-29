@@ -1,189 +1,190 @@
-# In-App Notification Storage and Data Model
+# PM Agent Chat History Module
 
-This module provides a complete implementation for in-app notification storage and data models with support for multiple storage backends.
+A robust Python module for managing conversations and messages in the PM Agent chat system. This module provides database models, validation schemas, and repository patterns for storing and retrieving chat history.
 
 ## Features
 
-- **Comprehensive Data Models**: Well-defined notification models using Pydantic with validation
-- **Flexible Storage Layer**: Abstract storage interface with in-memory implementation
-- **Database Support**: SQLAlchemy models for persistent storage (PostgreSQL, SQLite)
-- **Status Management**: Track notification states (unread, read, archived)
-- **Type Classification**: Multiple notification types (info, success, warning, error, system, user_action, reminder)
-- **Expiration Support**: Time-sensitive notifications with automatic expiration
-- **Rich Metadata**: Extensible metadata field for custom data
-- **Pagination**: Built-in support for paginated queries
-- **Full Test Coverage**: Comprehensive unit tests using pytest
+- **SQLAlchemy ORM Models**: Database models for conversations and messages
+- **Pydantic Schemas**: Request/response validation and serialization
+- **Repository Pattern**: Clean separation of database operations
+- **Type Safety**: Full type hints throughout the codebase
+- **Comprehensive Testing**: Unit tests for all major components
+- **Database Agnostic**: Works with PostgreSQL, SQLite, and other SQLAlchemy-supported databases
 
-## Project Structure
+## Architecture
 
-```
-src/
-  notifications/
-    __init__.py           # Package initialization
-    models.py             # Pydantic data models
-    storage.py            # Storage layer implementation
-    database.py           # SQLAlchemy database models
-tests/
-  test_notification_models.py    # Model unit tests
-  test_notification_storage.py   # Storage unit tests
-requirements.txt          # Project dependencies
-README.md                # This file
-```
+### Models (`src/chat/models.py`)
+
+Defines the database schema:
+
+- **Conversation**: Represents a chat conversation thread
+  - `id`: Primary key
+  - `title`: Conversation title
+  - `user_id`: Owner of the conversation
+  - `created_at`: Creation timestamp
+  - `updated_at`: Last update timestamp
+  - `messages`: One-to-many relationship with messages
+
+- **Message**: Represents individual messages in a conversation
+  - `id`: Primary key
+  - `conversation_id`: Foreign key to conversation
+  - `role`: Message sender role (user/assistant/system)
+  - `content`: Message text content
+  - `created_at`: Creation timestamp
+
+### Schemas (`src/chat/schemas.py`)
+
+Pydantic models for validation and serialization:
+
+- `MessageCreate`: Creating new messages
+- `MessageResponse`: Message API responses
+- `ConversationCreate`: Creating new conversations
+- `ConversationUpdate`: Updating conversation details
+- `ConversationResponse`: Conversation API responses
+- `ConversationWithMessages`: Full conversation with message history
+- `ConversationListResponse`: Paginated conversation lists
+
+### Repository (`src/chat/repository.py`)
+
+Database access layer with clean interfaces:
+
+- **ConversationRepository**: CRUD operations for conversations
+  - `create_conversation()`
+  - `get_conversation_by_id()`
+  - `get_user_conversations()` (with pagination)
+  - `update_conversation()`
+  - `delete_conversation()`
+
+- **MessageRepository**: CRUD operations for messages
+  - `create_message()`
+  - `get_conversation_messages()` (with pagination)
+  - `get_message_by_id()`
+  - `delete_message()`
+
+### Database (`src/chat/database.py`)
+
+Configuration and session management:
+
+- Engine creation
+- Session factory setup
+- Table creation utilities
+- Database URL from environment variables
 
 ## Installation
 
-Install the required dependencies:
+1. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Usage
-
-### Creating Notifications
-
-```python
-from src.notifications.models import NotificationCreate, NotificationType
-from src.notifications.storage import NotificationStorage
-
-# Initialize storage
-storage = NotificationStorage()
-
-# Create a notification
-notification_data = NotificationCreate(
-    user_id="user_123",
-    notification_type=NotificationType.INFO,
-    title="Welcome!",
-    message="Thank you for joining our platform",
-    metadata={"source": "onboarding"},
-    action_url="https://example.com/getting-started"
-)
-
-notification = await storage.create_notification(notification_data)
-```
-
-### Retrieving Notifications
-
-```python
-# Get a specific notification
-notification = await storage.get_notification(notification_id)
-
-# Get all notifications for a user
-notifications = await storage.get_user_notifications("user_123")
-
-# Get unread notifications only
-unread = await storage.get_user_notifications(
-    "user_123",
-    status=NotificationStatus.UNREAD
-)
-
-# Get with pagination
-page1 = await storage.get_user_notifications(
-    "user_123",
-    limit=10,
-    offset=0
-)
-```
-
-### Managing Notification Status
-
-```python
-# Mark a notification as read
-await storage.mark_notification_as_read(notification_id)
-
-# Mark all user notifications as read
-count = await storage.mark_all_user_notifications_as_read("user_123")
-
-# Get unread count
-unread_count = await storage.get_user_unread_count("user_123")
-```
-
-### Updating and Deleting
-
-```python
-from src.notifications.models import NotificationUpdate, NotificationStatus
-
-# Update a notification
-update_data = NotificationUpdate(
-    title="Updated Title",
-    status=NotificationStatus.ARCHIVED
-)
-updated = await storage.update_notification(notification_id, update_data)
-
-# Delete a notification
-deleted = await storage.delete_notification(notification_id)
-```
-
-### Cleanup Expired Notifications
-
-```python
-# Delete all expired notifications
-deleted_count = await storage.cleanup_expired_notifications()
-```
-
-## Data Models
-
-### Notification
-
-The main notification model with the following fields:
-
-- `id` (UUID): Unique identifier
-- `user_id` (str): User who receives the notification
-- `notification_type` (NotificationType): Type of notification
-- `title` (str): Notification title (max 200 chars)
-- `message` (str): Notification content (max 1000 chars)
-- `status` (NotificationStatus): Current status (default: unread)
-- `created_at` (datetime): Creation timestamp
-- `read_at` (datetime, optional): When marked as read
-- `archived_at` (datetime, optional): When archived
-- `metadata` (dict): Custom metadata
-- `action_url` (str, optional): URL for action button
-- `expires_at` (datetime, optional): Expiration timestamp
-
-### NotificationStatus Enum
-
-- `UNREAD`: Notification hasn't been read
-- `READ`: Notification has been read
-- `ARCHIVED`: Notification has been archived
-
-### NotificationType Enum
-
-- `INFO`: Informational notification
-- `SUCCESS`: Success message
-- `WARNING`: Warning message
-- `ERROR`: Error notification
-- `SYSTEM`: System notification
-- `USER_ACTION`: User action required
-- `REMINDER`: Reminder notification
-
-## Database Setup
-
-### Using SQLite (Development)
-
-SQLite is used by default:
-
-```python
-from src.notifications.database import create_database_engine, create_tables
-
-engine = create_database_engine()
-create_tables(engine)
-```
-
-### Using PostgreSQL (Production)
-
-Set the `DATABASE_URL` environment variable:
+2. Set up environment variables:
 
 ```bash
-export DATABASE_URL="postgresql://user:password@localhost:5432/notifications"
+export DATABASE_URL="postgresql://user:password@localhost:5432/dbname"
+# or for SQLite:
+export DATABASE_URL="sqlite:///./chat.db"
 ```
 
-Then create the tables:
+## Usage
+
+### Initialize Database
 
 ```python
-from src.notifications.database import create_database_engine, create_tables
+from src.chat import create_database_engine, create_tables, get_session_factory
 
+# Create engine and tables
 engine = create_database_engine()
 create_tables(engine)
+
+# Create session factory
+SessionLocal = get_session_factory(engine)
+```
+
+### Create a Conversation
+
+```python
+from src.chat import ConversationRepository
+
+# Get a database session
+db = SessionLocal()
+
+# Create repository
+conv_repo = ConversationRepository(db)
+
+# Create a conversation
+conversation = conv_repo.create_conversation(
+    title="Project Discussion",
+    user_id="user123"
+)
+
+print(f"Created conversation: {conversation.id}")
+db.close()
+```
+
+### Add Messages to Conversation
+
+```python
+from src.chat import MessageRepository
+
+db = SessionLocal()
+msg_repo = MessageRepository(db)
+
+# Add a user message
+user_msg = msg_repo.create_message(
+    conversation_id=conversation.id,
+    role="user",
+    content="What tasks do we have today?"
+)
+
+# Add an assistant response
+assistant_msg = msg_repo.create_message(
+    conversation_id=conversation.id,
+    role="assistant",
+    content="Here are today's tasks: 1. Code review 2. Deploy feature 3. Update docs"
+)
+
+db.close()
+```
+
+### Retrieve Conversation with Messages
+
+```python
+db = SessionLocal()
+conv_repo = ConversationRepository(db)
+msg_repo = MessageRepository(db)
+
+# Get conversation
+conversation = conv_repo.get_conversation_by_id(1)
+
+# Get all messages
+messages = msg_repo.get_conversation_messages(conversation.id)
+
+for msg in messages:
+    print(f"{msg.role.value}: {msg.content}")
+
+db.close()
+```
+
+### List User Conversations
+
+```python
+db = SessionLocal()
+conv_repo = ConversationRepository(db)
+
+# Get user's conversations with pagination
+conversations = conv_repo.get_user_conversations(
+    user_id="user123",
+    skip=0,
+    limit=10
+)
+
+total = conv_repo.count_user_conversations("user123")
+
+for conv in conversations:
+    print(f"{conv.title} - Last updated: {conv.updated_at}")
+
+db.close()
 ```
 
 ## Testing
@@ -195,94 +196,85 @@ Run the test suite:
 pytest
 
 # Run with coverage
-pytest --cov=src/notifications
+pytest --cov=src/chat tests/
 
 # Run specific test file
-pytest tests/test_notification_models.py
-
-# Run with verbose output
-pytest -v
+pytest tests/test_models.py
+pytest tests/test_repository.py
+pytest tests/test_schemas.py
 ```
+
+### Test Coverage
+
+The module includes comprehensive tests for:
+
+- Model creation and relationships
+- Cascade deletion behavior
+- Repository CRUD operations
+- Pagination functionality
+- Schema validation
+- Edge cases and error handling
+
+## Database Schema
+
+### Conversations Table
+
+| Column     | Type         | Constraints                    |
+|------------|--------------|--------------------------------|
+| id         | INTEGER      | PRIMARY KEY, AUTOINCREMENT     |
+| title      | VARCHAR(255) | NOT NULL                       |
+| user_id    | VARCHAR(100) | NOT NULL, INDEXED              |
+| created_at | DATETIME     | NOT NULL, DEFAULT utcnow       |
+| updated_at | DATETIME     | NOT NULL, DEFAULT utcnow       |
+
+### Messages Table
+
+| Column          | Type    | Constraints                              |
+|-----------------|---------|------------------------------------------|
+| id              | INTEGER | PRIMARY KEY, AUTOINCREMENT               |
+| conversation_id | INTEGER | FOREIGN KEY (conversations.id), INDEXED  |
+| role            | ENUM    | NOT NULL (user/assistant/system)         |
+| content         | TEXT    | NOT NULL                                 |
+| created_at      | DATETIME| NOT NULL, DEFAULT utcnow                 |
 
 ## Environment Variables
 
-- `DATABASE_URL`: Database connection string (default: `sqlite:///./notifications.db`)
-- `DATABASE_ECHO`: Enable SQLAlchemy SQL logging (default: `false`)
-
-## Architecture
-
-### Storage Layer
-
-The storage layer uses an abstract interface pattern, allowing for multiple backend implementations:
-
-- **InMemoryNotificationStorage**: For development and testing
-- **Database Storage** (future): For production use with SQLAlchemy
-
-### Data Validation
-
-All models use Pydantic for automatic validation:
-- Type checking
-- Field constraints (min/max length)
-- Required vs optional fields
-- Default values
-
-## API Methods
-
-### NotificationStorage
-
-- `create_notification(data)`: Create a new notification
-- `get_notification(id)`: Get notification by ID
-- `get_user_notifications(user_id, status, limit, offset)`: Get user's notifications
-- `update_notification(id, data)`: Update a notification
-- `delete_notification(id)`: Delete a notification
-- `mark_notification_as_read(id)`: Mark as read
-- `mark_all_user_notifications_as_read(user_id)`: Mark all as read
-- `get_user_unread_count(user_id)`: Get unread count
-- `cleanup_expired_notifications()`: Delete expired notifications
+- `DATABASE_URL`: Database connection string (required)
+  - PostgreSQL: `postgresql://user:password@host:port/database`
+  - SQLite: `sqlite:///path/to/database.db`
+  - MySQL: `mysql://user:password@host:port/database`
 
 ## Best Practices
 
-1. **Never hardcode user IDs**: Always use IDs from authentication system
-2. **Set expiration for time-sensitive notifications**: Use `expires_at` field
-3. **Use appropriate notification types**: Choose the right type for better UI rendering
-4. **Add meaningful metadata**: Store additional context for processing
-5. **Regular cleanup**: Schedule periodic cleanup of expired notifications
-6. **Handle pagination**: Use limit/offset for large notification lists
+1. **Always use context managers or try/finally for sessions**:
+   ```python
+   db = SessionLocal()
+   try:
+       # Your database operations
+       pass
+   finally:
+       db.close()
+   ```
 
-## Future Enhancements
+2. **Use repositories for database access**: Don't query models directly in business logic
 
-- WebSocket real-time notification delivery
-- Email/SMS notification channels
-- Notification templates
-- Bulk operations
-- Advanced filtering and search
-- Notification preferences per user
-- Read receipts and delivery confirmation
+3. **Validate with schemas**: Use Pydantic schemas for all API inputs/outputs
+
+4. **Handle exceptions**: Wrap database operations in try/except blocks
+
+5. **Use transactions**: Commit changes explicitly and handle rollbacks
+
+## Contributing
+
+When contributing to this module:
+
+1. Follow PEP 8 style guidelines
+2. Add type hints to all functions
+3. Write docstrings for classes and public methods
+4. Add tests for new functionality
+5. Keep functions under 30 lines where possible
+6. No hardcoded secrets or credentials
 
 ## License
 
-This implementation is part of the SDT1-22 ticket for in-app notification storage and data model.
-
-## PM Agent Chat Interface - Feature Brief Submission
-
-Provides a chat-based interface for product managers to submit and manage feature briefs with validation, priority levels, and status tracking. Supports creating draft briefs, submitting for review, and listing briefs by user with full type safety and comprehensive validation.
-
-## Dependency Management
-
-Define and visualize story execution order with dependency graph management. The `DependencyGraph` class manages dependencies between stories, detects cycles, and calculates execution order using topological sorting. The `DependencyVisualizer` class provides multiple visualization formats including ASCII trees, Mermaid diagrams, DOT format, and JSON structures, with execution summaries showing parallelization opportunities and dependency levels.
-
-## Email Notifications for Account Registration
-
-This module provides email notification functionality for account registration events. It includes a flexible `RegistrationEmailNotifier` that works with any email provider implementation through the `EmailProvider` protocol, customizable email templates via the `EmailTemplate` base class, and a pre-built `WelcomeEmailTemplate` for standard registration welcome emails with optional email verification links.
-
-## Notification Preferences Management
-
-Provides a flexible interface for managing user notification preferences across multiple channels (email, SMS, push, in-app, webhook) and categories (security, account, marketing, updates, alerts, social). Supports global channel overrides, category-specific settings, and quiet hours configuration for granular control over notification delivery.
-
-## Notification Service and Email Integration
-
-Provides a flexible notification service with email provider support for authentication workflows. Includes pre-built email templates for welcome messages, password resets, and email verification with both plain text and HTML formatting.
-
-## User Login with Credential Verification
-
-Provides secure user authentication functionality with password hashing using PBKDF2-HMAC-SHA256. The login service validates user credentials against stored hashed passwords, supports account activation status checks, and provides detailed login results. Includes an abstract repository interface with an in-memory implementation for flexible storage backends.
+This module is part of the PM Agent system.
