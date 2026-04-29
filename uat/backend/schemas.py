@@ -1,78 +1,85 @@
-"""Pydantic schemas for request/response validation.
-
-This module defines Pydantic models for validating API requests
-and serializing responses for the UAT backend.
-"""
+"""Pydantic schemas for conversations, messages, and products."""
 
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field, condecimal, validator
+from typing import List, Optional
+from uuid import UUID
+from pydantic import BaseModel, Field, ConfigDict
 
+
+# ?? Conversation / Message schemas (SDT1-49) ??????????????????????????????????
+
+class MessageBase(BaseModel):
+    role: str = Field(..., description="Role of the message sender (user, assistant, or system)")
+    content: str = Field(..., min_length=1)
+
+
+class MessageCreate(MessageBase):
+    conversation_id: int = Field(..., gt=0)
+
+
+class MessageResponse(MessageBase):
+    id: int
+    conversation_id: int
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConversationBase(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+
+
+class ConversationCreate(ConversationBase):
+    user_id: str = Field(..., min_length=1, max_length=100)
+
+
+class ConversationUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+
+
+class ConversationResponse(ConversationBase):
+    id: int
+    user_id: str
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConversationWithMessages(ConversationResponse):
+    messages: List[MessageResponse] = Field(default_factory=list)
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConversationListResponse(BaseModel):
+    conversations: List[ConversationResponse]
+    total: int = Field(..., ge=0)
+    page: int = Field(..., ge=1)
+    page_size: int = Field(..., ge=1)
+
+
+# ?? Product schemas (SDT1-51) ?????????????????????????????????????????????????
 
 class ProductBase(BaseModel):
-    """Base schema for Product with common attributes."""
-    
-    name: str = Field(..., min_length=1, max_length=255, description="Unique product identifier name")
-    display_name: str = Field(..., min_length=1, max_length=255, description="Display name for the product")
-    description: Optional[str] = Field(None, description="Product description")
-    price: condecimal(max_digits=10, decimal_places=2) = Field(..., ge=0, description="Product price")
-    currency: str = Field(default="USD", min_length=3, max_length=3, description="Currency code (ISO 4217)")
-    is_active: bool = Field(default=True, description="Whether the product is active")
-    configuration: Optional[str] = Field(None, description="JSON configuration for product-specific settings")
-    
-    @validator('currency')
-    def validate_currency_uppercase(cls, v: str) -> str:
-        """Ensure currency code is uppercase.
-        
-        Args:
-            v: Currency code string
-            
-        Returns:
-            str: Uppercase currency code
-        """
-        return v.upper()
+    name: str = Field(..., min_length=1, max_length=255, description="Unique product identifier")
+    jira_project_key: str = Field(..., min_length=1, max_length=50, description="Jira project key, e.g. SDT1")
+    github_repo: str = Field(..., min_length=1, max_length=255, description="GitHub repo slug, e.g. org/repo")
+    railway_service_id: Optional[str] = Field(None, max_length=255)
+    sonarcloud_key: Optional[str] = Field(None, max_length=255)
 
 
 class ProductCreate(ProductBase):
-    """Schema for creating a new product."""
     pass
 
 
 class ProductUpdate(BaseModel):
-    """Schema for updating an existing product.
-    
-    All fields are optional to allow partial updates.
-    """
-    
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    display_name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    price: Optional[condecimal(max_digits=10, decimal_places=2)] = Field(None, ge=0)
-    currency: Optional[str] = Field(None, min_length=3, max_length=3)
-    is_active: Optional[bool] = None
-    configuration: Optional[str] = None
-    
-    @validator('currency')
-    def validate_currency_uppercase(cls, v: Optional[str]) -> Optional[str]:
-        """Ensure currency code is uppercase.
-        
-        Args:
-            v: Currency code string or None
-            
-        Returns:
-            str or None: Uppercase currency code or None
-        """
-        return v.upper() if v else None
+    jira_project_key: Optional[str] = Field(None, min_length=1, max_length=50)
+    github_repo: Optional[str] = Field(None, min_length=1, max_length=255)
+    railway_service_id: Optional[str] = None
+    sonarcloud_key: Optional[str] = None
 
 
 class ProductResponse(ProductBase):
-    """Schema for product response including database fields."""
-    
-    id: int = Field(..., description="Product ID")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: datetime = Field(..., description="Last update timestamp")
-    
-    class Config:
-        """Pydantic configuration."""
-        from_attributes = True
-        orm_mode = True
+    id: UUID
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)

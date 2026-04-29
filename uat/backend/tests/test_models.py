@@ -1,179 +1,112 @@
-"""Unit tests for database models.
-
-This module contains tests for the Product model and other database models.
-"""
+"""Tests for all database models."""
 
 import pytest
 from datetime import datetime
-from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from models import Base, Product
+
+from models import Base, Conversation, Message, MessageRole, Product
 
 
 @pytest.fixture
-def in_memory_db():
-    """Create an in-memory SQLite database for testing.
-    
-    Yields:
-        Session: SQLAlchemy session for testing
-    """
+def db_session():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine)
-    session = SessionLocal()
-    
+    session = sessionmaker(bind=engine)()
     yield session
-    
     session.close()
 
 
-def test_product_creation(in_memory_db):
-    """Test creating a Product instance."""
-    product = Product(
-        name="test_product",
-        display_name="Test Product",
-        description="A test product",
-        price=Decimal("99.99"),
-        currency="USD",
-        is_active=True,
-    )
-    
-    in_memory_db.add(product)
-    in_memory_db.commit()
-    
-    assert product.id is not None
-    assert product.name == "test_product"
-    assert product.display_name == "Test Product"
-    assert product.description == "A test product"
-    assert product.price == Decimal("99.99")
-    assert product.currency == "USD"
-    assert product.is_active is True
-    assert product.created_at is not None
-    assert product.updated_at is not None
+# ?? Conversation / Message model tests ???????????????????????????????????????
+
+class TestConversationModel:
+
+    def test_create_conversation(self, db_session):
+        conv = Conversation(title="Test", user_id="user1")
+        db_session.add(conv)
+        db_session.commit()
+        assert conv.id is not None
+        assert conv.title == "Test"
+        assert conv.user_id == "user1"
+        assert isinstance(conv.created_at, datetime)
+
+    def test_conversation_repr(self, db_session):
+        conv = Conversation(title="My Conv", user_id="user1")
+        db_session.add(conv); db_session.commit()
+        assert "My Conv" in repr(conv)
+
+    def test_conversation_cascade_delete(self, db_session):
+        conv = Conversation(title="Test", user_id="user1")
+        db_session.add(conv); db_session.commit()
+        msg = Message(conversation_id=conv.id, role=MessageRole.USER, content="hi")
+        db_session.add(msg); db_session.commit()
+        conv_id = conv.id
+        db_session.delete(conv); db_session.commit()
+        assert db_session.query(Message).filter(Message.conversation_id == conv_id).count() == 0
+
+    def test_message_roles(self, db_session):
+        conv = Conversation(title="Test", user_id="u1")
+        db_session.add(conv); db_session.commit()
+        for role in [MessageRole.USER, MessageRole.ASSISTANT, MessageRole.SYSTEM]:
+            msg = Message(conversation_id=conv.id, role=role, content="x")
+            db_session.add(msg)
+        db_session.commit()
+        assert db_session.query(Message).filter(Message.conversation_id == conv.id).count() == 3
 
 
-def test_product_defaults(in_memory_db):
-    """Test default values for Product model."""
-    product = Product(
-        name="minimal_product",
-        display_name="Minimal Product",
-        price=Decimal("0.00"),
-    )
-    
-    in_memory_db.add(product)
-    in_memory_db.commit()
-    
-    assert product.currency == "USD"
-    assert product.is_active is True
-    assert product.price == Decimal("0.00")
+# ?? Product model tests ???????????????????????????????????????????????????????
 
+class TestProductModel:
 
-def test_product_unique_name(in_memory_db):
-    """Test that product names must be unique."""
-    product1 = Product(
-        name="unique_product",
-        display_name="First Product",
-        price=Decimal("10.00"),
-    )
-    
-    product2 = Product(
-        name="unique_product",
-        display_name="Second Product",
-        price=Decimal("20.00"),
-    )
-    
-    in_memory_db.add(product1)
-    in_memory_db.commit()
-    
-    in_memory_db.add(product2)
-    
-    with pytest.raises(Exception):  # SQLAlchemy will raise IntegrityError
-        in_memory_db.commit()
+    def test_create_product_required_fields(self, db_session):
+        product = Product(
+            name="synpro-vdt",
+            jira_project_key="SDT1",
+            github_repo="synproconsulting/synpro-virtual-dev-team",
+        )
+        db_session.add(product)
+        db_session.commit()
+        assert product.id is not None
+        assert product.name == "synpro-vdt"
+        assert product.jira_project_key == "SDT1"
+        assert product.github_repo == "synproconsulting/synpro-virtual-dev-team"
 
+    def test_product_optional_fields_default_none(self, db_session):
+        product = Product(name="p1", jira_project_key="KEY1", github_repo="org/repo")
+        db_session.add(product); db_session.commit()
+        assert product.railway_service_id is None
+        assert product.sonarcloud_key is None
 
-def test_product_repr(in_memory_db):
-    """Test Product string representation."""
-    product = Product(
-        name="repr_test",
-        display_name="Repr Test Product",
-        price=Decimal("50.00"),
-    )
-    
-    in_memory_db.add(product)
-    in_memory_db.commit()
-    
-    repr_str = repr(product)
-    
-    assert "Product" in repr_str
-    assert "repr_test" in repr_str
-    assert str(product.id) in repr_str
+    def test_product_with_all_fields(self, db_session):
+        product = Product(
+            name="full-product",
+            jira_project_key="FP1",
+            github_repo="org/full-product",
+            railway_service_id="railway-uuid-123",
+            sonarcloud_key="org_full-product",
+        )
+        db_session.add(product); db_session.commit()
+        assert product.railway_service_id == "railway-uuid-123"
+        assert product.sonarcloud_key == "org_full-product"
 
+    def test_product_name_unique(self, db_session):
+        from sqlalchemy.exc import IntegrityError
+        db_session.add(Product(name="unique", jira_project_key="K1", github_repo="o/r"))
+        db_session.commit()
+        db_session.add(Product(name="unique", jira_project_key="K2", github_repo="o/r2"))
+        with pytest.raises(IntegrityError):
+            db_session.commit()
 
-def test_product_to_dict(in_memory_db):
-    """Test converting Product to dictionary."""
-    product = Product(
-        name="dict_test",
-        display_name="Dict Test Product",
-        description="Test description",
-        price=Decimal("75.50"),
-        currency="EUR",
-        is_active=False,
-        configuration='{"key": "value"}',
-    )
-    
-    in_memory_db.add(product)
-    in_memory_db.commit()
-    
-    product_dict = product.to_dict()
-    
-    assert product_dict["id"] == product.id
-    assert product_dict["name"] == "dict_test"
-    assert product_dict["display_name"] == "Dict Test Product"
-    assert product_dict["description"] == "Test description"
-    assert product_dict["price"] == 75.50
-    assert product_dict["currency"] == "EUR"
-    assert product_dict["is_active"] is False
-    assert product_dict["configuration"] == '{"key": "value"}'
-    assert "created_at" in product_dict
-    assert "updated_at" in product_dict
+    def test_product_repr(self, db_session):
+        product = Product(name="my-product", jira_project_key="MP1", github_repo="org/mp")
+        db_session.add(product); db_session.commit()
+        assert "my-product" in repr(product)
+        assert "MP1" in repr(product)
 
-
-def test_product_nullable_fields(in_memory_db):
-    """Test that nullable fields can be None."""
-    product = Product(
-        name="nullable_test",
-        display_name="Nullable Test",
-        price=Decimal("0.00"),
-        description=None,
-        configuration=None,
-    )
-    
-    in_memory_db.add(product)
-    in_memory_db.commit()
-    
-    assert product.description is None
-    assert product.configuration is None
-
-
-def test_product_update_timestamp(in_memory_db):
-    """Test that updated_at timestamp changes on update."""
-    product = Product(
-        name="timestamp_test",
-        display_name="Timestamp Test",
-        price=Decimal("100.00"),
-    )
-    
-    in_memory_db.add(product)
-    in_memory_db.commit()
-    
-    original_updated_at = product.updated_at
-    
-    # Update product
-    product.price = Decimal("150.00")
-    in_memory_db.commit()
-    in_memory_db.refresh(product)
-    
-    # Note: In SQLite, the onupdate may not work as expected
-    # This test documents the intended behavior
-    assert product.price == Decimal("150.00")
+    def test_product_has_no_price_or_currency(self, db_session):
+        product = Product(name="vdt-product", jira_project_key="VDT", github_repo="org/vdt")
+        db_session.add(product); db_session.commit()
+        assert not hasattr(product, "price")
+        assert not hasattr(product, "currency")
+        assert not hasattr(product, "display_name")
+        assert not hasattr(product, "is_active")
