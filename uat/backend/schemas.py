@@ -1,65 +1,78 @@
-"""Pydantic schemas for conversations and messages."""
+"""Pydantic schemas for request/response validation.
+
+This module defines Pydantic models for validating API requests
+and serializing responses for the UAT backend.
+"""
 
 from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional
+from pydantic import BaseModel, Field, condecimal, validator
 
 
-class MessageBase(BaseModel):
-    """Base schema for message data."""
-    role: str = Field(..., description="Role of the message sender (user, assistant, or system)")
-    content: str = Field(..., min_length=1, description="Content of the message")
+class ProductBase(BaseModel):
+    """Base schema for Product with common attributes."""
+    
+    name: str = Field(..., min_length=1, max_length=255, description="Unique product identifier name")
+    display_name: str = Field(..., min_length=1, max_length=255, description="Display name for the product")
+    description: Optional[str] = Field(None, description="Product description")
+    price: condecimal(max_digits=10, decimal_places=2) = Field(..., ge=0, description="Product price")
+    currency: str = Field(default="USD", min_length=3, max_length=3, description="Currency code (ISO 4217)")
+    is_active: bool = Field(default=True, description="Whether the product is active")
+    configuration: Optional[str] = Field(None, description="JSON configuration for product-specific settings")
+    
+    @validator('currency')
+    def validate_currency_uppercase(cls, v: str) -> str:
+        """Ensure currency code is uppercase.
+        
+        Args:
+            v: Currency code string
+            
+        Returns:
+            str: Uppercase currency code
+        """
+        return v.upper()
 
 
-class MessageCreate(MessageBase):
-    """Schema for creating a new message."""
-    conversation_id: int = Field(..., gt=0, description="ID of the conversation this message belongs to")
+class ProductCreate(ProductBase):
+    """Schema for creating a new product."""
+    pass
 
 
-class MessageResponse(MessageBase):
-    """Schema for message responses."""
-    id: int = Field(..., description="Unique identifier for the message")
-    conversation_id: int = Field(..., description="ID of the parent conversation")
-    created_at: datetime = Field(..., description="Timestamp when the message was created")
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ConversationBase(BaseModel):
-    """Base schema for conversation data."""
-    title: str = Field(..., min_length=1, max_length=255, description="Title of the conversation")
-
-
-class ConversationCreate(ConversationBase):
-    """Schema for creating a new conversation."""
-    user_id: str = Field(..., min_length=1, max_length=100, description="ID of the user creating the conversation")
-
-
-class ConversationUpdate(BaseModel):
-    """Schema for updating an existing conversation."""
-    title: Optional[str] = Field(None, min_length=1, max_length=255, description="Updated title for the conversation")
-
-
-class ConversationResponse(ConversationBase):
-    """Schema for conversation responses without messages."""
-    id: int = Field(..., description="Unique identifier for the conversation")
-    user_id: str = Field(..., description="ID of the user who owns this conversation")
-    created_at: datetime = Field(..., description="Timestamp when the conversation was created")
-    updated_at: datetime = Field(..., description="Timestamp when the conversation was last updated")
-
-    model_config = ConfigDict(from_attributes=True)
+class ProductUpdate(BaseModel):
+    """Schema for updating an existing product.
+    
+    All fields are optional to allow partial updates.
+    """
+    
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    display_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = None
+    price: Optional[condecimal(max_digits=10, decimal_places=2)] = Field(None, ge=0)
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    is_active: Optional[bool] = None
+    configuration: Optional[str] = None
+    
+    @validator('currency')
+    def validate_currency_uppercase(cls, v: Optional[str]) -> Optional[str]:
+        """Ensure currency code is uppercase.
+        
+        Args:
+            v: Currency code string or None
+            
+        Returns:
+            str or None: Uppercase currency code or None
+        """
+        return v.upper() if v else None
 
 
-class ConversationWithMessages(ConversationResponse):
-    """Schema for conversation responses including all messages."""
-    messages: List[MessageResponse] = Field(default_factory=list, description="List of messages in the conversation")
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ConversationListResponse(BaseModel):
-    """Schema for paginated conversation list responses."""
-    conversations: List[ConversationResponse] = Field(..., description="List of conversations")
-    total: int = Field(..., ge=0, description="Total number of conversations")
-    page: int = Field(..., ge=1, description="Current page number")
-    page_size: int = Field(..., ge=1, description="Number of items per page")
+class ProductResponse(ProductBase):
+    """Schema for product response including database fields."""
+    
+    id: int = Field(..., description="Product ID")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+    
+    class Config:
+        """Pydantic configuration."""
+        from_attributes = True
+        orm_mode = True
