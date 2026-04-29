@@ -180,17 +180,21 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
         )
     else:
         prompt = (
-            "Implement this Jira ticket as Python code.\n\n"
+            "Implement this Jira ticket as Python code for the UAT backend.\n\n"
             "Ticket: [" + ticket + "] " + summary + feedback_section + "\n\n"
-            "Rules:\n"
-            "- Create ONLY new files under src/auth/ and tests/\n"
-            "- Do NOT include README.md, requirements.txt, or __init__.py\n"
+            "CRITICAL — Repository layout rules:\n"
+            "- uat/backend/ uses a FLAT layout. All Python files go directly in uat/backend/.\n"
+            "  NO src/ subdirectory. NO package __init__.py files.\n"
+            "  Tests go in uat/backend/tests/. Use flat imports (e.g. from models import ...).\n"
+            "  Existing files: uat/backend/main.py, uat/backend/models.py, uat/backend/database.py\n"
+            "- Do NOT create files under src/ or root-level tests/\n"
+            "- Do NOT include README.md or requirements.txt unless the ticket explicitly requires it\n"
             "- Python 3.11+, type hints, docstrings, pytest\n"
             "- Keep each file under 150 lines\n"
             "- No hardcoded secrets\n\n"
             "Respond with ONLY this JSON structure:\n"
-            '{"files":[{"path":"src/auth/x.py","content":"..."},{"path":"tests/test_x.py","content":"..."}],'
-            '"readme_section":"## Title\\n\\none paragraph","new_requirements":[],"new_exports":["ClassName"],"pr_body":"..."}'
+            '{"files":[{"path":"uat/backend/x.py","content":"..."},{"path":"uat/backend/tests/test_x.py","content":"..."}],'
+            '"readme_section":"","new_requirements":[],"new_exports":[],"pr_body":"..."}'
         )
 
     print("\nAsking Claude to implement the ticket...")
@@ -285,16 +289,7 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
                 if ok:
                     committed.append("requirements.txt")
 
-        # Update src/auth/__init__.py
-        if new_exports and existing_init:
-            additions = "\n".join(f"from src.auth.{files[0].get('path','').split('/')[-1].replace('.py','')} import {e}"
-                                  for e in new_exports if e not in existing_init)
-            if additions:
-                new_init = existing_init.rstrip() + "\n" + additions + "\n"
-                ok = commit_file("src/auth/__init__.py", new_init, commit_msg, branch)
-                print(f"  {'✓' if ok else '✗'} src/auth/__init__.py (updated)")
-                if ok:
-                    committed.append("src/auth/__init__.py")
+        # Flat uat/backend/ layout has no __init__.py to update
     else:
         print("  ℹ Control Centre ticket — skipping shared file updates (README, requirements, __init__)")
 
