@@ -165,31 +165,38 @@ def process_ticket(ticket):
 
     console.print(f"\n[bold cyan]━━━ [{key}]: {summary[:60]} ━━━[/bold cyan]")
 
-    # Step 1: Trigger Auto Implement
-    console.print(f"  [cyan]1/5 Triggering Auto Implement...[/cyan]")
-    ok = trigger_workflow("auto-implement.yml", {
-        "ticket": key, "summary": summary, "feedback": ""
-    })
-    if not ok:
-        console.print(f"  [red]✗ Failed to trigger Auto Implement[/red]")
-        return "failed"
-    console.print(f"  [green]✓ Auto Implement triggered[/green]")
+    # Check for an existing open PR before triggering Auto Implement.
+    # This handles the case where a previous Orchestrator run triggered
+    # Auto Implement but timed out waiting for the PR — the workflow may
+    # have continued running and opened a PR after the timeout.
+    pr_number = get_open_pr_for_ticket(key)
+    if pr_number:
+        console.print(f"  [yellow]↩ Open PR #{pr_number} already exists — skipping Auto Implement[/yellow]")
+    else:
+        # Step 1: Trigger Auto Implement
+        console.print(f"  [cyan]1/5 Triggering Auto Implement...[/cyan]")
+        ok = trigger_workflow("auto-implement.yml", {
+            "ticket": key, "summary": summary, "feedback": ""
+        })
+        if not ok:
+            console.print(f"  [red]✗ Failed to trigger Auto Implement[/red]")
+            return "failed"
+        console.print(f"  [green]✓ Auto Implement triggered[/green]")
 
-    # Step 2: Wait for PR to open (5 min)
-    console.print(f"  [cyan]2/5 Waiting for PR to open...[/cyan]")
-    pr_number = None
-    for i in range(30):
-        time.sleep(10)
-        pr_number = get_open_pr_for_ticket(key)
-        if pr_number:
-            console.print(f"  [green]✓ PR #{pr_number} opened[/green]")
-            break
-        if i % 6 == 5:
-            console.print(f"  [dim]    Still waiting... ({(i+1)*10}s elapsed)[/dim]")
+        # Step 2: Wait for PR to open (5 min)
+        console.print(f"  [cyan]2/5 Waiting for PR to open...[/cyan]")
+        for i in range(30):
+            time.sleep(10)
+            pr_number = get_open_pr_for_ticket(key)
+            if pr_number:
+                console.print(f"  [green]✓ PR #{pr_number} opened[/green]")
+                break
+            if i % 6 == 5:
+                console.print(f"  [dim]    Still waiting... ({(i+1)*10}s elapsed)[/dim]")
 
-    if not pr_number:
-        console.print(f"  [red]✗ No PR opened after 5 minutes — skipping[/red]")
-        return "failed"
+        if not pr_number:
+            console.print(f"  [red]✗ No PR opened after 5 minutes — skipping[/red]")
+            return "failed"
 
     # Step 3: Wait for CI (15 min)
     console.print(f"  [cyan]3/5 Waiting for CI on PR #{pr_number}...[/cyan]")
