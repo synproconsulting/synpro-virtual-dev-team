@@ -66,6 +66,8 @@ def gh_read_file(path, branch="main"):
     if not r.ok:
         return None
     data = r.json()
+    if isinstance(data, list):  # GitHub returns a list when path is a directory, not a file
+        return None
     return base64.b64decode(data["content"]).decode("utf-8")
 
 def gh_commit_files(files, message, branch):
