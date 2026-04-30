@@ -37,25 +37,24 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          if [ -d src ]; then
-            flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
-            flake8 src/ --count --max-line-length=120 --statistics --exit-zero
+          if [ -d uat/backend ]; then
+            flake8 uat/backend/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
+            flake8 uat/backend/ --count --max-line-length=120 --statistics --exit-zero
           else
-            echo "No src/ directory yet - skipping lint"
+            echo "No uat/backend/ directory - skipping lint"
           fi
 
       - name: Run tests with coverage
         run: |
-          if [ -d tests ]; then
-            pytest tests/ \
-              --ignore=tests/e2e \
-              --cov=src \
+          if [ -d uat/backend/tests ]; then
+            pytest uat/backend/tests/ \
+              --cov=uat/backend \
               --cov-report=xml \
               --cov-report=term-missing \
               --tb=short \
               -v || true
           else
-            echo "No tests/ directory yet - skipping tests"
+            echo "No uat/backend/tests/ directory - skipping tests"
           fi
 
       - name: Upload coverage report
@@ -85,10 +84,10 @@ jobs:
 
       - name: Run bandit security scan
         run: |
-          if [ -d src ]; then
-            bandit -r src/ -f json -o bandit-report.json --exit-zero
+          if [ -d uat/backend ]; then
+            bandit -r uat/backend/ -f json -o bandit-report.json --exit-zero
           else
-            echo "No src/ directory yet - skipping security scan"
+            echo "No uat/backend/ directory - skipping security scan"
             echo "{}" > bandit-report.json
           fi
 
@@ -126,8 +125,8 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           find . -name "requirements*.txt" -not -path "./.git/*" \
             -exec pip install -r {} \; 2>/dev/null || true
-          if [ -d tests ]; then
-            pytest tests/ --ignore=tests/e2e --cov=src --cov-report=xml -q || true
+          if [ -d uat/backend/tests ]; then
+            pytest uat/backend/tests/ --cov=uat/backend --cov-report=xml -q || true
           fi
 
       - name: SonarCloud scan
