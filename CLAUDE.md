@@ -235,6 +235,18 @@ These are conscious design choices — not defaults or accidents. Understanding 
 
 ---
 
+### AD-20 · Manager Agent merge must use `PAT_TOKEN`, not `GITHUB_TOKEN`
+
+**Decision:** `merge_pr()` in `ci_manager_agent.py` uses `DISPATCH_HEADERS` (`PAT_TOKEN`) for the `PUT /pulls/{pr_number}/merge` API call, not `GH_HEADERS` (`GITHUB_TOKEN`).
+
+**Why:** GitHub does not fire `push` events for actions performed by `GITHUB_TOKEN` — this is the same recursive-loop prevention that blocks `GITHUB_TOKEN` from dispatching workflows (AD-15, AD-18). Every Manager Agent squash merge using `GITHUB_TOKEN` produced no push event on `main`, so `ci.yml` never ran and Railway never received a deploy trigger. All Sprint 5 merges (2026-04-30) produced zero CI runs on `main` as a result — the UAT backend ran stale code until the RAILWAY_TOKEN was manually rotated and a deploy manually triggered.
+
+**Consequence:** `DISPATCH_HEADERS` is now used for three operations: workflow dispatch retriggers, the merge call, and any future write that must produce observable side effects on `main`. `GH_HEADERS` (`GITHUB_TOKEN`) is safe only for operations that do not need to trigger downstream workflows — PR reads, review comments, CI status checks.
+
+**Do not:** Revert `merge_pr()` to `GH_HEADERS`. The CI and Railway deploy pipelines depend on the PAT-triggered push event.
+
+---
+
 ## Repository
 
 - **GitHub org:** `synproconsulting`
