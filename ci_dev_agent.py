@@ -2,12 +2,12 @@
 ci_dev_agent.py
 ────────────────
 Self-contained Dev Agent for GitHub Actions.
-Implements a Jira ticket by writing code, committing to a branch, and opening a PR.
-Reads existing shared files before writing to avoid replacing them.
+Uses a proper SDK tool-use loop: Claude reads existing files, stages changes,
+then all staged files are committed in a single clean commit and a PR is opened.
 
 Usage:
     python ci_dev_agent.py --ticket SDT1-13 --summary "Delete user account"
-    python ci_dev_agent.py --ticket SDT1-13 --summary "Delete user account" --feedback "Do not replace README"
+    python ci_dev_agent.py --ticket SDT1-13 --summary "Delete user account" --feedback "..."
 """
 
 import os
@@ -17,6 +17,12 @@ import base64
 import argparse
 import requests
 import anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -35,276 +41,319 @@ BASE = f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}"
 
 # ── GitHub helpers ─────────────────────────────────────────────────────────────
 
-def get_default_branch():
-    r = requests.get(BASE, headers=GH_HEADERS)
-    return r.json().get("default_branch", "main")
-
 def get_branch_sha(branch):
     r = requests.get(f"{BASE}/git/ref/heads/{branch}", headers=GH_HEADERS)
     if not r.ok:
         return None
     return r.json()["object"]["sha"]
 
-def create_branch(branch_name, from_branch="main"):
-    # Always get latest SHA from main
+def gh_create_branch(branch_name, from_branch="main"):
     sha = get_branch_sha(from_branch)
     if not sha:
-        print(f"Could not get SHA for {from_branch}")
-        return False
-
-    # Delete existing branch if it exists (ensures fresh start from latest main)
+        return False, f"Could not get SHA for {from_branch}"
     existing = get_branch_sha(branch_name)
     if existing:
         print(f"Branch {branch_name} exists — deleting and recreating from latest main")
         requests.delete(f"{BASE}/git/refs/heads/{branch_name}", headers=GH_HEADERS)
-
     r = requests.post(f"{BASE}/git/refs", headers=GH_HEADERS, json={
         "ref": f"refs/heads/{branch_name}",
         "sha": sha,
     })
-    return r.status_code == 201
+    return r.status_code == 201, branch_name
 
-def get_file_content(path, branch="main"):
-    r = requests.get(f"{BASE}/contents/{path}",
-                     headers=GH_HEADERS, params={"ref": branch})
+def gh_read_file(path, branch="main"):
+    r = requests.get(f"{BASE}/contents/{path}", headers=GH_HEADERS, params={"ref": branch})
     if not r.ok:
-        return None, None
+        return None
     data = r.json()
-    content = base64.b64decode(data["content"]).decode("utf-8")
-    return content, data["sha"]
+    return base64.b64decode(data["content"]).decode("utf-8")
 
-def commit_file(path, content, message, branch):
-    existing_content, sha = get_file_content(path, branch)
-    encoded = base64.b64encode(content.encode("utf-8")).decode("utf-8")
-    payload = {"message": message, "content": encoded, "branch": branch}
-    if sha:
-        payload["sha"] = sha
-    r = requests.put(f"{BASE}/contents/{path}", headers=GH_HEADERS, json=payload)
-    return r.status_code in (200, 201)
+def gh_commit_files(files, message, branch):
+    """Commit multiple files in a single tree commit."""
+    base_sha = get_branch_sha(branch)
+    if not base_sha:
+        return False, "Branch not found"
 
-def create_pr(title, body, head_branch, base_branch="main"):
-    # Check for existing PR
+    r = requests.get(f"{BASE}/git/commits/{base_sha}", headers=GH_HEADERS)
+    if not r.ok:
+        return False, "Could not get base commit"
+    base_tree_sha = r.json()["tree"]["sha"]
+
+    tree_items = []
+    for f in files:
+        blob_r = requests.post(f"{BASE}/git/blobs", headers=GH_HEADERS,
+                               json={"content": f["content"], "encoding": "utf-8"})
+        if not blob_r.ok:
+            return False, f"Failed to create blob for {f['path']}"
+        tree_items.append({
+            "path": f["path"],
+            "mode": "100644",
+            "type": "blob",
+            "sha": blob_r.json()["sha"],
+        })
+
+    tree_r = requests.post(f"{BASE}/git/trees", headers=GH_HEADERS,
+                           json={"base_tree": base_tree_sha, "tree": tree_items})
+    if not tree_r.ok:
+        return False, f"Failed to create tree: {tree_r.text[:200]}"
+
+    commit_r = requests.post(f"{BASE}/git/commits", headers=GH_HEADERS,
+                             json={"message": message, "tree": tree_r.json()["sha"],
+                                   "parents": [base_sha]})
+    if not commit_r.ok:
+        return False, f"Failed to create commit: {commit_r.text[:200]}"
+
+    ref_r = requests.patch(f"{BASE}/git/refs/heads/{branch}", headers=GH_HEADERS,
+                           json={"sha": commit_r.json()["sha"], "force": False})
+    if not ref_r.ok:
+        return False, f"Failed to update branch ref: {ref_r.text[:200]}"
+
+    return True, commit_r.json()["sha"]
+
+def gh_create_pr(title, body, head_branch, base_branch="main"):
     existing = requests.get(f"{BASE}/pulls", headers=GH_HEADERS,
                             params={"head": f"{GITHUB_USERNAME}:{head_branch}", "state": "open"})
     if existing.ok and existing.json():
         pr = existing.json()[0]
         return pr["number"], pr["html_url"]
-    r = requests.post(f"{BASE}/pulls", headers=GH_HEADERS, json={
-        "title": title, "body": body,
-        "head": head_branch, "base": base_branch,
-    })
+    r = requests.post(f"{BASE}/pulls", headers=GH_HEADERS,
+                      json={"title": title, "body": body,
+                            "head": head_branch, "base": base_branch})
     if r.ok:
         return r.json()["number"], r.json()["html_url"]
     return None, None
 
 
-# ── Main implementation logic ──────────────────────────────────────────────────
+# ── Tool definitions ──────────────────────────────────────────────────────────
+
+TOOLS = [
+    {
+        "name": "create_branch",
+        "description": (
+            "Create the feature branch from latest main, deleting any existing branch "
+            "with the same name. Call this first, before reading or staging any files."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "branch_name": {
+                    "type": "string",
+                    "description": "Branch name e.g. feature/sdt1-13-delete-account",
+                },
+            },
+            "required": ["branch_name"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": (
+            "Read the current content of a file from the repository. "
+            "Always call this before staging any file that may already exist — "
+            "you must merge your changes into the existing content, never overwrite."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path":   {"type": "string", "description": "File path relative to repo root"},
+                "branch": {"type": "string", "description": "Branch to read from (default: main)"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "stage_file",
+        "description": (
+            "Stage a file for the commit. All staged files are committed together "
+            "in one clean commit when you call create_pr. "
+            "For files that already exist, call read_file first and merge your changes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path":    {"type": "string", "description": "File path relative to repo root"},
+                "content": {"type": "string", "description": "Complete file content"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "create_pr",
+        "description": (
+            "Commit all staged files in a single clean commit and open a pull request. "
+            "Call this only after staging all files. "
+            "PR title format: [TICKET-ID] Brief description"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "PR title e.g. [SDT1-13] Delete user account"},
+                "body":  {"type": "string", "description": "PR body — what was implemented, how to test"},
+            },
+            "required": ["title", "body"],
+        },
+    },
+]
+
+
+# ── Tool executor ─────────────────────────────────────────────────────────────
+
+def execute_tool(name, inputs, state):
+    """Execute a tool call. state carries branch and staged files across calls."""
+    if name == "create_branch":
+        branch_name = inputs["branch_name"]
+        ok, result = gh_create_branch(branch_name)
+        if ok:
+            state["branch"] = branch_name
+            print(f"  create_branch: {branch_name}")
+            return f"Branch '{branch_name}' created from latest main."
+        print(f"  create_branch FAILED: {result}")
+        return f"ERROR: {result}"
+
+    elif name == "read_file":
+        path   = inputs["path"]
+        branch = inputs.get("branch", "main")
+        content = gh_read_file(path, branch)
+        if content is None:
+            print(f"  read_file: {path} (not found on {branch})")
+            return f"File '{path}' does not exist on branch '{branch}'."
+        print(f"  read_file: {path} ({len(content)} chars from {branch})")
+        return content
+
+    elif name == "stage_file":
+        path    = inputs["path"]
+        content = inputs["content"]
+        state["staged"][path] = content
+        print(f"  stage_file: {path} ({len(content)} chars) — total staged: {len(state['staged'])}")
+        return f"File '{path}' staged. Total staged: {len(state['staged'])}."
+
+    elif name == "create_pr":
+        branch = state.get("branch")
+        staged = state.get("staged", {})
+        if not branch:
+            return "ERROR: No branch created yet. Call create_branch first."
+        if not staged:
+            return "ERROR: No files staged. Call stage_file for each file first."
+
+        files = [{"path": p, "content": c} for p, c in staged.items()]
+        ticket  = state.get("ticket", "unknown")
+        summary = state.get("summary", "")
+        commit_msg = f"feat({ticket.lower()}): {summary[:60].lower()}"
+
+        print(f"\nCommitting {len(files)} file(s) to {branch}...")
+        ok, result = gh_commit_files(files, commit_msg, branch)
+        if not ok:
+            return f"ERROR: Commit failed — {result}"
+        print(f"  committed sha: {str(result)[:8]}")
+        for f in files:
+            print(f"    {f['path']}")
+
+        pr_num, pr_url = gh_create_pr(inputs["title"], inputs["body"], branch)
+        if pr_num:
+            state["pr_number"] = pr_num
+            state["pr_url"]    = pr_url
+            print(f"  PR #{pr_num} opened: {pr_url}")
+            return f"PR #{pr_num} opened: {pr_url}"
+        return "ERROR: PR creation failed."
+
+    return f"ERROR: Unknown tool '{name}'"
+
+
+# ── Main implementation loop ──────────────────────────────────────────────────
+
+SYSTEM_PROMPT = """You are a skilled Python/React developer implementing Jira tickets.
+
+Workflow (follow this exact order):
+1. Call create_branch with the feature branch name
+2. For every file you intend to modify or extend, call read_file first
+3. Call stage_file for each new or modified file (with complete file content)
+4. Call create_pr to commit everything atomically and open the PR
+
+Repository layout rules:
+- uat/backend/ is FLAT: all Python files directly in uat/backend/, no src/ subdirectory,
+  no __init__.py files. Tests in uat/backend/tests/. Flat imports: from models import ...
+- control-centre/src/components/ for React components; control-centre/src/api/ for API helpers
+- Root-level agents/, tools/ for agent/orchestration code
+
+Code standards:
+- Python 3.11+, type hints on all functions, docstrings on all public functions/classes
+- No hardcoded secrets — environment variables only
+- Write meaningful pytest tests for all new backend logic
+- Keep files focused; split across multiple files rather than one large file
+
+Merge rule: If read_file returns content, you MUST incorporate the existing content
+into your staged version — never discard existing code when extending a file.
+
+PR title format: [TICKET-ID] Brief description
+"""
+
 
 def implement_ticket(ticket: str, summary: str, feedback: str = ""):
-    print(f"\n=== CI Dev Agent implementing [{ticket}]: {summary} ===\n")
+    print(f"\n=== CI Dev Agent [{ticket}]: {summary} ===\n")
 
-    # Make branch name
-    slug = re.sub(r'[^a-z0-9-]', '-', summary.lower())[:40].rstrip('-')
-    branch = f"feature/{ticket.lower()}-{slug}"
-    print(f"Branch: {branch}")
+    slug        = re.sub(r'[^a-z0-9-]', '-', summary.lower())[:40].rstrip('-')
+    branch_name = f"feature/{ticket.lower()}-{slug}"
 
-    # Detect if this is a Control Centre / dashboard ticket
-    is_control_centre = any(kw in summary.lower() for kw in [
-        "control centre", "control center", "dashboard", "ui", "sprint status",
-        "workflow monitor", "deployment interface", "sonarcloud", "pm agent chat",
-        "sprint trigger", "auto review"
-    ])
-    print(f"Control Centre ticket: {is_control_centre}")
-
-    # Read existing shared files from main
-    existing_readme, _ = get_file_content("README.md", "main")
-    existing_reqs, _   = get_file_content("requirements.txt", "main")
-    existing_init, _   = get_file_content("src/auth/__init__.py", "main")
-    existing_test_init, _ = get_file_content("tests/__init__.py", "main")
-
-    print(f"Existing README: {'found' if existing_readme else 'not found'}")
-    print(f"Existing requirements.txt: {'found' if existing_reqs else 'not found'}")
-
-    # Read existing control-centre files for context
-    existing_cc_files = {}
-    if is_control_centre:
-        print("Reading existing control-centre files for context...")
-        cc_paths = [
-            "control-centre/src/App.jsx",
-            "control-centre/src/components/Dashboard.jsx",
-            "control-centre/src/components/SprintStatus.jsx",
-            "control-centre/src/components/WorkflowMonitor.jsx",
-            "control-centre/src/components/SprintTrigger.jsx",
-            "control-centre/src/components/DeploymentPanel.jsx",
-            "control-centre/src/components/SonarCloud.jsx",
-            "control-centre/src/components/PMAgentChat.jsx",
-            "control-centre/src/api.js",
-            "control-centre/package.json",
-            "control-centre/README.md",
-        ]
-        for path in cc_paths:
-            content_str, _ = get_file_content(path, "main")
-            if content_str:
-                existing_cc_files[path] = content_str
-                print(f"  Found: {path}")
-        print(f"  Total existing CC files: {len(existing_cc_files)}")
-
-    # Ask Claude to generate the implementation
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-
-    feedback_section = f"\n\nFEEDBACK FROM PREVIOUS ATTEMPT (must address these):\n{feedback}" if feedback else ""
-
-    if is_control_centre:
-        # Build context from existing CC files
-        cc_context = ""
-        if existing_cc_files:
-            cc_context = "\n\nEXISTING CONTROL CENTRE FILES (build on top of these):\n"
-            for path, file_content in existing_cc_files.items():
-                cc_context += f"\n--- {path} ---\n{file_content[:1000]}\n"
-            cc_context += "\n(end of existing files)\n"
-
-        prompt = (
-            "Implement this Jira ticket as a React feature for the Control Centre dashboard.\n\n"
-            "Ticket: [" + ticket + "] " + summary + feedback_section + cc_context + "\n\n"
-            "Rules:\n"
-            "- Create files under control-centre/ directory ONLY\n"
-            "- For React components: control-centre/src/components/\n"
-            "- For API helpers: control-centre/src/api/\n"
-            "- Do NOT touch src/auth/, tests/, README.md, requirements.txt, or __init__.py\n"
-            "- Build on top of existing files shown above — do not recreate what exists\n"
-            "- Each file focused and under 200 lines\n"
-            "- No hardcoded secrets — use environment variables\n\n"
-            "Respond with ONLY this JSON structure:\n"
-            '{"files":[{"path":"control-centre/src/components/X.jsx","content":"..."}],'
-            '"readme_section":"","new_requirements":[],"new_exports":[],"pr_body":"..."}'
-        )
-    else:
-        prompt = (
-            "Implement this Jira ticket as Python code for the UAT backend.\n\n"
-            "Ticket: [" + ticket + "] " + summary + feedback_section + "\n\n"
-            "CRITICAL — Repository layout rules:\n"
-            "- uat/backend/ uses a FLAT layout. All Python files go directly in uat/backend/.\n"
-            "  NO src/ subdirectory. NO package __init__.py files.\n"
-            "  Tests go in uat/backend/tests/. Use flat imports (e.g. from models import ...).\n"
-            "  Existing files: uat/backend/main.py, uat/backend/models.py, uat/backend/database.py\n"
-            "- Do NOT create files under src/ or root-level tests/\n"
-            "- Do NOT include README.md or requirements.txt unless the ticket explicitly requires it\n"
-            "- Python 3.11+, type hints, docstrings, pytest\n"
-            "- Keep each file under 150 lines\n"
-            "- No hardcoded secrets\n\n"
-            "Respond with ONLY this JSON structure:\n"
-            '{"files":[{"path":"uat/backend/x.py","content":"..."},{"path":"uat/backend/tests/test_x.py","content":"..."}],'
-            '"readme_section":"","new_requirements":[],"new_exports":[],"pr_body":"..."}'
-        )
-
-    print("\nAsking Claude to implement the ticket...")
-    response = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=16000,
-        messages=[{"role": "user", "content": prompt}]
+    feedback_section = (
+        f"\n\nFEEDBACK FROM PREVIOUS ATTEMPT (address all points):\n{feedback}"
+        if feedback else ""
     )
 
-    raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = "\n".join(raw.split("\n")[1:-1])
+    user_message = (
+        f"Implement this Jira ticket: [{ticket}] {summary}{feedback_section}\n\n"
+        f"Suggested branch name: {branch_name}"
+    )
 
-    import json
-    try:
-        result = json.loads(raw)
-    except json.JSONDecodeError as e:
-        print(f"JSON parse error: {e}")
-        # Try to salvage partial JSON by extracting files array
-        files_match = re.findall(
-            r'\{"path":\s*"([^"]+)",\s*"content":\s*"((?:[^"\\]|\\.)*)"\s*\}',
-            raw
+    client   = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    messages = [{"role": "user", "content": user_message}]
+    state    = {"ticket": ticket, "summary": summary, "branch": None, "staged": {}}
+
+    print("Starting tool-use loop...\n")
+    for iteration in range(40):
+        response = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=16000,
+            system=SYSTEM_PROMPT,
+            tools=TOOLS,
+            messages=messages,
         )
-        if files_match:
-            print(f"Salvaged {len(files_match)} files from partial JSON")
-            result = {
-                "files": [{"path": p, "content": c.replace("\\n", "\n").replace('\\"', '"')}
-                          for p, c in files_match],
-                "readme_section": "",
-                "new_requirements": [],
-                "new_exports": [],
-                "pr_body": "Implements " + summary
-            }
-        else:
-            print(f"Raw (first 500 chars): {raw[:500]}")
-            sys.exit(1)
 
-    files            = result.get("files", [])
-    pr_body          = result.get("pr_body", "Implements " + summary)
-    readme_section   = result.get("readme_section", "")
-    new_requirements = result.get("new_requirements", [])
-    new_exports      = result.get("new_exports", [])
-    print(f"\nClaude generated {len(files)} new files")
+        for block in response.content:
+            if block.type == "text" and block.text.strip():
+                print(f"Claude: {block.text[:400]}")
 
-    # Create branch
-    print(f"\nCreating branch {branch}...")
-    if not create_branch(branch):
-        print("Failed to create branch")
-        sys.exit(1)
+        if response.stop_reason == "end_turn":
+            print(f"\nAgent finished after {iteration + 1} iteration(s).")
+            break
 
-    commit_msg = "feat(" + ticket.lower() + "): implement " + summary.lower()[:50]
+        tool_uses = [b for b in response.content if b.type == "tool_use"]
+        if not tool_uses:
+            print("No tool calls and stop_reason != end_turn — stopping.")
+            break
 
-    # Commit each NEW file
-    print("\nCommitting new files...")
-    committed = []
-    for f in files:
-        path     = f.get("path", "")
-        fcontent = f.get("content", "")
-        if not path or not fcontent:
-            continue
-        ok = commit_file(path, fcontent, commit_msg, branch)
-        if ok:
-            print(f"  ✓ {path}")
-            committed.append(path)
-        else:
-            print(f"  ✗ {path} — commit failed")
+        messages.append({"role": "assistant", "content": response.content})
 
-    # Only append to shared files for non-control-centre tickets
-    if not is_control_centre:
-        # Append to README.md
-        if readme_section and existing_readme:
-            new_readme = existing_readme.rstrip() + "\n\n" + readme_section
-            ok = commit_file("README.md", new_readme, commit_msg, branch)
-            print(f"  {'✓' if ok else '✗'} README.md (appended)")
-            if ok:
-                committed.append("README.md")
-        elif readme_section:
-            ok = commit_file("README.md", readme_section, commit_msg, branch)
-            if ok:
-                committed.append("README.md")
+        tool_results = []
+        for tu in tool_uses:
+            print(f"\n-> {tu.name}({list(tu.input.keys())})")
+            result = execute_tool(tu.name, tu.input, state)
+            tool_results.append({
+                "type":        "tool_result",
+                "tool_use_id": tu.id,
+                "content":     result,
+            })
 
-        # Append to requirements.txt
-        if new_requirements and existing_reqs:
-            existing_pkgs = set(l.split("==")[0].split(">=")[0].strip().lower()
-                               for l in existing_reqs.splitlines() if l.strip() and not l.startswith("#"))
-            to_add = [r for r in new_requirements
-                      if r.split("==")[0].split(">=")[0].strip().lower() not in existing_pkgs]
-            if to_add:
-                new_reqs = existing_reqs.rstrip() + "\n" + "\n".join(to_add) + "\n"
-                ok = commit_file("requirements.txt", new_reqs, commit_msg, branch)
-                print(f"  {'✓' if ok else '✗'} requirements.txt (appended {len(to_add)} packages)")
-                if ok:
-                    committed.append("requirements.txt")
+        messages.append({"role": "user", "content": tool_results})
 
-        # Flat uat/backend/ layout has no __init__.py to update
-    else:
-        print("  ℹ Control Centre ticket — skipping shared file updates (README, requirements, __init__)")
+    pr_num = state.get("pr_number")
+    pr_url = state.get("pr_url")
+    staged = state.get("staged", {})
 
-    # Open PR
-    print(f"\nOpening PR...")
-    pr_title = f"[{ticket}] {summary}"
-    pr_num, pr_url = create_pr(pr_title, pr_body, branch)
     if pr_num:
-        print(f"✅ PR #{pr_num} opened: {pr_url}")
+        print(f"\n✅ Done! PR #{pr_num}: {pr_url}")
+        print(f"Files: {', '.join(staged.keys())}")
     else:
-        print("Failed to open PR")
+        print("\n✗ Implementation did not produce a PR.")
         sys.exit(1)
-
-    print(f"\nDone! Branch: {branch}, PR: #{pr_num}")
-    print(f"Files committed: {', '.join(committed)}")
 
 
 if __name__ == "__main__":
