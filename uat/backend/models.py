@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    JSON,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
@@ -125,3 +126,54 @@ class Product(Base):
 
     def __repr__(self) -> str:
         return f"<Product(id={self.id}, name='{self.name}', jira='{self.jira_project_key}')>"
+
+
+class OrchestratorStatus(enum.Enum):
+    """Status values for orchestrator execution runs."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class OrchestratorState(Base):
+    """Orchestrator execution state for resume capability.
+    
+    Tracks the execution progress of a sprint or set of tickets,
+    allowing the orchestrator to resume from interruptions.
+    """
+
+    __tablename__ = "orchestrator_states"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    sprint_id = Column(Integer, nullable=False, index=True)
+    sprint_name = Column(String(255), nullable=False)
+    jira_project_key = Column(String(50), nullable=False)
+    status = Column(Enum(OrchestratorStatus), nullable=False, default=OrchestratorStatus.PENDING)
+    
+    # JSON fields for flexible state storage
+    ticket_queue = Column(JSON, nullable=False, default=list)  # List of ticket keys in execution order
+    completed_tickets = Column(JSON, nullable=False, default=list)  # List of completed ticket keys
+    failed_tickets = Column(JSON, nullable=False, default=list)  # List of failed ticket keys with error info
+    current_ticket = Column(String(50), nullable=True)  # Currently executing ticket key
+    
+    # Metadata
+    total_tickets = Column(Integer, nullable=False, default=0)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    last_checkpoint_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<OrchestratorState(id={self.id}, sprint_id={self.sprint_id}, status={self.status.value})>"
