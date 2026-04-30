@@ -274,6 +274,10 @@ Repository layout rules:
 - control-centre/src/components/ for React components; control-centre/src/api/ for API helpers
 - Root-level agents/, tools/ for agent/orchestration code
 
+Jira custom fields (when writing code that reads or writes Jira issues):
+- customfield_10071 = execution_order (integer) — set on every story by PM Agent, read by Orchestrator for ticket sequencing
+- customfield_10016 = story_points (integer)
+
 Code standards:
 - Python 3.11+, type hints on all functions, docstrings on all public functions/classes
 - No hardcoded secrets — environment variables only
@@ -349,10 +353,10 @@ def implement_ticket(ticket: str, summary: str, feedback: str = ""):
     staged = state.get("staged", {})
 
     if pr_num:
-        print(f"\n✅ Done! PR #{pr_num}: {pr_url}")
+        print(f"\nDone! PR #{pr_num}: {pr_url}")
         print(f"Files: {', '.join(staged.keys())}")
     else:
-        print("\n✗ Implementation did not produce a PR.")
+        print("\nImplementation did not produce a PR.")
         sys.exit(1)
 
 
