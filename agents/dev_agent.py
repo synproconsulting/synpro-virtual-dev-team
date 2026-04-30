@@ -6,7 +6,7 @@ Developer Agent definition.
 Responsibilities:
   • Check out a feature branch for a Jira ticket
   • Write clean, working Python code for the assigned task
-  • Commit all files to the feature branch in a single clean commit
+  • Commit all files to the feature branch
   • Open a pull request with a clear description
 """
 
@@ -54,7 +54,9 @@ Your workflow for every task:
      * models.py     — append new model classes; preserve every existing class
      * schemas.py    — append new schema classes; preserve every existing schema
      * repository.py — append new repository classes; preserve every existing repo
-     * requirements.txt — add only packages not already present
+     * requirements.txt — CRITICAL: always read existing content first, never
+       remove existing dependencies, only append new ones. Removing a dependency
+       will break the deployed service for every feature that depends on it.
      * README.md     — append a new section; never rewrite existing content
    If the file does not exist yet, create it from scratch.
    If it exists, you must merge. Overwriting existing content is never acceptable.
