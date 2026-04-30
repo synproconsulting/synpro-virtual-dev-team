@@ -103,7 +103,10 @@ def trigger_auto_implement(ticket_key, summary, feedback, pr_number=None):
             post_comment(pr_number, msg)
 
 def merge_pr(pr_number, title, message):
-    r = requests.put(f"{BASE}/pulls/{pr_number}/merge", headers=GH_HEADERS, json={
+    # Must use PAT_TOKEN (DISPATCH_HEADERS), not GITHUB_TOKEN.
+    # GitHub does not fire push events for merges performed by GITHUB_TOKEN,
+    # so CI and Railway deploy would never trigger after a Manager Agent merge.
+    r = requests.put(f"{BASE}/pulls/{pr_number}/merge", headers=DISPATCH_HEADERS, json={
         "commit_title":   title,
         "commit_message": message,
         "merge_method":   "squash",
