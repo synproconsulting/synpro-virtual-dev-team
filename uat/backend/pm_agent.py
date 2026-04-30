@@ -7,7 +7,7 @@ import anthropic
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-# ?? Config ????????????????????????????????????????????????????????????????????
+# ── Config ────────────────────────────────────────────────────────────────────────────
 
 PM_AGENT_SYSTEM = """You are a Product Manager AI agent for a software development team.
 Your role is to help plan sprints, create user stories, and manage product backlogs.
@@ -37,14 +37,22 @@ def _get_anthropic_client():
     return anthropic.Anthropic(api_key=api_key)
 
 
-# ?? Request models ????????????????????????????????????????????????????????????
+# ── Request models ─────────────────────────────────────────────────────────────────────────
 
 class PMAgentMessage(BaseModel):
     message: str
     history: Optional[List[dict]] = []
 
 
-# ?? Router ????????????????????????????????????????????????????????????????????
+class GenerateSprintRequest(BaseModel):
+    brief: str = ""
+    message: str = ""
+    content: str = ""
+    history: Optional[List[dict]] = []
+    conversationHistory: Optional[List[dict]] = None
+
+
+# ── Router ────────────────────────────────────────────────────────────────────────────
 
 router = APIRouter(prefix="/api/pm-agent", tags=["pm-agent"])
 
@@ -53,9 +61,11 @@ router = APIRouter(prefix="/api/pm-agent", tags=["pm-agent"])
 async def pm_agent_chat(request: PMAgentMessage):
     """Chat with the PM Agent."""
     try:
-        client   = _get_anthropic_client()
-        messages = []
-        for h in (request.history or []):
+        client      = _get_anthropic_client()
+        # C-1 fix: define history_raw explicitly so it is always in scope
+        history_raw = request.history or []
+        messages    = []
+        for h in history_raw:
             if h.get("role") in ("user", "assistant"):
                 messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": request.message})
@@ -72,13 +82,14 @@ async def pm_agent_chat(request: PMAgentMessage):
 
 
 @router.post("/generate-sprint")
-async def pm_agent_generate_sprint(request: dict):
+async def pm_agent_generate_sprint(request: GenerateSprintRequest):
     """Generate a sprint plan from a feature brief."""
     import json
     try:
         client      = _get_anthropic_client()
-        brief       = request.get("brief") or request.get("message") or request.get("content", "")
-        history_raw = request.get("history") or request.get("conversationHistory") or []
+        # C-2 fix: request is now a Pydantic model; dot access works without AttributeError
+        brief       = request.brief or request.message or request.content
+        history_raw = request.history or request.conversationHistory or []
         prompt = f"""Given this feature brief, create a complete sprint plan:
 
 {brief}
