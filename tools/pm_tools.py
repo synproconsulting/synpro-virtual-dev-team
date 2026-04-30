@@ -61,6 +61,15 @@ class AddToSprintInput(BaseModel):
     issue_keys: list[str] = Field(...)
 
 
+class CreateIssueLinkInput(BaseModel):
+    blocker_issue_key: str = Field(..., description="The issue that blocks another issue")
+    blocked_issue_key: str = Field(..., description="The issue that is blocked")
+
+
+class ListIssueLinksInput(BaseModel):
+    issue_key: str = Field(...)
+
+
 # ── Tool classes ───────────────────────────────────────────────────────────────
 
 class ListBacklogTool(BaseTool):
@@ -189,6 +198,42 @@ class AddToSprintTool(BaseTool):
         return f"Added {issue_keys} to sprint {sprint_id}."
 
 
+class CreateBlockerLinkTool(BaseTool):
+    name:        str = "create_blocker_link"
+    description: str = (
+        "Create a 'blocks' relationship between two issues. "
+        "The blocker_issue_key blocks the blocked_issue_key. "
+        "Use this to establish dependencies where one story must be completed before another can begin."
+    )
+    args_schema: type = CreateIssueLinkInput
+
+    def _run(self, blocker_issue_key: str, blocked_issue_key: str) -> str:
+        jira.create_issue_link(
+            inward_issue_key=blocked_issue_key,
+            outward_issue_key=blocker_issue_key,
+            link_type="Blocks"
+        )
+        return f"{blocker_issue_key} now blocks {blocked_issue_key}"
+
+
+class ListIssueLinksToolImpl(BaseTool):
+    name:        str = "list_issue_links"
+    description: str = "List all issue links (blocks, is-blocked-by, relates-to, etc.) for a given issue."
+    args_schema: type = ListIssueLinksInput
+
+    def _run(self, issue_key: str) -> str:
+        links = jira.list_issue_links(issue_key)
+        if not links:
+            return f"No links found for {issue_key}."
+        
+        lines = [f"Links for {issue_key}:"]
+        for link in links:
+            lines.append(
+                f"  • {link['relationship']} {link['related_issue']} ({link['link_type']})"
+            )
+        return "\n".join(lines)
+
+
 # ── Tool groups (keep each group small to stay within Claude schema limits) ────
 
 BACKLOG_TOOLS = [
@@ -197,6 +242,8 @@ BACKLOG_TOOLS = [
     CreateEpicTool(),
     CreateStoryTool(),
     UpdateIssueTool(),
+    CreateBlockerLinkTool(),
+    ListIssueLinksToolImpl(),
 ]
 
 SPRINT_TOOLS = [
