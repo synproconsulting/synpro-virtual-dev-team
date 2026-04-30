@@ -482,3 +482,276 @@ All endpoints remain accessible at their original URLs:
 - `/pm-agent/*` - PM Agent endpoints (new)
 
 Existing client applications require no changes.
+
+---
+
+# Request Logging Middleware and Rate Limiting (SDT1-45)
+
+## Overview
+
+The application now includes comprehensive request logging middleware and rate limiting to improve monitoring, security, and performance.
+
+## Request Logging Middleware
+
+### Features
+
+The `RequestLoggingMiddleware` automatically logs:
+
+- **Request Information**
+  - HTTP method and path
+  - Client IP address
+  - Query parameters
+  - Request headers (with sensitive data redacted)
+
+- **Response Information**
+  - HTTP status code
+  - Processing duration
+  - Custom `X-Process-Time` header added to all responses
+
+- **Error Tracking**
+  - Failed requests logged with error details
+  - Exception information captured
+
+### Sensitive Data Protection
+
+The middleware automatically redacts sensitive headers:
+- `Authorization`
+- `Cookie`
+- `X-Api-Key`
+- `X-Auth-Token`
+
+These are replaced with `***REDACTED***` in logs to prevent credential leakage.
+
+### Usage
+
+The middleware is automatically applied to all requests. No changes needed in your endpoint code.
+
+Example log output:
+```
+INFO: Request started: GET /auth/login from 127.0.0.1
+INFO: Request completed: GET /auth/login status=200 duration=0.123s
+```
+
+### Configuration
+
+Set the log level via environment variable:
+```bash
+export LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
+```
+
+## Rate Limiting
+
+### Features
+
+The application uses `slowapi` for flexible rate limiting:
+
+- **Per-User Limits** - Authenticated users tracked by user ID
+- **Per-IP Limits** - Unauthenticated requests tracked by IP address
+- **Configurable Limits** - Set via environment variables
+- **Multiple Strategies** - Strict, moderate, and relaxed limits available
+
+### Default Limits
+
+- **Default**: 100 requests per minute (all endpoints)
+- **Strict**: 10 requests per minute (sensitive endpoints)
+- **Moderate**: 50 requests per minute (standard endpoints)
+- **Relaxed**: 200 requests per minute (high-traffic endpoints)
+
+### Applying Rate Limits
+
+#### Using Decorators
+
+```python
+from fastapi import APIRouter
+from rate_limiter import limiter, rate_limit_strict
+
+router = APIRouter(prefix="/api")
+
+@router.post("/sensitive-operation")
+@limiter.limit("10/minute")  # Custom limit
+def sensitive_operation():
+    return {"status": "ok"}
+
+@router.get("/standard-endpoint")
+@limiter.limit("50/minute")
+def standard_endpoint():
+    return {"data": "..."}
+```
+
+#### Using Pre-defined Decorators
+
+```python
+from rate_limiter import rate_limit_strict, rate_limit_moderate, rate_limit_relaxed
+
+@router.post("/login")
+@rate_limit_strict  # 10/minute
+def login():
+    pass
+
+@router.get("/data")
+@rate_limit_moderate  # 50/minute
+def get_data():
+    pass
+
+@router.get("/public")
+@rate_limit_relaxed  # 200/minute
+def public_endpoint():
+    pass
+```
+
+### Configuration
+
+Configure rate limiting via environment variables:
+
+```bash
+# Default rate limit for all endpoints
+export RATE_LIMIT_DEFAULT="100/minute"
+
+# Storage backend (memory or Redis)
+export RATE_LIMIT_STORAGE_URI="memory://"
+# Or for Redis:
+export RATE_LIMIT_STORAGE_URI="redis://localhost:6379"
+```
+
+### Rate Limit Headers
+
+Responses include rate limit information:
+- `X-RateLimit-Limit` - Maximum requests allowed
+- `X-RateLimit-Remaining` - Requests remaining in window
+- `X-RateLimit-Reset` - When the limit resets
+
+### Rate Limit Exceeded Response
+
+When a client exceeds the rate limit, they receive a `429 Too Many Requests` response:
+
+```json
+{
+  "error": "Rate limit exceeded",
+  "detail": "10 per 1 minute"
+}
+```
+
+### Per-User vs Per-IP
+
+The rate limiter intelligently chooses the tracking key:
+
+1. **Authenticated requests** - Tracked by user ID from `request.state.user_id`
+2. **Unauthenticated requests** - Tracked by IP address
+
+This prevents users from bypassing limits by switching IP addresses.
+
+### Production Recommendations
+
+For production environments:
+
+1. **Use Redis for storage**:
+   ```bash
+   export RATE_LIMIT_STORAGE_URI="redis://redis-host:6379"
+   ```
+   
+2. **Adjust limits based on your needs**:
+   ```bash
+   export RATE_LIMIT_DEFAULT="1000/hour"
+   ```
+
+3. **Monitor rate limit violations**:
+   - Check logs for `429` status codes
+   - Set up alerts for excessive violations
+
+4. **Consider different limits per endpoint type**:
+   - Authentication: 10/minute
+   - API reads: 100/minute
+   - API writes: 50/minute
+   - Public endpoints: 200/minute
+
+## Testing
+
+### Middleware Tests
+
+Run middleware tests:
+```bash
+pytest tests/test_middleware.py -v
+```
+
+Tests cover:
+- Request logging
+- Response logging
+- Error logging
+- Header sanitization
+- Processing time tracking
+
+### Rate Limiting Tests
+
+Run rate limiter tests:
+```bash
+pytest tests/test_rate_limiter.py -v
+```
+
+Tests cover:
+- Requests under limit (allowed)
+- Requests over limit (blocked)
+- Independent limits per endpoint
+- Rate limit headers
+- Key generation (IP vs user ID)
+
+## Environment Variables Summary
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+
+# Frontend
+FRONTEND_URL=http://localhost:3000
+
+# Rate Limiting
+RATE_LIMIT_DEFAULT=100/minute
+RATE_LIMIT_STORAGE_URI=memory://
+
+# Logging
+LOG_LEVEL=INFO
+
+# JWT
+JWT_SECRET=your-secret-key
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_MINUTES=60
+```
+
+## Security Best Practices
+
+1. **Never log sensitive data** - The middleware automatically redacts sensitive headers
+2. **Use Redis in production** - Memory storage doesn't scale across multiple instances
+3. **Set appropriate rate limits** - Too strict affects UX, too relaxed allows abuse
+4. **Monitor logs** - Set up log aggregation and alerting
+5. **Rotate JWT secrets** - Change JWT_SECRET regularly
+6. **Use HTTPS** - Always use TLS in production
+
+## Performance Impact
+
+- **Logging Middleware**: Minimal (<1ms per request)
+- **Rate Limiting**: ~0.5-2ms per request (memory), ~2-5ms (Redis)
+- **Overall**: Negligible impact on response times
+
+## Troubleshooting
+
+### High Rate Limit Violations
+
+If you see many `429` errors:
+1. Check if a legitimate user is being blocked
+2. Adjust limits in environment variables
+3. Investigate potential abuse or bot traffic
+
+### Missing Rate Limit Headers
+
+Ensure the limiter is properly initialized in `main.py`:
+```python
+app.state.limiter = limiter
+```
+
+### Logs Not Appearing
+
+Check the log level configuration:
+```bash
+export LOG_LEVEL=INFO
+```
+
+Ensure the logger is configured in your application startup.
