@@ -52,6 +52,8 @@ GH_HEADERS = {
 }
 BASE = f"https://api.github.com/repos/{USERNAME}/{REPO}"
 
+# TODO SDT1-52: remove this list when Orchestrator resume is implemented — dead weight from Sprint 4,
+# harmless but misleading. All Sprint 5+ tickets use customfield_10071 directly.
 # Execution order for Sprint 4 (dependency chain)
 EXECUTION_ORDER = [
     "SDT1-31",  # 1. Dashboard foundation
