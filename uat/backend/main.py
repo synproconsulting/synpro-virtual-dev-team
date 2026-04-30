@@ -15,7 +15,7 @@ from profile       import router as profile_router
 from notifications import router as notifications_router
 from proxy         import router as proxy_router
 from pm_agent      import router as pm_agent_router
-from manager_agent import router as manager_agent_router
+from manager_agent_router import router as manager_agent_router
 from middleware    import RequestLoggingMiddleware
 from rate_limiter  import get_limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
