@@ -11,6 +11,11 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timezone, timedelta
 import jwt
+import logging
+
+from email_service import send_password_reset_email
+
+logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────────────
 
@@ -170,29 +175,54 @@ def login(req: LoginRequest, db=Depends(get_db)):
 
 
 @router.post("/password-reset/request")
-def request_password_reset(req: ResetRequestModel, db=Depends(get_db)):
+async def request_password_reset(req: ResetRequestModel, db=Depends(get_db)):
+    """
+    Request a password reset token.
+    
+    Generates a reset token and sends it to the user's email address.
+    For security, always returns success message even if email doesn't exist.
+    """
     cur = db.cursor()
     cur.execute("SELECT id FROM users WHERE email = %s", (req.email.lower(),))
     user = cur.fetchone()
 
-    if not user:
-        return {"message": "If that email exists, a reset link has been sent"}
+    # Always return the same message to prevent email enumeration
+    response_message = "If that email exists in our system, a password reset link has been sent"
 
+    if not user:
+        logger.info("Password reset requested for non-existent email: %s", req.email.lower())
+        return {"message": response_message}
+
+    # Generate reset token
     token      = str(uuid.uuid4())
     expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    
     cur.execute(
         "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (%s, %s, %s)",
         (str(user["id"]), token, expires_at)
     )
     db.commit()
 
-    return {"message": "Reset token generated",
-            "token": token,
-            "note": "UAT mode: token returned directly instead of emailed"}
+    # Send email with reset token
+    try:
+        email_sent = await send_password_reset_email(req.email.lower(), token)
+        if email_sent:
+            logger.info("Password reset email sent to %s", req.email.lower())
+        else:
+            logger.warning("Failed to send password reset email to %s", req.email.lower())
+    except Exception as e:
+        logger.error("Error sending password reset email to %s: %s", req.email.lower(), str(e))
+    
+    return {"message": response_message}
 
 
 @router.post("/password-reset/complete")
 def complete_password_reset(req: ResetCompleteModel, db=Depends(get_db)):
+    """
+    Complete the password reset using a valid token.
+    
+    Validates the token and updates the user's password.
+    """
     cur = db.cursor()
     cur.execute(
         """SELECT t.id, t.user_id, t.expires_at, t.used
@@ -224,6 +254,8 @@ def complete_password_reset(req: ResetCompleteModel, db=Depends(get_db)):
         (str(token_row["id"]),)
     )
     db.commit()
+    
+    logger.info("Password reset completed for user_id: %s", str(token_row["user_id"]))
     return {"message": "Password reset successfully"}
 
 
