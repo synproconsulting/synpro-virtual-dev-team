@@ -270,19 +270,26 @@ def run_sprint(max_agents=1, dry_run=False, review_only=False):
         console.print("\n[yellow]Dry run — no agents will be started.[/yellow]")
         return
 
-    # Process each ticket serially
+    # Re-query Jira before each ticket so the loop always works from current state.
+    # This means a ticket moved to Done mid-run (by the Manager Agent or manually)
+    # is never processed twice, and a resumed run never re-processes completed work.
     results = []
-    for i, ticket in enumerate(tickets):
-        console.print(f"\n[dim]── Ticket {i+1} of {len(tickets)} ──[/dim]")
+    while True:
+        tickets = get_open_sprint_tickets()
+        if not tickets:
+            break
+
+        ticket = tickets[0]  # lowest execution order among remaining To Do tickets
+        console.print(f"\n[dim]── [{ticket['key']}] {len(tickets)} To Do ticket(s) remaining ──[/dim]")
         status = process_ticket(ticket)
         results.append({"ticket": ticket["key"], "status": status})
 
         if status == "merge_timeout":
-            remaining = len(tickets) - i - 1
+            remaining = get_open_sprint_tickets()
             console.print(Panel(
                 f"[bold red]Sprint halted — manual intervention required[/bold red]\n\n"
                 f"[{ticket['key']}] PR did not merge within the 10-minute window.\n"
-                f"[yellow]{remaining} ticket(s) have NOT been started.[/yellow]\n\n"
+                f"[yellow]{len(remaining)} ticket(s) have NOT been started.[/yellow]\n\n"
                 f"Steps to resume:\n"
                 f"  1. Check the open PR on GitHub and resolve any issues\n"
                 f"  2. Confirm the PR is merged\n"
