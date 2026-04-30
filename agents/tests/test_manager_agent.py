@@ -1,5 +1,5 @@
 """
-Tests for Manager Agent with exponential backoff retry logic.
+Tests for Manager Agent with exponential backoff retry logic and diff review.
 """
 
 import pytest
@@ -12,6 +12,7 @@ from manager_agent import (
     ManagerAgent,
     TransitionStatus,
     TransitionResult,
+    DiffReviewResult,
     create_manager_agent,
     DEFAULT_MAX_RETRIES,
     DEFAULT_BASE_DELAY,
@@ -40,6 +41,28 @@ def retry_client(mock_env):
 def manager_agent(mock_env):
     """Create a ManagerAgent for testing."""
     return ManagerAgent(max_retries=3, base_delay=0.1)
+
+
+# Sample diffs for testing
+SAMPLE_NEW_FILE_DIFF = """diff --git a/tools/new_feature.py b/tools/new_feature.py
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/tools/new_feature.py
+@@ -0,0 +1,10 @@
++def new_function():
++    return "Hello"
+"""
+
+SAMPLE_MODIFIED_FILE_DIFF = """diff --git a/tools/existing.py b/tools/existing.py
+index abcdef1..1234567 100644
+--- a/tools/existing.py
++++ b/tools/existing.py
+@@ -1,5 +1,8 @@
+ def existing_function():
+-    return "old"
++    return "new"
+"""
 
 
 # ── JiraRetryClient Tests ─────────────────────────────────────────────────────────────
@@ -522,6 +545,139 @@ class TestManagerAgent:
             assert status is None
 
 
+# ── Diff Review Tests ─────────────────────────────────────────────────────────────────
+
+
+class TestDiffReview:
+    """Test Manager Agent's diff review capabilities."""
+    
+    def test_review_diff_small(self, manager_agent):
+        """Test reviewing a small diff that doesn't need truncation."""
+        result = manager_agent.review_diff(SAMPLE_NEW_FILE_DIFF)
+        
+        assert isinstance(result, DiffReviewResult)
+        assert not result.was_truncated
+        assert result.has_new_files
+        assert len(result.new_files_summary) == 1
+        assert result.new_files_summary[0]["path"] == "tools/new_feature.py"
+    
+    def test_review_diff_large(self, manager_agent):
+        """Test reviewing a large diff that needs truncation."""
+        # Create a very large diff
+        large_diff = SAMPLE_NEW_FILE_DIFF * 100
+        
+        # Use small max_chars to force truncation
+        agent = ManagerAgent(max_retries=3, base_delay=0.1, diff_max_chars=1000)
+        result = agent.review_diff(large_diff)
+        
+        assert result.was_truncated
+        assert len(result.truncated_diff) <= 2000  # Some buffer for summaries
+    
+    def test_review_diff_new_files_prioritized(self, manager_agent):
+        """Test that new files are prioritized in truncation."""
+        mixed_diff = SAMPLE_NEW_FILE_DIFF + "\n\n" + SAMPLE_MODIFIED_FILE_DIFF
+        
+        result = manager_agent.review_diff(mixed_diff)
+        
+        assert result.has_new_files
+        assert "tools/new_feature.py" in result.truncated_diff
+    
+    def test_review_diff_with_comments(self, manager_agent):
+        """Test that review comments are generated."""
+        result = manager_agent.review_diff(
+            SAMPLE_NEW_FILE_DIFF,
+            generate_comments=True,
+        )
+        
+        assert len(result.review_comments) > 0
+        # Should comment on new files
+        assert any("new file" in comment.lower() for comment in result.review_comments)
+    
+    def test_review_diff_without_comments(self, manager_agent):
+        """Test diff review without generating comments."""
+        result = manager_agent.review_diff(
+            SAMPLE_NEW_FILE_DIFF,
+            generate_comments=False,
+        )
+        
+        assert len(result.review_comments) == 0
+    
+    def test_review_comments_for_large_pr(self, manager_agent):
+        """Test that review comments mention PR size for large PRs."""
+        # Create a diff with many files
+        large_diff = "\n\n".join([
+            SAMPLE_MODIFIED_FILE_DIFF.replace("existing.py", f"file{i}.py")
+            for i in range(15)
+        ])
+        
+        result = manager_agent.review_diff(large_diff, generate_comments=True)
+        
+        # Should warn about large PR
+        assert any("large PR" in comment.lower() for comment in result.review_comments)
+    
+    @pytest.mark.asyncio
+    async def test_review_and_comment_pr(self, manager_agent):
+        """Test reviewing a PR and posting to Jira."""
+        with patch.object(
+            manager_agent.client, "transition_issue_by_name", new_callable=AsyncMock
+        ) as mock_transition:
+            mock_transition.return_value = TransitionResult(
+                status=TransitionStatus.SUCCESS,
+                issue_key="TEST-1",
+                final_status="Code Review",
+            )
+            
+            review_result, transition_result = await manager_agent.review_and_comment_pr(
+                issue_key="TEST-1",
+                diff_text=SAMPLE_NEW_FILE_DIFF,
+            )
+            
+            assert isinstance(review_result, DiffReviewResult)
+            assert transition_result.status == TransitionStatus.SUCCESS
+            
+            # Check that comment was passed
+            call_kwargs = mock_transition.call_args.kwargs
+            assert "comment" in call_kwargs
+            assert "Code Review" in call_kwargs["comment"]
+    
+    def test_format_review_for_jira(self, manager_agent):
+        """Test formatting review result for Jira."""
+        review_result = manager_agent.review_diff(
+            SAMPLE_NEW_FILE_DIFF,
+            generate_comments=True,
+        )
+        
+        jira_comment = manager_agent._format_review_for_jira(review_result)
+        
+        assert "Code Review" in jira_comment
+        assert "Manager Agent" in jira_comment
+        assert "Statistics" in jira_comment
+        assert "Total files:" in jira_comment
+    
+    def test_diff_review_result_properties(self):
+        """Test DiffReviewResult properties."""
+        result = DiffReviewResult(
+            truncated_diff="diff content",
+            metadata={"truncated": True, "new_files_count": 2},
+            new_files_summary=[{"path": "test.py"}],
+            review_comments=["comment 1"],
+        )
+        
+        assert result.has_new_files is True
+        assert result.was_truncated is True
+        
+        # Test with no new files
+        result_no_new = DiffReviewResult(
+            truncated_diff="diff content",
+            metadata={"truncated": False},
+            new_files_summary=[],
+            review_comments=[],
+        )
+        
+        assert result_no_new.has_new_files is False
+        assert result_no_new.was_truncated is False
+
+
 # ── Factory Function Tests ────────────────────────────────────────────────────────────
 
 
@@ -535,10 +691,15 @@ def test_create_manager_agent(mock_env):
 
 def test_create_manager_agent_custom_params(mock_env):
     """Test factory function with custom parameters."""
-    agent = create_manager_agent(max_retries=10, base_delay=2.0)
+    agent = create_manager_agent(
+        max_retries=10,
+        base_delay=2.0,
+        diff_max_chars=100000,
+    )
     
     assert agent.client.max_retries == 10
     assert agent.client.base_delay == 2.0
+    assert agent.diff_max_chars == 100000
 
 
 # ── Integration Tests ─────────────────────────────────────────────────────────────────
@@ -600,3 +761,42 @@ class TestIntegration:
             assert result4.status == TransitionStatus.SUCCESS
             
             assert mock_transition.call_count == 4
+    
+    @pytest.mark.asyncio
+    async def test_full_pr_review_workflow(self, manager_agent):
+        """Test complete PR review and transition workflow."""
+        # Create a realistic multi-file diff
+        pr_diff = "\n\n".join([
+            SAMPLE_NEW_FILE_DIFF,
+            SAMPLE_MODIFIED_FILE_DIFF,
+        ])
+        
+        with patch.object(
+            manager_agent.client, "transition_issue_by_name", new_callable=AsyncMock
+        ) as mock_transition:
+            mock_transition.return_value = TransitionResult(
+                status=TransitionStatus.SUCCESS,
+                issue_key="TEST-1",
+                final_status="Code Review",
+            )
+            
+            review_result, transition_result = await manager_agent.review_and_comment_pr(
+                issue_key="TEST-1",
+                diff_text=pr_diff,
+            )
+            
+            # Verify review result
+            assert review_result.has_new_files
+            assert len(review_result.new_files_summary) == 1
+            assert len(review_result.review_comments) > 0
+            
+            # Verify transition
+            assert transition_result.status == TransitionStatus.SUCCESS
+            assert transition_result.final_status == "Code Review"
+            
+            # Verify comment was posted
+            call_kwargs = mock_transition.call_args.kwargs
+            assert "comment" in call_kwargs
+            comment = call_kwargs["comment"]
+            assert "Code Review" in comment
+            assert "new file" in comment.lower()

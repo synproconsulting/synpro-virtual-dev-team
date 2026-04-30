@@ -6,9 +6,11 @@ The Manager Agent is responsible for:
 - Implementing exponential backoff for failed API calls
 - Managing issue assignments and status updates
 - Coordinating with other agents in the system
+- Reviewing PRs with intelligent diff truncation
 """
 
 import os
+import sys
 import time
 import asyncio
 from typing import Optional, Dict, Any, List
@@ -16,6 +18,11 @@ from enum import Enum
 import base64
 import httpx
 from dataclasses import dataclass
+
+# Add tools to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from tools.diff_handler import truncate_diff_smart, get_new_files_summary
 
 
 # ── Configuration ─────────────────────────────────────────────────────────────────────
@@ -30,6 +37,9 @@ DEFAULT_MAX_RETRIES = 5
 DEFAULT_BASE_DELAY = 1.0  # seconds
 DEFAULT_MAX_DELAY = 60.0  # seconds
 DEFAULT_EXPONENTIAL_BASE = 2
+
+# Diff review configuration
+DEFAULT_DIFF_MAX_CHARS = 50000
 
 
 class TransitionStatus(Enum):
@@ -51,6 +61,25 @@ class TransitionResult:
     total_time: float = 0.0
     error_message: Optional[str] = None
     final_status: Optional[str] = None
+
+
+@dataclass
+class DiffReviewResult:
+    """Result of a diff review operation."""
+    truncated_diff: str
+    metadata: Dict[str, Any]
+    new_files_summary: List[Dict[str, Any]]
+    review_comments: List[str]
+    
+    @property
+    def has_new_files(self) -> bool:
+        """Check if the diff contains new files."""
+        return len(self.new_files_summary) > 0
+    
+    @property
+    def was_truncated(self) -> bool:
+        """Check if the diff was truncated."""
+        return self.metadata.get("truncated", False)
 
 
 # ── Jira Client with Retry Logic ─────────────────────────────────────────────────────
@@ -427,13 +456,15 @@ class ManagerAgent:
     Manager Agent for coordinating Jira workflow transitions.
     
     The Manager Agent orchestrates issue lifecycle management with robust
-    retry logic and error handling.
+    retry logic and error handling. It also reviews PRs with intelligent
+    diff truncation that prioritizes new files.
     """
     
     def __init__(
         self,
         max_retries: int = DEFAULT_MAX_RETRIES,
         base_delay: float = DEFAULT_BASE_DELAY,
+        diff_max_chars: int = DEFAULT_DIFF_MAX_CHARS,
     ):
         """
         Initialize the Manager Agent.
@@ -441,11 +472,13 @@ class ManagerAgent:
         Args:
             max_retries: Maximum number of retry attempts
             base_delay: Base delay in seconds before first retry
+            diff_max_chars: Maximum characters for diff reviews
         """
         self.client = JiraRetryClient(
             max_retries=max_retries,
             base_delay=base_delay,
         )
+        self.diff_max_chars = diff_max_chars
     
     async def start_work(
         self,
@@ -564,6 +597,164 @@ class ManagerAgent:
         except Exception as e:
             print(f"Error getting status for {issue_key}: {e}")
             return None
+    
+    def review_diff(
+        self,
+        diff_text: str,
+        generate_comments: bool = True,
+    ) -> DiffReviewResult:
+        """
+        Review a PR diff with intelligent truncation.
+        
+        This method truncates large diffs while prioritizing new files.
+        Optionally generates review comments highlighting important aspects.
+        
+        Args:
+            diff_text: Raw git diff output
+            generate_comments: Whether to generate review comments
+        
+        Returns:
+            DiffReviewResult with truncated diff and metadata
+        """
+        # Truncate diff with smart prioritization
+        truncated_diff, metadata = truncate_diff_smart(
+            diff_text,
+            max_chars=self.diff_max_chars,
+        )
+        
+        # Get summary of new files
+        new_files_summary = get_new_files_summary(diff_text)
+        
+        # Generate review comments if requested
+        review_comments = []
+        if generate_comments:
+            review_comments = self._generate_review_comments(
+                metadata,
+                new_files_summary,
+            )
+        
+        return DiffReviewResult(
+            truncated_diff=truncated_diff,
+            metadata=metadata,
+            new_files_summary=new_files_summary,
+            review_comments=review_comments,
+        )
+    
+    def _generate_review_comments(
+        self,
+        metadata: Dict[str, Any],
+        new_files_summary: List[Dict[str, Any]],
+    ) -> List[str]:
+        """
+        Generate review comments based on diff analysis.
+        
+        Args:
+            metadata: Diff truncation metadata
+            new_files_summary: List of new file summaries
+        
+        Returns:
+            List of review comment strings
+        """
+        comments = []
+        
+        # Comment on new files
+        if new_files_summary:
+            new_file_count = len(new_files_summary)
+            comments.append(
+                f"✨ This PR introduces {new_file_count} new file(s). "
+                f"Please ensure all new files have appropriate tests and documentation."
+            )
+            
+            # List new files
+            new_file_list = "\n".join([
+                f"  - {f['path']} (+{f['additions']} lines)"
+                for f in new_files_summary[:5]  # Show first 5
+            ])
+            if new_file_count > 5:
+                new_file_list += f"\n  ... and {new_file_count - 5} more"
+            
+            comments.append(f"New files:\n{new_file_list}")
+        
+        # Comment on truncation if it occurred
+        if metadata.get("truncated"):
+            files_full = metadata.get("files_included_full", 0)
+            files_summarized = metadata.get("files_summarized", 0)
+            
+            comments.append(
+                f"⚠️ Note: This PR is large. Showing {files_full} file(s) in full "
+                f"and {files_summarized} file(s) as summaries. "
+                f"New files are prioritized in the review."
+            )
+        
+        # Comment on size
+        total_files = metadata.get("total_files", 0)
+        if total_files > 10:
+            comments.append(
+                f"📊 This is a large PR with {total_files} files changed. "
+                f"Consider breaking it into smaller PRs for easier review."
+            )
+        
+        return comments
+    
+    async def review_and_comment_pr(
+        self,
+        issue_key: str,
+        diff_text: str,
+    ) -> Tuple[DiffReviewResult, TransitionResult]:
+        """
+        Review a PR diff and post review comments to Jira.
+        
+        Args:
+            issue_key: Jira issue key
+            diff_text: Raw git diff output
+        
+        Returns:
+            Tuple of (DiffReviewResult, TransitionResult)
+        """
+        # Review the diff
+        review_result = self.review_diff(diff_text, generate_comments=True)
+        
+        # Format comments for Jira
+        jira_comment = self._format_review_for_jira(review_result)
+        
+        # Post comment and transition to code review
+        transition_result = await self.move_to_code_review(
+            issue_key=issue_key,
+            comment=jira_comment,
+        )
+        
+        return review_result, transition_result
+    
+    def _format_review_for_jira(self, review_result: DiffReviewResult) -> str:
+        """
+        Format review result for Jira comment.
+        
+        Args:
+            review_result: DiffReviewResult object
+        
+        Returns:
+            Formatted Jira comment string
+        """
+        lines = ["=== Code Review (Manager Agent) ===", ""]
+        
+        # Add review comments
+        if review_result.review_comments:
+            lines.extend(review_result.review_comments)
+            lines.append("")
+        
+        # Add statistics
+        metadata = review_result.metadata
+        lines.append("📈 PR Statistics:")
+        lines.append(f"  - Total files: {metadata.get('total_files', 0)}")
+        lines.append(f"  - New files: {metadata.get('new_files_count', 0)}")
+        
+        if metadata.get("truncated"):
+            lines.append(
+                f"  - Diff size: {metadata.get('truncated_size', 0):,} chars "
+                f"(truncated from {metadata.get('original_size', 0):,})"
+            )
+        
+        return "\n".join(lines)
 
 
 # ── Factory Function ──────────────────────────────────────────────────────────────────
@@ -572,6 +763,7 @@ class ManagerAgent:
 def create_manager_agent(
     max_retries: int = DEFAULT_MAX_RETRIES,
     base_delay: float = DEFAULT_BASE_DELAY,
+    diff_max_chars: int = DEFAULT_DIFF_MAX_CHARS,
 ) -> ManagerAgent:
     """
     Factory function to create a Manager Agent instance.
@@ -579,8 +771,13 @@ def create_manager_agent(
     Args:
         max_retries: Maximum number of retry attempts
         base_delay: Base delay in seconds before first retry
+        diff_max_chars: Maximum characters for diff reviews
     
     Returns:
         ManagerAgent instance
     """
-    return ManagerAgent(max_retries=max_retries, base_delay=base_delay)
+    return ManagerAgent(
+        max_retries=max_retries,
+        base_delay=base_delay,
+        diff_max_chars=diff_max_chars,
+    )
