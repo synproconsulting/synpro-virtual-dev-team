@@ -22,6 +22,7 @@ import anthropic
 
 ANTHROPIC_KEY   = os.environ["ANTHROPIC_API_KEY"]
 GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
+PAT_TOKEN       = os.environ.get("PAT_TOKEN", GITHUB_TOKEN)  # PAT can dispatch workflows; GITHUB_TOKEN cannot
 GITHUB_USERNAME = os.environ["GITHUB_USERNAME"]
 GITHUB_REPO     = os.environ["GITHUB_REPO"]
 JIRA_BASE_URL   = os.environ.get("JIRA_BASE_URL", "")
@@ -30,6 +31,11 @@ JIRA_API_TOKEN  = os.environ.get("JIRA_API_TOKEN", "")
 
 GH_HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+}
+DISPATCH_HEADERS = {
+    "Authorization": f"token {PAT_TOKEN}",
     "Accept": "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
 }
@@ -78,6 +84,23 @@ def get_pr_files(pr_number):
 def post_comment(pr_number, body):
     requests.post(f"{BASE}/issues/{pr_number}/comments",
                   headers=GH_HEADERS, json={"body": body})
+
+def trigger_auto_implement(ticket_key, summary, feedback, pr_number=None):
+    """Dispatch Auto Implement using PAT_TOKEN, which can trigger workflow_dispatch.
+    GITHUB_TOKEN cannot trigger other workflows (GitHub security restriction)."""
+    r = requests.post(
+        f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/actions/workflows/auto-implement.yml/dispatches",
+        headers=DISPATCH_HEADERS,
+        json={"ref": "main", "inputs": {"ticket": ticket_key, "summary": summary, "feedback": feedback}},
+    )
+    if r.status_code == 204:
+        print(f"Auto Implement triggered for {ticket_key}")
+    else:
+        msg = (f"⚠️ **Manager Agent: Auto Implement retrigger failed** (HTTP {r.status_code}) — "
+               f"manual intervention required for `{ticket_key}`.\n\nResponse: `{r.text[:200]}`")
+        print(f"Auto Implement retrigger FAILED: {r.status_code} {r.text[:200]}")
+        if pr_number:
+            post_comment(pr_number, msg)
 
 def merge_pr(pr_number, title, message):
     r = requests.put(f"{BASE}/pulls/{pr_number}/merge", headers=GH_HEADERS, json={
@@ -137,9 +160,12 @@ def review_pr(pr_number, sha=None):
 
     if mergeable is False:
         print("PR has merge conflicts — closing and retriggering")
+        post_comment(pr_number,
+            f"⚠️ **Manager Agent: Merge conflict detected.**\n\n"
+            f"This PR cannot be merged due to conflicts with `main`. "
+            f"Closing and retriggering Auto Implement to create a fresh implementation from latest main.")
         requests.patch(f"{BASE}/pulls/{pr_number}", headers=GH_HEADERS,
                       json={"state": "closed"})
-        # Try to extract ticket key from branch
         branch_match = re.search(r'feature/([a-z0-9]+-\d+)-', branch)
         t_key = branch_match.group(1).upper() if branch_match else None
         if t_key:
@@ -148,16 +174,11 @@ def review_pr(pr_number, sha=None):
                 clean_title = clean_title.replace(pat, "").strip()
             jira_comment(t_key,
                 f"PR #{pr_number} had merge conflicts and was closed. Retriggering.")
-            requests.post(
-                f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/actions/workflows/auto-implement.yml/dispatches",
-                headers=GH_HEADERS,
-                json={"ref": "main", "inputs": {
-                    "ticket": t_key,
-                    "summary": clean_title,
-                    "feedback": "Previous PR had merge conflicts. Create files in control-centre/ directory only. Do not touch any shared files.",
-                }}
+            trigger_auto_implement(
+                t_key, clean_title,
+                "Previous PR had merge conflicts. Create files in control-centre/ directory only. Do not touch any shared files.",
+                pr_number,
             )
-            print(f"Auto Implement retriggered for {t_key}")
         return
 
     checks     = get_ci_status(sha)
@@ -245,21 +266,21 @@ def review_pr(pr_number, sha=None):
 
         if mergeable is False:
             print("PR has merge conflicts — closing and retriggering")
+            post_comment(pr_number,
+                f"⚠️ **Manager Agent: Merge conflict detected.**\n\n"
+                f"This PR cannot be merged due to conflicts with `main`. "
+                f"Closing and retriggering Auto Implement to create a fresh implementation from latest main.")
             requests.patch(f"{BASE}/pulls/{pr_number}", headers=GH_HEADERS,
                           json={"state": "closed"})
             if ticket_key:
                 jira_comment(ticket_key,
                     f"PR #{pr_number} had merge conflicts and was closed. Retriggering implementation.")
-                requests.post(
-                    f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/actions/workflows/auto-implement.yml/dispatches",
-                    headers=GH_HEADERS,
-                    json={"ref": "main", "inputs": {
-                        "ticket": ticket_key,
-                        "summary": pr["title"].replace(f"[{ticket_key}] ", "").strip(),
-                        "feedback": "Previous PR had merge conflicts. Implement fresh from latest main branch. Only create new files.",
-                    }}
+                trigger_auto_implement(
+                    ticket_key,
+                    pr["title"].replace(f"[{ticket_key}] ", "").strip(),
+                    "Previous PR had merge conflicts. Implement fresh from latest main branch. Only create new files.",
+                    pr_number,
                 )
-                print(f"Auto Implement retriggered for {ticket_key}")
             return
 
         ok, result = merge_pr(pr_number, merge_title, f"Auto-merged by Manager Agent.\n\n{summary}")
@@ -279,22 +300,20 @@ def review_pr(pr_number, sha=None):
             # If still conflicted, close and retrigger via Auto Implement
             if "conflict" in str(result).lower() or "405" in str(result):
                 print("Merge conflicts detected — closing PR and triggering reimplement")
+                post_comment(pr_number,
+                    f"⚠️ **Manager Agent: Merge failed due to conflict.**\n\n"
+                    f"Closing and retriggering Auto Implement to create a fresh implementation from latest main.")
                 requests.patch(f"{BASE}/pulls/{pr_number}", headers=GH_HEADERS,
                              json={"state": "closed"})
                 if ticket_key:
                     jira_comment(ticket_key,
                         f"PR #{pr_number} had merge conflicts and was closed. Will be reimplemented.")
-                    # Trigger Auto Implement
-                    requests.post(
-                        f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/actions/workflows/auto-implement.yml/dispatches",
-                        headers=GH_HEADERS,
-                        json={"ref": "main", "inputs": {
-                            "ticket": ticket_key,
-                            "summary": pr["title"].replace(f"[{ticket_key}] ", "").strip(),
-                            "feedback": "Previous PR had merge conflicts. Implement fresh from main branch.",
-                        }}
+                    trigger_auto_implement(
+                        ticket_key,
+                        pr["title"].replace(f"[{ticket_key}] ", "").strip(),
+                        "Previous PR had merge conflicts. Implement fresh from main branch.",
+                        pr_number,
                     )
-                    print(f"Auto Implement triggered for {ticket_key}")
             else:
                 post_comment(pr_number, f"⚠️ Manager Agent: merge failed — {result.get('message','unknown')}")
     else:
