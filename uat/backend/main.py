@@ -78,3 +78,9 @@ app.include_router(pm_agent_router)
 def root():
     """Health check endpoint."""
     return {"status": "ok", "service": "auth-api", "version": "1.0.0"}
+
+
+@app.get("/health")
+def health():
+    """Health check endpoint."""
+    return {"status": "ok"}
