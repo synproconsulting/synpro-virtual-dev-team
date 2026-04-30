@@ -287,6 +287,10 @@ Code standards:
 Merge rule: If read_file returns content, you MUST incorporate the existing content
 into your staged version — never discard existing code when extending a file.
 
+Dependency rule: requirements.txt is a critical file — always read its existing content
+before writing, never remove existing dependencies, only append new ones. Removing a
+dependency will break the deployed service for every feature that depends on it.
+
 PR title format: [TICKET-ID] Brief description
 """
 
