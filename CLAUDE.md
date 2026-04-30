@@ -434,6 +434,26 @@ A user authentication and profile management system:
 - Notification system
 - Delete account
 
+### Backend Dependencies (`uat/backend/requirements.txt`)
+
+Verified complete package list as of Sprint 5 completion (audited against all imports in `uat/backend/*.py`):
+
+| Package | Version | Used by |
+|---|---|---|
+| `fastapi` | 0.104.1 | main, auth, middleware, notifications, pm_agent, profile, proxy |
+| `uvicorn` | 0.24.0 | Runtime server |
+| `sqlalchemy` | 2.0.23 | database, models, repository |
+| `pydantic` | 2.5.0 | auth, config, pm_agent, schemas |
+| `psycopg2-binary` | 2.9.9 | auth (imported as `psycopg2`) |
+| `pyjwt` | 2.8.0 | auth (imported as `jwt`) |
+| `python-dotenv` | 1.0.0 | Runtime env loading |
+| `slowapi` | 0.1.9 | main, rate_limiter |
+| `httpx` | 0.27.0 | proxy (async HTTP client) |
+| `anthropic` | 0.49.0 | pm_agent (PM Agent chat/sprint endpoints) |
+| `pytest` | 7.4.3 | Test suite |
+
+**Dev Agent rule:** Before modifying `uat/backend/requirements.txt`, always read the existing file first. Never remove any package from this list — only append new ones. Removing a dependency breaks the deployed Railway service for every feature that depends on it.
+
 ---
 
 ## Sprint History
