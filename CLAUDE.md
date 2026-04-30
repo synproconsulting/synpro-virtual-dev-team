@@ -11,7 +11,7 @@ An AI-powered Virtual Development Team that automates the full software developm
 
 **Owner:** Johan Wessels — SynPro Consulting  
 **Started:** April 21, 2025  
-**Current state:** Sprints 1–4 complete and merged. Sprint 5 planned and loaded into Jira (not started).
+**Current state:** Sprints 1–5 complete and merged.
 
 ---
 
@@ -38,6 +38,10 @@ An AI-powered Virtual Development Team that automates the full software developm
 Committing directly to `main` bypasses the audit trail, CI gates, and the Manager Agent review that this system exists to enforce. If a fix is urgent enough to feel like it needs to skip the process, that urgency is reason to follow the process more carefully, not less. If a direct-to-main commit is ever made by mistake, a retroactive PR must be opened immediately (as was done for SDT1-49).
 
 **SonarCloud and Railway deploy are not merge-gate checks — by design.** Both run with `continue-on-error: true` in `ci.yml` and are intentionally excluded from the Manager Agent's blocking check list. The Manager Agent must only gate on unit tests (Python 3.11 + 3.12) and the bandit security scan. SonarCloud analysis is triggered manually from the Control Centre on selected components before promoting a build to TEST or PROD. Never add SonarCloud or Railway deploy as blocking conditions in the Manager Agent, `ci_manager_agent.py`, or any tool that evaluates merge readiness.
+
+**`uat/backend/requirements.txt` is a critical file.** Before writing it, always read the existing content first. Never remove any existing dependency — only append new ones. Removing a package breaks the deployed Railway service for every feature that depends on it. This rule applies to both the CrewAI Dev Agent (`DEV_AGENT_BACKSTORY`) and the CI Dev Agent (`SYSTEM_PROMPT`).
+
+**`GITHUB_TOKEN` cannot trigger `workflow_dispatch` events — use `PAT_TOKEN`.** GitHub blocks the built-in `GITHUB_TOKEN` from dispatching workflows on other files (a security restriction against recursive loops). Any code that calls the `/actions/workflows/*/dispatches` API must use `PAT_TOKEN` (the same secret used by `auto-implement.yml`). This applies to `ci_manager_agent.py`'s merge-conflict retrigger and any future agent that needs to fire a workflow. Failures are not silent — check the HTTP response and post a PR comment if the dispatch fails.
 
 ---
 
@@ -198,6 +202,36 @@ These are conscious design choices — not defaults or accidents. Understanding 
 **Why:** The backend is a small, focused FastAPI app. A package hierarchy would add indirection without benefit at this scale. The flat layout also matches how Railway's Procfile resolves modules at startup.
 
 **Do not:** Create `src/` subdirectories or `__init__.py` files inside `uat/backend/`. The Dev Agent backstory and `ci_dev_agent.py` prompt both enforce this layout explicitly.
+
+---
+
+### AD-17 · Orchestrator re-queries Jira before each ticket — no startup cache
+
+**Decision:** `run_sprint()` uses a `while True:` loop that calls `get_open_sprint_tickets()` at the top of every iteration, always processing `tickets[0]` (the lowest execution-order To Do ticket). The loop exits when Jira returns an empty list.
+
+**Why:** Fetching once at startup and iterating a stale snapshot meant any external state change (manual Jira transition, failed retrigger, mid-run ticket completion) was invisible for the rest of the run. The while-loop model also makes automatic retry of failed tickets possible — if a ticket fails and remains To Do, the next iteration picks it up again without operator intervention.
+
+**Consequence:** A ticket that genuinely cannot be implemented will loop indefinitely (fail → still To Do → retry). The Orchestrator does not implement a per-ticket retry cap. If a ticket is permanently broken, move it to Done or remove it from To Do in Jira to unblock the sprint.
+
+---
+
+### AD-18 · Manager Agent uses `PAT_TOKEN` (not `GITHUB_TOKEN`) for workflow dispatch retriggers
+
+**Decision:** `ci_manager_agent.py` maintains two header dicts: `GH_HEADERS` (built-in `GITHUB_TOKEN`) for all read/write operations on PRs, commits, and reviews; and `DISPATCH_HEADERS` (PAT from `PAT_TOKEN` env var) exclusively for `workflow_dispatch` API calls. `auto-review.yml` exposes `PAT_TOKEN: ${{ secrets.PAT_TOKEN }}` to the script.
+
+**Why:** GitHub's security model blocks `GITHUB_TOKEN` from triggering `workflow_dispatch` events on other workflows to prevent recursive loops. All retrigger calls (merge-conflict recovery → Auto Implement) silently returned 4xx when using `GITHUB_TOKEN` — tickets were left stranded with closed PRs and no new implementation. Confirmed failure on PR #98 (SDT1-46).
+
+**Consequence:** Any new place in `ci_manager_agent.py` that needs to fire a workflow must use `DISPATCH_HEADERS`. If `PAT_TOKEN` is not set in the environment, it falls back to `GITHUB_TOKEN` (which will fail silently) — always verify the secret is present.
+
+---
+
+### AD-19 · `gh_read_file` in `ci_dev_agent.py` returns `None` for directory paths
+
+**Decision:** `gh_read_file` checks `isinstance(data, list)` after `data = r.json()`. If the GitHub Contents API returns a directory listing (a JSON array), the function returns `None` — identical to how a 404 is handled.
+
+**Why:** When Claude passes a directory path to `read_file`, the GitHub API returns a list of directory entries rather than a file dict. Accessing `data["content"]` on a list raises `TypeError: list indices must be integers or slices, not str`, crashing the entire Auto Implement run after files may have already been staged. Returning `None` lets the agent see "File not found" and try a different path.
+
+**Do not:** Remove this guard or assume the GitHub Contents API always returns a dict.
 
 ---
 
@@ -471,34 +505,37 @@ Note: SDT1-26 had a long conflict/retrigger loop — resolved via PR #71, Jira c
 ### Sprint 4 — Control Centre Dashboard
 Tickets SDT1-31 through ~SDT1-40. Full Control Centre build: Sprint Status tab, Workflows tab, CI/CD monitoring, PM Agent chat UI, SonarCloud tab stub, UAT Deploy tab stub.
 
----
+### Sprint 5 — Foundations ✅ Complete
+Tickets SDT1-44 through SDT1-53. All 10 stories, 37 story points, merged to main.
 
-## Sprint 5 — Foundations (planned, not started)
+| Exec # | Ticket | Summary | Status |
+|--------|--------|---------|--------|
+| 1 | SDT1-48 | Add Alembic migration framework with initial schema changes | ✅ Done |
+| 2 | SDT1-49 | Add conversations and messages schema for PM Agent chat history | ✅ Done |
+| 3 | SDT1-51 | Add products table for multi-product configuration | ✅ Done |
+| 4 | SDT1-47 | Split main.py into separate router modules | ✅ Done |
+| 5 | SDT1-50 | Fix password reset flow — send token via email only | ✅ Done (PR #96) |
+| 6 | SDT1-45 | Add request logging middleware and rate limiting | ✅ Done (PR #88) |
+| 7 | SDT1-44 | Add exponential backoff retry to Manager Agent Jira transitions | ✅ Done |
+| 8 | SDT1-46 | Improve Manager Agent diff truncation to prioritise new files | ✅ Done (PR #103) |
+| 9 | SDT1-52 | Add resume capability to Orchestrator with state persistence | ✅ Done |
+| 10 | SDT1-53 | Extend PM Agent to write Jira blocks/is-blocked-by link types | ✅ Done (PR #100) |
 
-**Epic:** SDT1-43 — Sprint 5: Foundations - Database, Backend & Agent Reliability  
-**Fix version ID:** 10132 | **Native sprint ID:** 72  
-**10 stories, 37 story points**
+**Fix PRs opened during Sprint 5 (infrastructure, not sprint tickets):**
 
-> **Note:** During sprint creation the PM Agent created a spurious "Sprint 6 - Foundations" version (ID 10165) instead of reusing the pre-created Sprint 5 (ID 10132). The erroneous version was deleted and all stories were manually reassigned to fix version 10132.
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #89 | fix/pm-agent-execution-order | `execution_order` missing from `CreateStoryInput` schema; no backstory rule — caused all Sprint 5 tickets to have no execution order |
+| #90 | fix/backend-add-httpx-requirement | `httpx` missing from `uat/backend/requirements.txt` — Railway deploy failing |
+| #91 | fix/agent-prompts-requirements-txt-rule | requirements.txt critical-file rule added to both Dev Agent prompts |
+| #92 | fix/backend-add-anthropic-requirement | `anthropic` missing from `uat/backend/requirements.txt` |
+| #93 | fix/claude-md-document-backend-requirements | CLAUDE.md: document verified requirements.txt package list |
+| #94 | fix/backend-health-endpoint | Add `GET /health` endpoint to UAT backend |
+| #95 | fix/ci-dev-agent-read-file-directory | `gh_read_file` crashed on directory paths — TypeError crashing Auto Implement runs |
+| #101 | fix/manager-agent-retrigger-and-comment | Manager Agent retrigger used GITHUB_TOKEN (blocked); no PR comment on conflict close |
+| #102 | fix/orchestrator-re-query-jira-per-ticket | Orchestrator used stale ticket snapshot; switch to while-loop with Jira re-query per iteration |
 
-| Exec # | Ticket | Summary | Pts | Priority |
-|--------|--------|---------|-----|----------|
-| 1 | SDT1-48 | Add Alembic migration framework with initial schema changes | 5 | Highest |
-| 2 | SDT1-49 | Add conversations and messages schema for PM Agent chat history | 5 | High |
-| 3 | SDT1-51 | Add products table for multi-product configuration | 3 | High |
-| 4 | SDT1-47 | Split main.py into separate router modules | 5 | High |
-| 5 | SDT1-50 | Fix password reset flow — send token via email only | 5 | Highest |
-| 6 | SDT1-45 | Add request logging middleware and rate limiting | 5 | Medium |
-| 7 | SDT1-44 | Add exponential backoff retry to Manager Agent Jira transitions | 3 | High |
-| 8 | SDT1-46 | Improve Manager Agent diff truncation to prioritise new files | 3 | Medium |
-| 9 | SDT1-52 | Add resume capability to Orchestrator with state persistence | 5 | Medium |
-| 10 | SDT1-53 | Extend PM Agent to write Jira blocks/is-blocked-by link types | 3 | Low |
-
-**Dependency wave order:**
-- Wave 1: SDT1-48 (Alembic — all DB tickets depend on this)
-- Wave 2: SDT1-49, SDT1-51 (DB schemas, parallel), SDT1-47 (router split — backend tickets depend on this)
-- Wave 3: SDT1-50, SDT1-45 (parallel, both depend on SDT1-47)
-- Parallel with Wave 2+3: SDT1-44, SDT1-46, SDT1-52, SDT1-53 (agent reliability, no dependencies)
+> **Sprint 5 setup note:** During sprint creation the PM Agent created a spurious "Sprint 6 - Foundations" version (ID 10165) instead of reusing the pre-created Sprint 5 (ID 10132). The erroneous version was deleted and all stories were manually reassigned to fix version 10132. `customfield_10071` was also not set by the PM Agent (bug fixed in PR #89) and had to be set manually before the Orchestrator could run.
 
 ---
 
