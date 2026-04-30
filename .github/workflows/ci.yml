@@ -221,7 +221,7 @@ jobs:
         run: |
           if [ -d "uat/backend" ]; then
             cd uat/backend
-            railway up --service backend --detach
+            railway up --service synpro-virtual-dev-team --detach
           else
             echo "No uat/backend directory yet - skipping backend deploy"
           fi
@@ -232,7 +232,7 @@ jobs:
         run: |
           if [ -d "uat/frontend" ]; then
             cd uat/frontend
-            railway up --service frontend --detach
+            railway up --service Virtual-Dev-Team-UAT-Frontend --detach
           else
             echo "No uat/frontend directory yet - skipping frontend deploy"
           fi
