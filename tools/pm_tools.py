@@ -70,6 +70,19 @@ class ListIssueLinksInput(BaseModel):
     issue_key: str = Field(...)
 
 
+class CreateOrGetFixVersionInput(BaseModel):
+    name:         str           = Field(..., description="The version name (must be unique within the project)")
+    description:  str           = Field("", description="Optional description of the version/release")
+    release_date: Optional[str] = Field(None, description="Optional release date in YYYY-MM-DD format")
+    archived:     bool          = Field(False, description="Whether the version is archived")
+    released:     bool          = Field(False, description="Whether the version has been released")
+
+
+class ListFixVersionsInput(BaseModel):
+    include_archived: bool = Field(False, description="Whether to include archived versions")
+    include_released: bool = Field(True, description="Whether to include released versions")
+
+
 # ── Tool classes ───────────────────────────────────────────────────────────────
 
 class ListBacklogTool(BaseTool):
@@ -234,6 +247,91 @@ class ListIssueLinksToolImpl(BaseTool):
         return "\n".join(lines)
 
 
+class CreateOrGetFixVersionTool(BaseTool):
+    name:        str = "create_or_get_fix_version"
+    description: str = (
+        "Create a new fix version (release) or retrieve an existing one with the same name. "
+        "This tool is idempotent - calling it multiple times with the same name will return "
+        "the same fix version ID. Use this for release planning and tracking which features "
+        "go into which releases. The returned ID is deterministic and can be used to tag issues."
+    )
+    args_schema: type = CreateOrGetFixVersionInput
+
+    def _run(self, name: str, description: str = "",
+             release_date: Optional[str] = None,
+             archived: bool = False,
+             released: bool = False) -> str:
+        result = jira.create_or_get_fix_version(
+            name=name,
+            description=description,
+            release_date=release_date,
+            archived=archived,
+            released=released
+        )
+        
+        action = "created" if result.get("created") else "found existing"
+        version_id = result.get("id", "unknown")
+        version_name = result.get("name", name)
+        
+        output_lines = [f"Fix version {action}: {version_name} (ID: {version_id})"]
+        
+        if description:
+            output_lines.append(f"  Description: {description}")
+        
+        if release_date:
+            output_lines.append(f"  Release date: {release_date}")
+        
+        if archived:
+            output_lines.append("  Status: Archived")
+        elif released:
+            output_lines.append("  Status: Released")
+        else:
+            output_lines.append("  Status: Unreleased")
+        
+        return "\n".join(output_lines)
+
+
+class ListFixVersionsTool(BaseTool):
+    name:        str = "list_fix_versions"
+    description: str = (
+        "List all fix versions (releases) in the project. "
+        "Use this to see existing versions before creating new ones."
+    )
+    args_schema: type = ListFixVersionsInput
+
+    def _run(self, include_archived: bool = False,
+             include_released: bool = True) -> str:
+        versions = jira.list_fix_versions(
+            include_archived=include_archived,
+            include_released=include_released
+        )
+        
+        if not versions:
+            return "No fix versions found."
+        
+        lines = ["Fix versions:"]
+        for v in versions:
+            status_parts = []
+            if v.get("released"):
+                status_parts.append("Released")
+            if v.get("archived"):
+                status_parts.append("Archived")
+            
+            status = ", ".join(status_parts) if status_parts else "Unreleased"
+            
+            line = f"  [{v['id']}] {v['name']} — {status}"
+            
+            if v.get("release_date"):
+                line += f" | Release: {v['release_date']}"
+            
+            if v.get("description"):
+                line += f" | {v['description']}"
+            
+            lines.append(line)
+        
+        return "\n".join(lines)
+
+
 # ── Tool groups (keep each group small to stay within Claude schema limits) ────
 
 BACKLOG_TOOLS = [
@@ -244,6 +342,8 @@ BACKLOG_TOOLS = [
     UpdateIssueTool(),
     CreateBlockerLinkTool(),
     ListIssueLinksToolImpl(),
+    CreateOrGetFixVersionTool(),
+    ListFixVersionsTool(),
 ]
 
 SPRINT_TOOLS = [
