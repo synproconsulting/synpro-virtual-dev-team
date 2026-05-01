@@ -334,3 +334,88 @@ def add_issues_to_sprint(sprint_id: int, issue_keys: list[str]) -> None:
     """Move issues from backlog into a sprint."""
     jira = _get_client()
     jira.add_issues_to_sprint(sprint_id, issue_keys)
+
+
+# ── Fix Version Management ─────────────────────────────────────────────────────
+
+def list_fix_versions() -> list[dict[str, Any]]:
+    """List all fix versions for the project.
+    
+    Returns:
+        List of dictionaries with id, name, description, released, and releaseDate.
+    """
+    jira = _get_client()
+    project_key = _get_project_key()
+    
+    project = jira.project(project_key)
+    versions = jira.project_versions(project)
+    
+    result = []
+    for version in versions:
+        result.append({
+            "id": version.id,
+            "name": version.name,
+            "description": getattr(version, "description", ""),
+            "released": getattr(version, "released", False),
+            "release_date": getattr(version, "releaseDate", None),
+        })
+    
+    return result
+
+
+def create_or_get_fix_version(
+    name: str,
+    description: str = "",
+    release_date: Optional[str] = None,
+    released: bool = False,
+) -> dict[str, Any]:
+    """Get existing fix version by name or create a new one if it doesn't exist.
+    
+    This function provides deterministic behavior: calling it multiple times with
+    the same name will always return the same version ID.
+    
+    Args:
+        name: Version name (e.g., 'v1.0.0', 'Sprint 1 Release')
+        description: Optional version description
+        release_date: Optional release date in ISO format (YYYY-MM-DD)
+        released: Whether the version is already released
+    
+    Returns:
+        Dictionary with:
+            - id: The version ID (str)
+            - name: The version name
+            - created: True if newly created, False if existing version was found
+    """
+    jira = _get_client()
+    project_key = _get_project_key()
+    
+    # Check if version already exists
+    existing_versions = list_fix_versions()
+    for version in existing_versions:
+        if version["name"] == name:
+            return {
+                "id": version["id"],
+                "name": version["name"],
+                "created": False,
+            }
+    
+    # Create new version if it doesn't exist
+    version_data: dict[str, Any] = {
+        "name": name,
+        "project": project_key,
+        "released": released,
+    }
+    
+    if description:
+        version_data["description"] = description
+    
+    if release_date:
+        version_data["releaseDate"] = release_date
+    
+    new_version = jira.create_version(**version_data)
+    
+    return {
+        "id": new_version.id,
+        "name": new_version.name,
+        "created": True,
+    }

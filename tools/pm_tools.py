@@ -70,6 +70,13 @@ class ListIssueLinksInput(BaseModel):
     issue_key: str = Field(...)
 
 
+class CreateOrGetFixVersionInput(BaseModel):
+    name: str = Field(..., description="Version name (e.g., 'v1.0.0', 'Sprint 1 Release')")
+    description: str = Field("", description="Optional version description")
+    release_date: Optional[str] = Field(None, description="Optional release date in ISO format (YYYY-MM-DD)")
+    released: bool = Field(False, description="Whether the version is already released")
+
+
 # ── Tool classes ───────────────────────────────────────────────────────────────
 
 class ListBacklogTool(BaseTool):
@@ -234,6 +241,42 @@ class ListIssueLinksToolImpl(BaseTool):
         return "\n".join(lines)
 
 
+class ListFixVersionsTool(BaseTool):
+    name:        str = "list_fix_versions"
+    description: str = "List all fix versions (releases) for the project."
+    args_schema: type = NoInput
+
+    def _run(self, **_) -> str:
+        versions = jira.list_fix_versions()
+        if not versions:
+            return "No fix versions found."
+        
+        lines = ["Fix Versions:"]
+        for v in versions:
+            released_status = "Released" if v["released"] else "Unreleased"
+            release_date = f" | Release: {v['release_date']}" if v.get("release_date") else ""
+            lines.append(f"  • [{v['id']}] {v['name']} — {released_status}{release_date}")
+        return "\n".join(lines)
+
+
+class CreateOrGetFixVersionTool(BaseTool):
+    name:        str = "create_or_get_fix_version"
+    description: str = (
+        "Get an existing fix version by name, or create it if it doesn't exist. "
+        "This ensures deterministic version IDs — calling with the same name always returns the same ID. "
+        "Use this when you need to assign issues to a specific release version."
+    )
+    args_schema: type = CreateOrGetFixVersionInput
+
+    def _run(self, name: str, description: str = "",
+             release_date: Optional[str] = None,
+             released: bool = False) -> str:
+        result = jira.create_or_get_fix_version(name, description, release_date, released)
+        
+        action = "Created" if result["created"] else "Found existing"
+        return f"{action} fix version: ID={result['id']} — {result['name']}"
+
+
 # ── Tool groups (keep each group small to stay within Claude schema limits) ────
 
 BACKLOG_TOOLS = [
@@ -246,6 +289,11 @@ BACKLOG_TOOLS = [
     ListIssueLinksToolImpl(),
 ]
 
+VERSION_TOOLS = [
+    ListFixVersionsTool(),
+    CreateOrGetFixVersionTool(),
+]
+
 SPRINT_TOOLS = [
     ListSprintsTool(),
     CreateSprintTool(),
@@ -254,4 +302,4 @@ SPRINT_TOOLS = [
     TransitionIssueTool(),
 ]
 
-ALL_PM_TOOLS = BACKLOG_TOOLS + SPRINT_TOOLS
+ALL_PM_TOOLS = BACKLOG_TOOLS + VERSION_TOOLS + SPRINT_TOOLS

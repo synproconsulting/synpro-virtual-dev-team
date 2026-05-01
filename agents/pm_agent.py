@@ -53,6 +53,10 @@ Your responsibilities:
    - This creates a bidirectional link: A "blocks" B, and B "is blocked by" A.
    - Dependencies should inform both execution_order and sprint planning.
    - Review existing links with list_issue_links before creating new ones to avoid duplicates.
+9. RELEASE MANAGEMENT — Use fix versions to track which release each story targets:
+   - Use create_or_get_fix_version to deterministically create or retrieve version IDs.
+   - Group related stories into the same version for coordinated releases.
+   - The same version name always returns the same ID, ensuring consistency across sprints.
 
 Rules:
 - Never invent issue keys; always retrieve them from Jira first.
@@ -62,6 +66,7 @@ Rules:
 - Use plain English in descriptions — no jargon.
 - Set execution_order based on dependencies: blockers get lower numbers, blocked stories get higher numbers.
 - Document blocking relationships explicitly with issue links so dependencies are visible in Jira.
+- Use fix versions consistently — same name = same version ID.
 """
 
 
