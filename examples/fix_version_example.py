@@ -1,224 +1,279 @@
 """
 examples/fix_version_example.py
-───────────────────────────────
-Example usage of the CreateOrGetFixVersionTool for release management.
+────────────────────────────────
+Example usage of fix version management tools.
 
-This script demonstrates:
-1. Creating or getting fix versions deterministically
-2. Listing all fix versions in a project
-3. Using fix versions in a typical release planning workflow
+This script demonstrates how to:
+1. Create or get fix versions with deterministic IDs
+2. List existing fix versions
+3. Integrate fix versions with sprint planning
+4. Handle version lifecycle (unreleased → released → archived)
+
+Before running, ensure environment variables are set:
+    JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_PROJECT_KEY, JIRA_BOARD_ID
 """
 
 import os
-from dotenv import load_dotenv
-from tools.pm_tools import CreateOrGetFixVersionTool, ListFixVersionsTool
-
-# Load environment variables
-load_dotenv()
+from datetime import datetime, timedelta
+from tools import jira_client
 
 
-def example_basic_usage():
-    """Basic example: Create a fix version."""
-    print("=" * 80)
-    print("EXAMPLE 1: Basic Usage - Create or Get a Fix Version")
-    print("=" * 80)
+def example_1_create_sprint_versions():
+    """Example 1: Create fix versions for multiple sprints."""
+    print("=" * 60)
+    print("Example 1: Creating Fix Versions for Sprint Planning")
+    print("=" * 60)
     
-    tool = CreateOrGetFixVersionTool()
-    
-    # Create a new version
-    result = tool._run(
-        name="v1.0.0",
-        description="Initial production release",
-        release_date="2025-07-01",
-        released=False
-    )
-    print(f"\n{result}")
-    
-    # Call again with same name - should return existing version
-    result2 = tool._run(name="v1.0.0")
-    print(f"{result2}")
-    print("\n✓ Calling twice with same name returns same version ID (deterministic)")
-
-
-def example_list_versions():
-    """Example: List all fix versions."""
-    print("\n" + "=" * 80)
-    print("EXAMPLE 2: List All Fix Versions")
-    print("=" * 80)
-    
-    tool = ListFixVersionsTool()
-    result = tool._run()
-    print(f"\n{result}")
-
-
-def example_release_planning_workflow():
-    """Example: Complete release planning workflow."""
-    print("\n" + "=" * 80)
-    print("EXAMPLE 3: Release Planning Workflow")
-    print("=" * 80)
-    
-    create_tool = CreateOrGetFixVersionTool()
-    list_tool = ListFixVersionsTool()
-    
-    print("\nScenario: Planning a quarterly release cycle")
-    print("-" * 80)
-    
-    # Step 1: Create versions for the quarter
-    print("\n1. Creating Q2 release versions...")
-    
-    q2_main = create_tool._run(
-        name="Q2 2025 Main Release",
-        description="Major features for Q2 2025 quarterly release",
-        release_date="2025-06-30",
-        released=False
-    )
-    print(f"   {q2_main}")
-    
-    q2_hotfix = create_tool._run(
-        name="Q2 2025 Hotfix 1",
-        description="Critical bug fixes for Q2 release",
-        release_date="2025-07-07",
-        released=False
-    )
-    print(f"   {q2_hotfix}")
-    
-    # Step 2: Create sprint-specific versions
-    print("\n2. Creating sprint delivery versions...")
-    
-    sprint5 = create_tool._run(
-        name="Sprint 5 Delivery",
-        description="Features delivered in Sprint 5",
-        release_date="2025-05-15",
-        released=False
-    )
-    print(f"   {sprint5}")
-    
-    sprint6 = create_tool._run(
-        name="Sprint 6 Delivery",
-        description="Features delivered in Sprint 6",
-        release_date="2025-05-29",
-        released=False
-    )
-    print(f"   {sprint6}")
-    
-    # Step 3: Verify all versions were created
-    print("\n3. Verifying all versions...")
-    all_versions = list_tool._run()
-    print(f"   {all_versions}")
-    
-    # Step 4: Demonstrate deterministic behavior
-    print("\n4. Demonstrating deterministic behavior...")
-    print("   Calling create_or_get_fix_version with same name again...")
-    
-    duplicate_attempt = create_tool._run(name="Q2 2025 Main Release")
-    print(f"   {duplicate_attempt}")
-    print("   ✓ Returns existing version instead of creating duplicate")
-
-
-def example_semantic_versioning():
-    """Example: Using semantic versioning convention."""
-    print("\n" + "=" * 80)
-    print("EXAMPLE 4: Semantic Versioning Convention")
-    print("=" * 80)
-    
-    tool = CreateOrGetFixVersionTool()
-    
-    print("\nCreating versions following semantic versioning (v<major>.<minor>.<patch>)...")
-    
-    versions = [
-        ("v2.0.0", "Major release with breaking changes", "2025-08-01"),
-        ("v2.1.0", "Minor release with new features", "2025-09-15"),
-        ("v2.1.1", "Patch release with bug fixes", "2025-09-22"),
-        ("v2.2.0", "Minor release with performance improvements", "2025-10-01"),
+    # Define sprint details
+    sprints = [
+        {
+            "name": "Sprint 1 - Authentication",
+            "description": "User authentication and authorization features",
+            "weeks": 2,
+        },
+        {
+            "name": "Sprint 2 - Dashboard",
+            "description": "Admin dashboard and reporting",
+            "weeks": 2,
+        },
+        {
+            "name": "Sprint 3 - Mobile App",
+            "description": "Mobile application development",
+            "weeks": 2,
+        },
     ]
     
-    for name, description, date in versions:
-        result = tool._run(
-            name=name,
-            description=description,
-            release_date=date,
+    # Create fix versions for each sprint
+    start_date = datetime.now()
+    
+    for i, sprint in enumerate(sprints):
+        release_date = start_date + timedelta(weeks=sprint["weeks"] * (i + 1))
+        release_date_str = release_date.strftime("%Y-%m-%d")
+        
+        print(f"\nCreating version for {sprint['name']}...")
+        
+        result = jira_client.create_or_get_fix_version(
+            name=sprint["name"],
+            description=sprint["description"],
+            release_date=release_date_str,
+            archived=False,
             released=False
         )
-        print(f"   {result}")
+        
+        if result["created"]:
+            print(f"  ✓ Created new version: {result['name']} (ID: {result['id']})")
+        else:
+            print(f"  ℹ Found existing version: {result['name']} (ID: {result['id']})")
+        
+        print(f"    Release date: {result['release_date']}")
+        print(f"    Description: {result['description']}")
 
 
-def example_error_handling():
-    """Example: Handling edge cases."""
-    print("\n" + "=" * 80)
-    print("EXAMPLE 5: Edge Cases and Best Practices")
-    print("=" * 80)
+def example_2_idempotent_behavior():
+    """Example 2: Demonstrate idempotent behavior."""
+    print("\n" + "=" * 60)
+    print("Example 2: Idempotent Behavior - Same ID Every Time")
+    print("=" * 60)
     
-    tool = CreateOrGetFixVersionTool()
+    version_name = "Test Version - Idempotent Example"
     
-    # Creating with minimal information
-    print("\n1. Creating version with only required field (name)...")
-    minimal = tool._run(name="Minimal Version")
-    print(f"   {minimal}")
-    
-    # Creating with descriptive name
-    print("\n2. Creating version with descriptive name...")
-    descriptive = tool._run(
-        name="User Authentication Module - Phase 1",
-        description="All authentication-related features for initial rollout"
+    # Call 1
+    print(f"\nFirst call with name '{version_name}'...")
+    result1 = jira_client.create_or_get_fix_version(
+        name=version_name,
+        description="Testing idempotency"
     )
-    print(f"   {descriptive}")
+    print(f"  Version ID: {result1['id']}")
+    print(f"  Created: {result1['created']}")
     
-    # Creating already-released version
-    print("\n3. Creating a version marked as already released...")
-    released = tool._run(
-        name="v1.5.0",
-        description="Previous release (already shipped)",
-        release_date="2025-01-15",
-        released=True
+    # Call 2 - should return same ID
+    print(f"\nSecond call with same name...")
+    result2 = jira_client.create_or_get_fix_version(
+        name=version_name,
+        description="Different description"  # This won't change existing version
     )
-    print(f"   {released}")
+    print(f"  Version ID: {result2['id']}")
+    print(f"  Created: {result2['created']}")
+    
+    # Call 3 - should still return same ID
+    print(f"\nThird call with same name...")
+    result3 = jira_client.create_or_get_fix_version(
+        name=version_name
+    )
+    print(f"  Version ID: {result3['id']}")
+    print(f"  Created: {result3['created']}")
+    
+    # Verify all IDs are the same
+    print(f"\n✓ All calls returned the same ID: {result1['id'] == result2['id'] == result3['id']}")
+
+
+def example_3_list_versions():
+    """Example 3: List and filter fix versions."""
+    print("\n" + "=" * 60)
+    print("Example 3: Listing Fix Versions with Filtering")
+    print("=" * 60)
+    
+    # List all unreleased versions
+    print("\n1. Unreleased versions only:")
+    unreleased = jira_client.list_fix_versions(
+        include_archived=False,
+        include_released=False
+    )
+    
+    if unreleased:
+        for v in unreleased:
+            print(f"  • {v['name']} (ID: {v['id']})")
+            if v.get('release_date'):
+                print(f"    Target release: {v['release_date']}")
+    else:
+        print("  No unreleased versions found.")
+    
+    # List all versions (including released)
+    print("\n2. All active versions (released + unreleased):")
+    all_versions = jira_client.list_fix_versions(
+        include_archived=False,
+        include_released=True
+    )
+    
+    if all_versions:
+        for v in all_versions:
+            status = "Released" if v.get('released') else "Unreleased"
+            print(f"  • {v['name']} — {status}")
+    else:
+        print("  No versions found.")
+
+
+def example_4_semantic_versioning():
+    """Example 4: Use semantic versioning pattern."""
+    print("\n" + "=" * 60)
+    print("Example 4: Semantic Versioning Pattern")
+    print("=" * 60)
+    
+    versions = [
+        ("v1.0.0", "Initial release with core features"),
+        ("v1.1.0", "Minor update with bug fixes"),
+        ("v1.2.0", "New reporting features"),
+        ("v2.0.0", "Major update with breaking changes"),
+    ]
+    
+    for version_name, description in versions:
+        print(f"\nCreating/getting {version_name}...")
+        
+        result = jira_client.create_or_get_fix_version(
+            name=version_name,
+            description=description
+        )
+        
+        action = "Created" if result["created"] else "Found"
+        print(f"  {action}: {version_name} (ID: {result['id']})")
+
+
+def example_5_sprint_integration():
+    """Example 5: Integrate fix versions with sprint creation."""
+    print("\n" + "=" * 60)
+    print("Example 5: Sprint + Fix Version Integration")
+    print("=" * 60)
+    
+    sprint_name = "Sprint 5"
+    version_name = "Sprint 5 - API Integration"
+    
+    # Step 1: Create fix version
+    print(f"\nStep 1: Creating fix version '{version_name}'...")
+    version_result = jira_client.create_or_get_fix_version(
+        name=version_name,
+        description="API integration and third-party services",
+        release_date=(datetime.now() + timedelta(weeks=2)).strftime("%Y-%m-%d")
+    )
+    print(f"  Version ID: {version_result['id']}")
+    
+    # Step 2: Create sprint
+    print(f"\nStep 2: Creating sprint '{sprint_name}'...")
+    try:
+        sprint_result = jira_client.create_sprint(
+            name=sprint_name,
+            goal="Complete API integration",
+            start_date=(datetime.now()).isoformat() + "Z",
+            end_date=(datetime.now() + timedelta(weeks=2)).isoformat() + "Z"
+        )
+        print(f"  Sprint ID: {sprint_result['id']}")
+        print(f"  Sprint Name: {sprint_result['name']}")
+        
+        print(f"\n✓ Sprint and fix version created successfully!")
+        print(f"  Use version ID {version_result['id']} to tag issues in this sprint.")
+    except Exception as e:
+        print(f"  Note: Sprint creation skipped ({str(e)})")
+        print(f"  But fix version is ready to use!")
+
+
+def example_6_version_lifecycle():
+    """Example 6: Demonstrate version lifecycle management."""
+    print("\n" + "=" * 60)
+    print("Example 6: Version Lifecycle Management")
+    print("=" * 60)
+    
+    print("\n1. Create unreleased version:")
+    version = jira_client.create_or_get_fix_version(
+        name="v1.3.0 - Feature Release",
+        description="New features for Q2",
+        released=False,
+        archived=False
+    )
+    print(f"  Created: {version['name']}")
+    print(f"  Status: Unreleased")
+    
+    print("\n2. Later, you can mark it as released:")
+    print("  (Use Jira API to update: released=True)")
+    
+    print("\n3. Eventually, archive old versions:")
+    print("  (Use Jira API to update: archived=True)")
+    
+    print("\n4. List only active (unreleased, non-archived) versions:")
+    active = jira_client.list_fix_versions(
+        include_archived=False,
+        include_released=False
+    )
+    print(f"  Active versions: {len(active)}")
 
 
 def main():
     """Run all examples."""
     print("\n")
-    print("╔" + "=" * 78 + "╗")
-    print("║" + " " * 20 + "FIX VERSION TOOL EXAMPLES" + " " * 33 + "║")
-    print("╚" + "=" * 78 + "╝")
-    
-    # Check environment variables
-    required_vars = ["JIRA_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_PROJECT_KEY"]
-    missing_vars = [var for var in required_vars if not os.environ.get(var)]
-    
-    if missing_vars:
-        print("\n⚠️  ERROR: Missing required environment variables:")
-        for var in missing_vars:
-            print(f"   - {var}")
-        print("\nPlease set these in your .env file or environment.")
-        return
-    
-    print(f"\n✓ Connected to Jira project: {os.environ.get('JIRA_PROJECT_KEY')}")
+    print("╔" + "=" * 58 + "╗")
+    print("║" + " " * 10 + "Fix Version Management Examples" + " " * 16 + "║")
+    print("╚" + "=" * 58 + "╝")
+    print("\nThese examples demonstrate the new deterministic fix version tools.")
     
     try:
-        # Run examples
-        example_basic_usage()
-        example_list_versions()
-        example_release_planning_workflow()
-        example_semantic_versioning()
-        example_error_handling()
+        # Check environment variables
+        required_vars = ["JIRA_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "JIRA_PROJECT_KEY"]
+        missing = [var for var in required_vars if not os.environ.get(var)]
         
-        # Summary
-        print("\n" + "=" * 80)
-        print("SUMMARY")
-        print("=" * 80)
-        print("""
-Key Takeaways:
-1. ✓ Same version name always returns same ID (deterministic)
-2. ✓ Safe to call multiple times without creating duplicates
-3. ✓ Use descriptive names for better release tracking
-4. ✓ Set release dates for planning and reporting
-5. ✓ List versions first to see what already exists
-6. ✓ Works seamlessly in automated PM Agent workflows
-        """)
+        if missing:
+            print(f"\n⚠ Missing environment variables: {', '.join(missing)}")
+            print("Please set these variables before running the examples.")
+            return
+        
+        # Run examples
+        example_1_create_sprint_versions()
+        example_2_idempotent_behavior()
+        example_3_list_versions()
+        example_4_semantic_versioning()
+        example_5_sprint_integration()
+        example_6_version_lifecycle()
+        
+        print("\n" + "=" * 60)
+        print("✓ All examples completed successfully!")
+        print("=" * 60)
+        print("\nNext steps:")
+        print("  1. View the versions in your Jira project")
+        print("  2. Use the version IDs to tag issues")
+        print("  3. Integrate with your sprint planning workflow")
+        print("\nSee docs/fix_version_management.md for more details.")
+        print()
         
     except Exception as e:
-        print(f"\n❌ ERROR: {e}")
-        print("\nPlease check your Jira credentials and project configuration.")
+        print(f"\n✗ Error: {e}")
+        print("\nMake sure your Jira credentials and project settings are correct.")
 
 
 if __name__ == "__main__":

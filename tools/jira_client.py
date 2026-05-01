@@ -338,71 +338,63 @@ def add_issues_to_sprint(sprint_id: int, issue_keys: list[str]) -> None:
 
 # ── Fix Version Management ─────────────────────────────────────────────────────
 
-def list_fix_versions() -> list[dict[str, Any]]:
-    """List all fix versions for the project.
-    
-    Returns:
-        List of dictionaries with id, name, description, released, and releaseDate.
-    """
-    jira = _get_client()
-    project_key = _get_project_key()
-    
-    project = jira.project(project_key)
-    versions = jira.project_versions(project)
-    
-    result = []
-    for version in versions:
-        result.append({
-            "id": version.id,
-            "name": version.name,
-            "description": getattr(version, "description", ""),
-            "released": getattr(version, "released", False),
-            "release_date": getattr(version, "releaseDate", None),
-        })
-    
-    return result
-
-
 def create_or_get_fix_version(
     name: str,
     description: str = "",
     release_date: Optional[str] = None,
+    archived: bool = False,
     released: bool = False,
 ) -> dict[str, Any]:
-    """Get existing fix version by name or create a new one if it doesn't exist.
+    """Create or retrieve a fix version with deterministic ID.
     
-    This function provides deterministic behavior: calling it multiple times with
-    the same name will always return the same version ID.
+    This function ensures idempotent fix version creation by checking if a version
+    with the given name already exists before creating a new one.
     
     Args:
-        name: Version name (e.g., 'v1.0.0', 'Sprint 1 Release')
-        description: Optional version description
-        release_date: Optional release date in ISO format (YYYY-MM-DD)
-        released: Whether the version is already released
+        name: The version name (must be unique within the project)
+        description: Optional description of the version/release
+        release_date: Optional release date in YYYY-MM-DD format
+        archived: Whether the version is archived (default: False)
+        released: Whether the version has been released (default: False)
     
     Returns:
-        Dictionary with:
-            - id: The version ID (str)
+        A dictionary containing:
+            - id: The fix version ID (numeric string)
             - name: The version name
-            - created: True if newly created, False if existing version was found
+            - description: The version description
+            - archived: Whether the version is archived
+            - released: Whether the version is released
+            - release_date: The release date if set
+            - created: Boolean indicating if the version was newly created (True) or already existed (False)
+    
+    Raises:
+        ValueError: If JIRA_PROJECT_KEY environment variable is not set
     """
     jira = _get_client()
     project_key = _get_project_key()
     
-    # Check if version already exists
-    existing_versions = list_fix_versions()
+    # First, try to find an existing version with this name
+    project = jira.project(project_key)
+    existing_versions = jira.project_versions(project)
+    
     for version in existing_versions:
-        if version["name"] == name:
+        if version.name == name:
+            # Version already exists, return it
             return {
-                "id": version["id"],
-                "name": version["name"],
+                "id": version.id,
+                "name": version.name,
+                "description": getattr(version, "description", ""),
+                "archived": getattr(version, "archived", False),
+                "released": getattr(version, "released", False),
+                "release_date": getattr(version, "releaseDate", None),
                 "created": False,
             }
     
-    # Create new version if it doesn't exist
+    # Version doesn't exist, create it
     version_data: dict[str, Any] = {
         "name": name,
         "project": project_key,
+        "archived": archived,
         "released": released,
     }
     
@@ -417,5 +409,57 @@ def create_or_get_fix_version(
     return {
         "id": new_version.id,
         "name": new_version.name,
+        "description": getattr(new_version, "description", ""),
+        "archived": getattr(new_version, "archived", False),
+        "released": getattr(new_version, "released", False),
+        "release_date": getattr(new_version, "releaseDate", None),
         "created": True,
     }
+
+
+def list_fix_versions(
+    include_archived: bool = False,
+    include_released: bool = True,
+) -> list[dict[str, Any]]:
+    """List all fix versions in the project.
+    
+    Args:
+        include_archived: Whether to include archived versions (default: False)
+        include_released: Whether to include released versions (default: True)
+    
+    Returns:
+        A list of dictionaries, each containing:
+            - id: The fix version ID
+            - name: The version name
+            - description: The version description
+            - archived: Whether the version is archived
+            - released: Whether the version is released
+            - release_date: The release date if set
+    """
+    jira = _get_client()
+    project_key = _get_project_key()
+    
+    project = jira.project(project_key)
+    versions = jira.project_versions(project)
+    
+    result = []
+    for version in versions:
+        archived = getattr(version, "archived", False)
+        released = getattr(version, "released", False)
+        
+        # Filter based on parameters
+        if not include_archived and archived:
+            continue
+        if not include_released and released:
+            continue
+        
+        result.append({
+            "id": version.id,
+            "name": version.name,
+            "description": getattr(version, "description", ""),
+            "archived": archived,
+            "released": released,
+            "release_date": getattr(version, "releaseDate", None),
+        })
+    
+    return result
