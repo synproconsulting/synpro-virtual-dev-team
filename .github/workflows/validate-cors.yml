@@ -1,0 +1,162 @@
+name: Validate CORS Configuration
+
+on:
+  pull_request:
+    paths:
+      - 'uat/backend/config.py'
+      - 'uat/backend/main.py'
+      - '.env.example'
+      - '.github/workflows/validate-cors.yml'
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  validate-cors:
+    name: Validate CORS Configuration
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        environment:
+          - name: development
+            frontend_url: ""
+            should_pass: true
+          - name: development
+            frontend_url: "http://localhost:3000"
+            should_pass: true
+          - name: staging
+            frontend_url: "https://staging.example.com"
+            should_pass: true
+          - name: production
+            frontend_url: "https://app.example.com"
+            should_pass: true
+          - name: production
+            frontend_url: ""
+            should_pass: false
+          - name: production
+            frontend_url: "*"
+            should_pass: false
+          - name: production
+            frontend_url: "http://app.example.com"
+            should_pass: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install pytest python-dotenv
+      
+      - name: Validate CORS configuration
+        id: validate
+        env:
+          ENVIRONMENT: ${{ matrix.environment.name }}
+          FRONTEND_URL: ${{ matrix.environment.frontend_url }}
+          JWT_SECRET: test-secret-for-ci
+        run: |
+          cd uat/backend
+          python ../../scripts/validate_cors_config.py
+        continue-on-error: true
+      
+      - name: Check validation result
+        run: |
+          if [ "${{ matrix.environment.should_pass }}" = "true" ]; then
+            if [ "${{ steps.validate.outcome }}" = "success" ]; then
+              echo "✅ Validation passed as expected"
+              exit 0
+            else
+              echo "❌ Validation should have passed but failed"
+              exit 1
+            fi
+          else
+            if [ "${{ steps.validate.outcome }}" = "failure" ]; then
+              echo "✅ Validation failed as expected (invalid config)"
+              exit 0
+            else
+              echo "❌ Validation should have failed but passed"
+              exit 1
+            fi
+          fi
+
+  test-cors-config:
+    name: Run CORS Configuration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          cd uat/backend
+          pip install -r requirements.txt
+      
+      - name: Run CORS configuration tests
+        env:
+          JWT_SECRET: test-secret-for-ci
+        run: |
+          cd uat/backend
+          pytest tests/test_cors_config.py -v --tb=short
+      
+      - name: Run all backend tests
+        env:
+          JWT_SECRET: test-secret-for-ci
+          ENVIRONMENT: development
+        run: |
+          cd uat/backend
+          pytest -v --tb=short
+
+  security-check:
+    name: Security Check - Production Settings
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Checking for hardcoded CORS configurations..."
+          
+          # Check for wildcard in Python files
+          if grep -r "allow_origins=\[\"\*\"\]" uat/backend/*.py; then
+            echo "❌ Found hardcoded wildcard CORS origin"
+            exit 1
+          fi
+          
+          # Check for hardcoded frontend URLs
+          if grep -r "https://.*\.com" uat/backend/*.py | grep -v "example.com" | grep -v "#"; then
+            echo "⚠️  Found potential hardcoded URLs - please review"
+            # Don't fail, just warn
+          fi
+          
+          echo "✅ No hardcoded CORS misconfigurations found"
+      
+      - name: Verify .env.example is up to date
+        run: |
+          echo "Checking .env.example..."
+          
+          if ! grep -q "FRONTEND_URL=" .env.example; then
+            echo "❌ FRONTEND_URL not documented in .env.example"
+            exit 1
+          fi
+          
+          if ! grep -q "ENVIRONMENT=" .env.example; then
+            echo "❌ ENVIRONMENT not documented in .env.example"
+            exit 1
+          fi
+          
+          echo "✅ .env.example is up to date"
