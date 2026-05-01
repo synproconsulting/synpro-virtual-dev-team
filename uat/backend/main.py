@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
+import logging
 
 from auth          import router as auth_router
 from profile       import router as profile_router
@@ -19,11 +20,19 @@ from manager_agent_router import router as manager_agent_router
 from middleware    import RequestLoggingMiddleware
 from rate_limiter  import get_limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from config import get_cors_config, CORSConfigError
+
+# ── Logging setup ─────────────────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────────────
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
 
 
 # ── App setup ─────────────────────────────────────────────────────────────────────────
@@ -32,9 +41,18 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     if DATABASE_URL:
-        print("✓ Database configured. Use 'alembic upgrade head' to run migrations.")
+        logger.info("✓ Database configured. Use 'alembic upgrade head' to run migrations.")
     else:
-        print("WARNING: DATABASE_URL not set - running without database")
+        logger.warning("WARNING: DATABASE_URL not set - running without database")
+    
+    # Validate CORS configuration on startup
+    try:
+        cors_config = get_cors_config()
+        logger.info("✓ CORS configuration validated successfully")
+    except CORSConfigError as e:
+        logger.error(f"❌ CORS configuration error: {e}")
+        raise
+    
     yield
 
 app = FastAPI(
@@ -46,14 +64,14 @@ app = FastAPI(
 
 # ── Middleware ────────────────────────────────────────────────────────────────────────
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS middleware with hardened configuration (SDT1-56)
+try:
+    cors_config = get_cors_config()
+    app.add_middleware(CORSMiddleware, **cors_config)
+    logger.info("CORS middleware configured")
+except CORSConfigError as e:
+    logger.error(f"Failed to configure CORS: {e}")
+    raise
 
 # Request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
