@@ -43,6 +43,8 @@ Committing directly to `main` bypasses the audit trail, CI gates, and the Manage
 
 **`GITHUB_TOKEN` cannot trigger `workflow_dispatch` events — use `PAT_TOKEN`.** GitHub blocks the built-in `GITHUB_TOKEN` from dispatching workflows on other files (a security restriction against recursive loops). Any code that calls the `/actions/workflows/*/dispatches` API must use `PAT_TOKEN` (the same secret used by `auto-implement.yml`). This applies to `ci_manager_agent.py`'s merge-conflict retrigger and any future agent that needs to fire a workflow. Failures are not silent — check the HTTP response and post a PR comment if the dispatch fails.
 
+**`FRONTEND_URL` in Railway must be `*` or explicitly include the Control Centre origin.** The UAT backend CORS middleware reads `FRONTEND_URL` from the environment. If it is set to the UAT frontend URL only, the Control Centre (`https://control-centre-service-production.up.railway.app`) is blocked — the browser gets no `Access-Control-Allow-Origin` header and all proxy calls fail silently. For UAT, set `FRONTEND_URL=*` in the Railway backend service variables. The code handles `*` correctly: `allow_origins=["*"]`.
+
 ---
 
 ## Key Architectural Decisions
@@ -247,6 +249,25 @@ These are conscious design choices — not defaults or accidents. Understanding 
 
 ---
 
+### AD-21 · Railway deploy uses GraphQL API `serviceInstanceRedeploy`, not the CLI
+
+**Decision:** The `ci.yml` deploy job calls the Railway GraphQL API (`https://backboard.railway.app/graphql/v2`) directly via `curl` + `jq` to trigger redeployments. It does not install the Railway CLI (`npm install -g @railway/cli`).
+
+**How it works:**
+1. `printf` constructs the GraphQL query JSON (avoids nested-shell-escape fragility)
+2. `project(id: "$RAILWAY_PROJECT_ID")` returns all environments and services
+3. `jq` with `ascii_downcase` resolves "production" environment ID and service ID by name (case-insensitive)
+4. `serviceInstanceRedeploy(environmentId: ..., serviceId: ...)` mutation triggers the redeploy
+5. If the API returns `{"errors":[...]}` or is unreachable, the step exits 0 (non-blocking) and logs all available environment/service names for debugging
+
+**Why:** The Railway CLI (`railway up`) uses `railway.json` in the working directory and requires the correct service name at invocation time. The CLI also requires a project-scoped token and the service name must match exactly. The GraphQL API resolves service IDs dynamically by name, is dependency-free (no npm install), and is more transparent — the full response is echoed to CI logs.
+
+**Secrets used:** `RAILWAY_TOKEN` (personal token in GitHub Secrets — must have project read+deploy access) and `RAILWAY_PROJECT_ID` (the project UUID).
+
+**Do not:** Add `npm install -g @railway/cli` back to the deploy job. Use the GraphQL API pattern instead.
+
+---
+
 ## Repository
 
 - **GitHub org:** `synproconsulting`
@@ -445,7 +466,7 @@ Triggered on every push to `feature/*` branches:
 | SonarCloud | Full code analysis | No (continue-on-error) |
 | Quality gate | SonarCloud gate result | No |
 | Playwright E2E | Browser tests against live UAT backend | Yes |
-| Deploy | Railway deploy (main branch only) | No |
+| Deploy | Railway GraphQL API redeploy (main branch only, via `serviceInstanceRedeploy` mutation) | No |
 
 ---
 
@@ -548,6 +569,23 @@ Tickets SDT1-44 through SDT1-53. All 10 stories, 37 story points, merged to main
 | #102 | fix/orchestrator-re-query-jira-per-ticket | Orchestrator used stale ticket snapshot; switch to while-loop with Jira re-query per iteration |
 
 > **Sprint 5 setup note:** During sprint creation the PM Agent created a spurious "Sprint 6 - Foundations" version (ID 10165) instead of reusing the pre-created Sprint 5 (ID 10132). The erroneous version was deleted and all stories were manually reassigned to fix version 10132. `customfield_10071` was also not set by the PM Agent (bug fixed in PR #89) and had to be set manually before the Orchestrator could run.
+
+---
+
+## Post-Sprint 5 Infrastructure Fixes
+
+Infrastructure bugs discovered and fixed during Railway deployment investigation after Sprint 5 completed:
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #106 | fix/manager-agent-merge-pat-token | `merge_pr()` was using `GITHUB_TOKEN` — GitHub suppresses push events for GITHUB_TOKEN merges, so CI and Railway deploy never fired after any Manager Agent merge |
+| #108 | fix/backend-manager-agent-router-rename | Renamed `manager_agent.py` → `manager_agent_router.py` in `uat/backend/` to avoid name collision with root-level `agents/manager_agent.py` |
+| #109 | fix/backend-manager-agent-router-self-contained | Rewrote `manager_agent_router.py` as self-contained — original imported from `agents/manager_agent.py` via `sys.path.insert` hack, but `agents/manager_agent.py` is the CrewAI PR-reviewer and doesn't define those symbols; backend crashed at startup |
+| #110 | fix/ci-railway-service-names | `railway up --service backend/frontend` used wrong service names; corrected to `synpro-virtual-dev-team` and `Virtual-Dev-Team-UAT-Frontend` |
+| #111 | fix/ci-railway-api-deploy | Replaced Railway CLI deploy with GraphQL API `serviceInstanceRedeploy` mutation — removes npm install step, uses `RAILWAY_TOKEN` + `RAILWAY_PROJECT_ID` |
+| #112 | fix/ci-railway-graphql-query | Fixed four issues in PR #111's GraphQL steps: `printf` for JSON construction, `ascii_downcase` for case-insensitive env name, echo full response for debug, grep for `"errors"` key in response |
+
+**Root cause chain:** Sprint 5 merges used `GITHUB_TOKEN` → no push events on `main` → CI never ran → Railway never deployed → UAT backend ran stale code with broken imports (`manager_agent_router.py` crashing on startup) and wrong CORS config blocking the Control Centre.
 
 ---
 
