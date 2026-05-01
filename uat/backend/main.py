@@ -21,6 +21,7 @@ from middleware    import RequestLoggingMiddleware
 from rate_limiter  import get_limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from config import get_cors_config, CORSConfigError
+from jwt_utils import get_jwt_manager, JWTConfigError
 
 # ── Logging setup ─────────────────────────────────────────────────────────────────────
 
@@ -51,6 +52,15 @@ async def lifespan(app: FastAPI):
         logger.info("✓ CORS configuration validated successfully")
     except CORSConfigError as e:
         logger.error(f"❌ CORS configuration error: {e}")
+        raise
+    
+    # Validate JWT configuration on startup (SDT1-63)
+    try:
+        jwt_manager = get_jwt_manager()
+        logger.info("✓ JWT configuration validated successfully")
+    except JWTConfigError as e:
+        logger.error(f"❌ JWT configuration error: {e}")
+        logger.error("Generate a secure secret with: python -c 'import secrets; print(secrets.token_urlsafe(32))'")
         raise
     
     yield

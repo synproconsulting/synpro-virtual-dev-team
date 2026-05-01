@@ -861,6 +861,330 @@ cors_config = get_cors_config()
 2. Verify no typos in URLs
 3. Ensure correct protocol and ports
 
+---
+
+# Hardened JWT Secret Key Handling (SDT1-63)
+
+## Overview
+
+JWT (JSON Web Token) secret key handling has been significantly hardened to prevent security vulnerabilities and ensure proper cryptographic security.
+
+## Key Security Improvements
+
+✅ **Strong Secret Validation** - Enforces minimum 32-character (256-bit) secrets  
+✅ **Weak Secret Detection** - Rejects known weak/default secrets  
+✅ **Environment Awareness** - Required in production, auto-generated in development  
+✅ **Key Rotation Support** - Graceful key rotation without service interruption  
+✅ **Algorithm Enforcement** - Fixed algorithms prevent algorithm confusion attacks  
+✅ **Comprehensive Testing** - Full test coverage including security properties  
+✅ **Clear Documentation** - Detailed guide for setup and best practices  
+
+## Quick Start
+
+### Generate a Secure Secret
+
+```bash
+# Use the provided script
+python scripts/generate_jwt_secret.py
+
+# Or generate directly
+python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+### Development Environment
+
+```bash
+# In .env file (optional - will auto-generate if not set)
+ENVIRONMENT=development
+JWT_SECRET=your-generated-secret-here
+JWT_EXPIRY_HOURS=24
+```
+
+### Production Environment
+
+```bash
+# In .env file or environment variables (REQUIRED)
+ENVIRONMENT=production
+JWT_SECRET=your-generated-secret-here
+JWT_EXPIRY_HOURS=24
+JWT_ALGORITHM=HS256
+```
+
+## Environment Variables
+
+### `JWT_SECRET` (Required in Production)
+
+The secret key used to sign JWT tokens.
+
+**Requirements:**
+- Minimum 32 characters (256 bits)
+- Must not be a known weak secret
+- Should be cryptographically random
+
+**Generate:**
+```bash
+python scripts/generate_jwt_secret.py
+```
+
+**In Development:**
+- Auto-generated if not set (temporary, per-session)
+- Set `JWT_SECRET` for consistent tokens across restarts
+
+**In Production:**
+- Required - application will fail to start if not configured
+- Must meet all security requirements
+
+### `JWT_ALGORITHM` (Optional, default: `HS256`)
+
+JWT signing algorithm.
+
+**Allowed values:**
+- `HS256` - HMAC with SHA-256 (default)
+- `HS384` - HMAC with SHA-384
+- `HS512` - HMAC with SHA-512
+
+### `JWT_EXPIRY_HOURS` (Optional, default: `24`)
+
+Token expiration time in hours.
+
+**Requirements:**
+- Must be at least 1 hour
+- Values over 168 hours (7 days) generate a warning
+
+### `JWT_SECRET_OLD` (Optional)
+
+Previous JWT secret for key rotation.
+
+**Use during key rotation:**
+```bash
+export JWT_SECRET_OLD='old-secret'
+export JWT_SECRET='new-secret'
+```
+
+## Usage
+
+### Basic Token Operations
+
+```python
+from jwt_utils import get_jwt_manager
+
+# Get JWT manager instance
+jwt_manager = get_jwt_manager()
+
+# Create token
+token = jwt_manager.create_token(
+    user_id="user123",
+    email="user@example.com"
+)
+
+# Decode/validate token
+payload = jwt_manager.decode_token(token)
+user_id = payload["sub"]
+
+# Refresh token
+new_token = jwt_manager.refresh_token(token)
+```
+
+### With Custom Claims
+
+```python
+# Create token with extra claims
+token = jwt_manager.create_token(
+    user_id="user123",
+    email="user@example.com",
+    role="admin",
+    permissions=["read", "write"]
+)
+
+# Claims are preserved in refresh
+new_token = jwt_manager.refresh_token(token)
+```
+
+### Error Handling
+
+```python
+from jwt_utils import JWTValidationError, JWTConfigError
+
+try:
+    payload = jwt_manager.decode_token(token)
+except JWTValidationError as e:
+    # Handle invalid/expired token
+    print(f"Token validation failed: {e}")
+```
+
+## API Endpoints
+
+### Token Refresh
+
+```bash
+POST /auth/refresh
+Authorization: Bearer <your-token>
+```
+
+**Response:**
+```json
+{
+  "access_token": "new.jwt.token",
+  "token_type": "bearer"
+}
+```
+
+## Security Features
+
+### 1. Strong Secret Validation
+
+- **Minimum 32 characters** (256 bits)
+- **Rejects known weak secrets**: "secret", "password", "dev-secret-change-in-production", etc.
+- **Pattern detection**: Checks for repetitive or common weak patterns
+
+### 2. Algorithm Security
+
+- **Fixed algorithms**: HS256, HS384, HS512 only
+- **Prevents algorithm confusion**: Disallows "none" and asymmetric algorithms
+- **Signature verification**: Always enabled, cannot be disabled
+
+### 3. Key Rotation
+
+Set both secrets during rotation:
+```bash
+export JWT_SECRET='new-secret'
+export JWT_SECRET_OLD='old-secret'
+```
+
+Tokens signed with either secret are valid during transition.
+
+### 4. Token Expiry
+
+- All tokens have expiration time
+- Expired tokens rejected by default
+- Use refresh endpoint to extend expiry
+
+## Common Issues
+
+### "JWT_SECRET environment variable is required in production"
+
+**Cause:** JWT_SECRET not set in production.
+
+**Fix:**
+```bash
+python scripts/generate_jwt_secret.py
+export JWT_SECRET='generated-secret'
+```
+
+### "JWT secret is too short"
+
+**Cause:** Secret is less than 32 characters.
+
+**Fix:** Generate a longer secret:
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+### "Weak or default JWT secret detected"
+
+**Cause:** Using a known weak secret.
+
+**Fix:** Replace with cryptographically random secret.
+
+### "Token has expired"
+
+**Cause:** Token passed expiration time.
+
+**Fix:** Use refresh endpoint:
+```bash
+POST /auth/refresh
+Authorization: Bearer <expired-token>
+```
+
+## Testing
+
+Run JWT security tests:
+```bash
+# All JWT tests
+pytest uat/backend/tests/test_jwt_utils.py -v
+
+# With coverage
+pytest --cov=uat/backend/jwt_utils uat/backend/tests/test_jwt_utils.py
+
+# Specific test class
+pytest uat/backend/tests/test_jwt_utils.py::TestSecurityProperties -v
+```
+
+## Documentation
+
+For detailed JWT security documentation, see:
+- **[docs/JWT_SECURITY.md](../../docs/JWT_SECURITY.md)** - Complete security guide
+
+## Key Rotation Process
+
+1. **Set old secret:**
+   ```bash
+   export JWT_SECRET_OLD='current-secret'
+   ```
+
+2. **Set new secret:**
+   ```bash
+   export JWT_SECRET='new-secret'
+   ```
+
+3. **Deploy application** - Both secrets work during transition
+
+4. **Wait for old tokens to expire** (default: 24 hours)
+
+5. **Remove old secret:**
+   ```bash
+   unset JWT_SECRET_OLD
+   ```
+
+## Best Practices
+
+### ✅ DO
+- Use cryptographically random secrets (32+ characters)
+- Rotate keys regularly (e.g., every 90 days)
+- Use different secrets for dev/staging/production
+- Store secrets securely (vault, secret manager)
+- Monitor token validation failures
+- Use reasonable expiry times (1-24 hours)
+
+### ❌ DON'T
+- Don't use weak or default secrets
+- Don't commit secrets to version control
+- Don't share secrets via email/chat
+- Don't reuse secrets across environments
+- Don't set expiry too long (>7 days)
+- Don't ignore startup validation errors
+
+## Migration Guide
+
+### From Old Implementation
+
+1. **Generate secret:**
+   ```bash
+   python scripts/generate_jwt_secret.py
+   ```
+
+2. **Set environment variable:**
+   ```bash
+   export JWT_SECRET='your-generated-secret'
+   ```
+
+3. **Update code** (if using JWT directly):
+   ```python
+   # Old
+   import jwt
+   token = jwt.encode(payload, os.getenv("JWT_SECRET"), algorithm="HS256")
+   
+   # New
+   from jwt_utils import get_jwt_manager
+   jwt_manager = get_jwt_manager()
+   token = jwt_manager.create_token(user_id, email)
+   ```
+
+4. **Test thoroughly:**
+   ```bash
+   pytest uat/backend/tests/test_jwt_utils.py
+   ```
+
 ## Environment Variables Summary
 
 ```bash
@@ -872,17 +1196,19 @@ FRONTEND_URL=http://localhost:3000
 ALLOW_CORS_WILDCARD=false
 ENVIRONMENT=development
 
+# JWT (SDT1-63)
+JWT_SECRET=your-secure-secret-minimum-32-characters
+JWT_ALGORITHM=HS256
+JWT_EXPIRY_HOURS=24
+# Optional for key rotation:
+# JWT_SECRET_OLD=your-old-secret
+
 # Rate Limiting
 RATE_LIMIT_DEFAULT=100/minute
 RATE_LIMIT_STORAGE_URI=memory://
 
 # Logging
 LOG_LEVEL=INFO
-
-# JWT
-JWT_SECRET=your-secret-key
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_MINUTES=60
 
 # SMTP
 SMTP_HOST=smtp.gmail.com
@@ -895,20 +1221,23 @@ SMTP_FROM_NAME=SynPro Virtual Dev Team
 
 ## Security Best Practices
 
-1. **Never log sensitive data** - The middleware automatically redacts sensitive headers
+1. **Never log sensitive data** - Middleware automatically redacts sensitive headers
 2. **Use Redis in production** - Memory storage doesn't scale across multiple instances
-3. **Set appropriate rate limits** - Too strict affects UX, too relaxed allows abuse
+3. **Set appropriate rate limits** - Balance UX and security
 4. **Monitor logs** - Set up log aggregation and alerting
-5. **Rotate JWT secrets** - Change JWT_SECRET regularly
+5. **Rotate JWT secrets regularly** - Change every 90 days
 6. **Use HTTPS** - Always use TLS in production
 7. **Validate CORS origins** - Only allow trusted domains
-8. **Review CORS regularly** - Audit allowed origins when adding new frontends
+8. **Review CORS regularly** - Audit allowed origins when adding frontends
+9. **Use strong JWT secrets** - Minimum 256 bits, cryptographically random
+10. **Implement key rotation** - Use JWT_SECRET_OLD during transitions
 
 ## Performance Impact
 
 - **Logging Middleware**: Minimal (<1ms per request)
-- **Rate Limiting**: ~0.5-2ms per request (memory), ~2-5ms (Redis)
+- **Rate Limiting**: ~0.5-2ms (memory), ~2-5ms (Redis)
 - **CORS Validation**: One-time at startup, no runtime impact
+- **JWT Operations**: ~0.5-1ms (encode/decode)
 - **Overall**: Negligible impact on response times
 
 ## Troubleshooting
@@ -916,29 +1245,35 @@ SMTP_FROM_NAME=SynPro Virtual Dev Team
 ### High Rate Limit Violations
 
 If you see many `429` errors:
-1. Check if a legitimate user is being blocked
+1. Check if legitimate users are blocked
 2. Adjust limits in environment variables
 3. Investigate potential abuse or bot traffic
 
 ### Missing Rate Limit Headers
 
-Ensure the limiter is properly initialized in `main.py`:
+Ensure limiter is properly initialized in `main.py`:
 ```python
 app.state.limiter = limiter
 ```
 
 ### Logs Not Appearing
 
-Check the log level configuration:
+Check log level configuration:
 ```bash
 export LOG_LEVEL=INFO
 ```
 
-Ensure the logger is configured in your application startup.
-
 ### CORS Issues
 
-1. Check application logs for CORS validation errors
-2. Verify `FRONTEND_URL` matches your frontend exactly
-3. Run `pytest tests/test_config.py -v` to test configuration
-4. See [CORS_CONFIGURATION.md](CORS_CONFIGURATION.md) for detailed troubleshooting
+1. Check logs for CORS validation errors
+2. Verify `FRONTEND_URL` matches frontend exactly
+3. Run `pytest tests/test_config.py -v`
+4. See [CORS_CONFIGURATION.md](CORS_CONFIGURATION.md)
+
+### JWT Validation Failures
+
+1. Check `JWT_SECRET` is set correctly
+2. Verify secret meets security requirements (32+ chars)
+3. Check token hasn't expired
+4. Verify algorithm matches (default: HS256)
+5. Run `pytest tests/test_jwt_utils.py -v`

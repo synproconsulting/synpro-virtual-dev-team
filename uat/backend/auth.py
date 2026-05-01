@@ -10,18 +10,24 @@ import hmac
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, timezone, timedelta
-import jwt
 import logging
 
 from email_service import send_password_reset_email
+from jwt_utils import get_jwt_manager, JWTValidationError, JWTConfigError
 
 logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────────────
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
-JWT_SECRET   = os.environ.get("JWT_SECRET", "dev-secret-change-in-production")
-JWT_EXPIRY   = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
+
+# Initialize JWT manager with hardened security (SDT1-63)
+try:
+    jwt_manager = get_jwt_manager()
+    logger.info("✓ JWT manager initialized with hardened security")
+except JWTConfigError as e:
+    logger.error(f"❌ Failed to initialize JWT manager: {e}")
+    raise
 
 
 # ── Database ────────────────────────────────────────────────────────────────────────
@@ -57,13 +63,17 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def create_jwt(user_id: str, email: str) -> str:
-    payload = {
-        "sub":   user_id,
-        "email": email,
-        "iat":   datetime.now(timezone.utc),
-        "exp":   datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY),
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    """
+    Create a JWT token for a user.
+    
+    Args:
+        user_id: User's unique identifier
+        email: User's email address
+        
+    Returns:
+        Encoded JWT token string
+    """
+    return jwt_manager.create_token(user_id, email)
 
 
 def validate_password(password: str) -> list[str]:
@@ -267,13 +277,14 @@ def get_current_user(
     # C-3 fix: Header(None) reads from the Authorization HTTP header, not a query param
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    
     token = authorization[7:]
+    
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        payload = jwt_manager.decode_token(token)
+    except JWTValidationError as e:
+        logger.warning(f"JWT validation failed: {e}")
+        raise HTTPException(status_code=401, detail=str(e))
 
     cur = db.cursor()
     cur.execute(
@@ -287,3 +298,26 @@ def get_current_user(
     return UserResponse(id=str(user["id"]), email=user["email"],
                         username=user["username"],
                         created_at=user["created_at"].isoformat())
+
+
+@router.post("/refresh")
+def refresh_token(
+    authorization: str | None = Header(None),
+):
+    """
+    Refresh an existing JWT token.
+    
+    Accepts an expired or soon-to-expire token and returns a new token
+    with extended expiry time.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    
+    token = authorization[7:]
+    
+    try:
+        new_token = jwt_manager.refresh_token(token)
+        return {"access_token": new_token, "token_type": "bearer"}
+    except JWTValidationError as e:
+        logger.warning(f"Token refresh failed: {e}")
+        raise HTTPException(status_code=401, detail=str(e))
