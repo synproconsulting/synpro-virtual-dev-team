@@ -212,27 +212,48 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy backend
+      - name: Deploy backend via Railway API
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN:      ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          if [ -d "uat/backend" ]; then
-            cd uat/backend
-            railway up --service synpro-virtual-dev-team --detach
-          else
-            echo "No uat/backend directory yet - skipping backend deploy"
-          fi
+          echo "Querying Railway project for service and environment IDs..."
+          RESP=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"{ project(id: \\\"$RAILWAY_PROJECT_ID\\\") { environments { edges { node { id name } } } services { edges { node { id name } } } } }\"}")
+          if [ -z "$RESP" ]; then echo "Railway API unreachable — skipping backend deploy"; exit 0; fi
+          ENV_ID=$(echo "$RESP" | jq -r '.data.project.environments.edges[] | select(.node.name=="production") | .node.id')
+          SVC_ID=$(echo "$RESP" | jq -r '.data.project.services.edges[] | select(.node.name=="synpro-virtual-dev-team") | .node.id')
+          if [ -z "$ENV_ID" ] || [ "$ENV_ID" = "null" ]; then echo "Production environment not found — skipping"; exit 0; fi
+          if [ -z "$SVC_ID" ] || [ "$SVC_ID" = "null" ]; then echo "Backend service not found — skipping"; exit 0; fi
+          echo "Triggering backend redeploy (svc=$SVC_ID env=$ENV_ID)..."
+          REDEPLOY=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"mutation { serviceInstanceRedeploy(environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SVC_ID\\\") }\"}")
+          echo "Backend redeploy response: $REDEPLOY"
 
-      - name: Deploy frontend
+      - name: Deploy frontend via Railway API
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN:      ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          if [ -d "uat/frontend" ]; then
-            cd uat/frontend
-            railway up --service Virtual-Dev-Team-UAT-Frontend --detach
-          else
-            echo "No uat/frontend directory yet - skipping frontend deploy"
-          fi
+          echo "Querying Railway project for service and environment IDs..."
+          RESP=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"{ project(id: \\\"$RAILWAY_PROJECT_ID\\\") { environments { edges { node { id name } } } services { edges { node { id name } } } } }\"}")
+          if [ -z "$RESP" ]; then echo "Railway API unreachable — skipping frontend deploy"; exit 0; fi
+          ENV_ID=$(echo "$RESP" | jq -r '.data.project.environments.edges[] | select(.node.name=="production") | .node.id')
+          SVC_ID=$(echo "$RESP" | jq -r '.data.project.services.edges[] | select(.node.name=="Virtual-Dev-Team-UAT-Frontend") | .node.id')
+          if [ -z "$ENV_ID" ] || [ "$ENV_ID" = "null" ]; then echo "Production environment not found — skipping"; exit 0; fi
+          if [ -z "$SVC_ID" ] || [ "$SVC_ID" = "null" ]; then echo "Frontend service not found — skipping"; exit 0; fi
+          echo "Triggering frontend redeploy (svc=$SVC_ID env=$ENV_ID)..."
+          REDEPLOY=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer $RAILWAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\":\"mutation { serviceInstanceRedeploy(environmentId: \\\"$ENV_ID\\\", serviceId: \\\"$SVC_ID\\\") }\"}")
+          echo "Frontend redeploy response: $REDEPLOY"
+
+
