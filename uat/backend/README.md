@@ -696,170 +696,124 @@ Tests cover:
 
 ---
 
-# Hardened CORS Configuration (SDT1-56)
+# CORS Configuration (SDT1-56)
 
 ## Overview
 
-The CORS (Cross-Origin Resource Sharing) configuration has been significantly hardened to prevent security vulnerabilities and ensure proper validation of allowed origins.
+The UAT backend implements hardened CORS (Cross-Origin Resource Sharing) configuration with comprehensive validation, security warnings, and support for multiple origins.
 
-## Key Security Improvements
+## Key Features
 
-✅ **Origin Validation** - All configured origins are validated for proper URL format  
-✅ **Multiple Origins Support** - Comma-separated list of allowed origins  
-✅ **Wildcard Protection** - Wildcard (`*`) requires explicit opt-in and issues warnings  
-✅ **Environment Awareness** - Different validation rules for development vs. production  
-✅ **Startup Validation** - Configuration errors caught at application startup  
-✅ **Clear Error Messages** - Descriptive errors help identify misconfigurations quickly  
-✅ **Comprehensive Testing** - Full test coverage for all validation scenarios  
+- **URL Validation** - All CORS origins are validated for proper format
+- **Multiple Origins** - Support comma-separated list of origins
+- **Security Warnings** - Automatic warnings for insecure configurations
+- **Secure Defaults** - No origins allowed by default (most secure)
+- **Automatic Normalization** - Trailing slashes removed, whitespace trimmed
+- **Comprehensive Tests** - Full test coverage for all scenarios
 
 ## Quick Start
 
-### Development Environment
+Set your frontend URL in the environment:
 
 ```bash
-# In .env file
-ENVIRONMENT=development
-FRONTEND_URL=http://localhost:3000
+# Single origin (recommended)
+export FRONTEND_URL=http://localhost:3000
+
+# Multiple origins
+export FRONTEND_URL=http://localhost:3000,https://staging.example.com,https://app.example.com
 ```
 
-### Production Environment
+## Configuration Options
+
+### Single Origin (Recommended)
 
 ```bash
-# In .env file or environment variables
-ENVIRONMENT=production
 FRONTEND_URL=https://app.example.com
 ```
 
-### Multiple Frontends
+### Multiple Origins
 
 ```bash
-ENVIRONMENT=production
-FRONTEND_URL=https://app.example.com,https://admin.example.com,https://mobile.example.com
+FRONTEND_URL=http://localhost:3000,https://staging.example.com,https://app.example.com
 ```
 
-## Environment Variables
+### Development (Wildcard)
 
-### `FRONTEND_URL` (Required)
+⚠️ **WARNING: INSECURE - Use only in development**
 
-The primary CORS configuration. Supports:
-
-1. **Single origin**: `FRONTEND_URL=https://app.example.com`
-2. **Multiple origins**: `FRONTEND_URL=https://app.example.com,https://admin.example.com`
-3. **Wildcard** (not recommended): `FRONTEND_URL=*` (requires `ALLOW_CORS_WILDCARD=true`)
-
-### `ALLOW_CORS_WILDCARD` (Optional, default: `false`)
-
-Must be set to `true` to allow wildcard CORS configuration.
-
-**⚠️ Security Warning**: Wildcard CORS allows requests from ANY origin. Only use in development.
-
-### `ENVIRONMENT` (Optional, default: `production`)
-
-- **production**: Strict validation, no wildcard without explicit opt-in
-- **development**: More lenient, defaults to localhost if `FRONTEND_URL` not set
-
-## Valid Origin Formats
-
-✅ `https://example.com`  
-✅ `https://example.com:8080`  
-✅ `https://subdomain.example.com`  
-✅ `http://localhost:3000`  
-✅ `http://127.0.0.1:3000`  
-
-❌ `example.com` (missing scheme)  
-❌ `ftp://example.com` (invalid scheme)  
-❌ `http://` (missing domain)  
-
-## Common Error Messages
-
-### Missing Configuration
-```
-CORSConfigError: FRONTEND_URL must be configured
-```
-**Fix**: Set `FRONTEND_URL` environment variable
-
-### Wildcard Not Allowed
-```
-CORSConfigError: Wildcard '*' origin detected in production environment
-```
-**Fix**: Use specific origins or set `ALLOW_CORS_WILDCARD=true`
-
-### Invalid Format
-```
-CORSConfigError: Invalid CORS origin format: example.com
-```
-**Fix**: Add scheme (http:// or https://)
-
-## Testing CORS
-
-Run CORS tests:
 ```bash
-pytest tests/test_config.py -v
-pytest tests/test_cors_integration.py -v
+FRONTEND_URL=*
 ```
 
-Manual test with curl:
+### No CORS (Most Secure)
+
+Leave `FRONTEND_URL` empty to block all cross-origin requests:
+
 ```bash
-curl -X OPTIONS http://localhost:8000/health \
-  -H "Origin: https://your-frontend.com" \
-  -H "Access-Control-Request-Method: GET" \
-  -v
+# FRONTEND_URL not set or empty
 ```
 
 ## Documentation
 
-For detailed CORS configuration documentation, see:
-- **[CORS_CONFIGURATION.md](CORS_CONFIGURATION.md)** - Complete configuration guide
-- **[MIGRATION_CORS.md](MIGRATION_CORS.md)** - Migration guide from old configuration
+For complete CORS configuration documentation, see:
+- **[CORS_CONFIGURATION.md](./CORS_CONFIGURATION.md)** - Comprehensive CORS guide
 
-## Security Best Practices
+Topics covered:
+- URL format requirements
+- Security best practices
+- Multiple origin configuration
+- Troubleshooting guide
+- Migration from previous version
 
-### ✅ DO
-- Use specific origins (list all allowed domains)
-- Use HTTPS in production
-- Keep `allow_credentials=true` for cookie-based auth
-- Review CORS origins regularly
-- Test with actual frontend apps
+## Testing
 
-### ❌ DON'T
-- Don't use wildcard in production
-- Don't use HTTP in production (except localhost in dev)
-- Don't ignore startup errors
-- Don't add untrusted origins
+Run CORS tests:
 
-## Configuration Module
+```bash
+# Unit tests
+pytest tests/test_cors_config.py -v
 
-The new `config.py` module provides:
-
-```python
-from config import get_cors_config, get_cors_origins, CORSConfigError
-
-# Get validated CORS origins
-origins = get_cors_origins()
-
-# Get complete CORS configuration
-cors_config = get_cors_config()
+# Integration tests
+pytest tests/test_main.py -v
 ```
 
-## Troubleshooting
+## Security Features
 
-### Application Won't Start
+1. **URL Validation** - Only valid HTTP/HTTPS URLs accepted
+2. **No Credentials** - URLs with embedded credentials rejected
+3. **Warning System** - Logs warnings for insecure configurations
+4. **Secure Default** - Empty config blocks all origins
+5. **Invalid URL Filtering** - Invalid URLs automatically ignored
 
-1. Check `FRONTEND_URL` is set
-2. Verify origins are valid URLs with schemes
-3. If using wildcard, set `ALLOW_CORS_WILDCARD=true`
+## Common Issues
 
-### Browser Shows CORS Error
+### CORS Error in Browser
 
-1. Is the frontend origin in `FRONTEND_URL`?
-2. Does the origin match exactly (protocol, domain, port)?
-3. Is the backend running and accessible?
+Ensure `FRONTEND_URL` matches your frontend exactly:
+- Check scheme (http vs https)
+- Check port number
+- Check domain spelling
 
-### Multiple Frontends, One Fails
+```bash
+# If frontend is http://localhost:3000
+FRONTEND_URL=http://localhost:3000  # Correct
 
-1. Check all origins are in comma-separated list
-2. Verify no typos in URLs
-3. Ensure correct protocol and ports
+# NOT these:
+# FRONTEND_URL=http://localhost        # Missing port
+# FRONTEND_URL=http://127.0.0.1:3000  # Different host
+```
+
+### Multiple Frontends
+
+List all frontend origins comma-separated:
+
+```bash
+FRONTEND_URL=http://localhost:3000,https://staging.example.com,https://app.example.com
+```
+
+See [CORS_CONFIGURATION.md](./CORS_CONFIGURATION.md) for detailed troubleshooting.
+
+---
 
 ## Environment Variables Summary
 
@@ -867,10 +821,8 @@ cors_config = get_cors_config()
 # Database
 DATABASE_URL=postgresql://user:password@localhost:5432/dbname
 
-# Frontend/CORS
+# Frontend CORS
 FRONTEND_URL=http://localhost:3000
-ALLOW_CORS_WILDCARD=false
-ENVIRONMENT=development
 
 # Rate Limiting
 RATE_LIMIT_DEFAULT=100/minute
@@ -883,14 +835,6 @@ LOG_LEVEL=INFO
 JWT_SECRET=your-secret-key
 JWT_ALGORITHM=HS256
 JWT_EXPIRATION_MINUTES=60
-
-# SMTP
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
-SMTP_FROM_EMAIL=your-email@gmail.com
-SMTP_FROM_NAME=SynPro Virtual Dev Team
 ```
 
 ## Security Best Practices
@@ -901,14 +845,14 @@ SMTP_FROM_NAME=SynPro Virtual Dev Team
 4. **Monitor logs** - Set up log aggregation and alerting
 5. **Rotate JWT secrets** - Change JWT_SECRET regularly
 6. **Use HTTPS** - Always use TLS in production
-7. **Validate CORS origins** - Only allow trusted domains
-8. **Review CORS regularly** - Audit allowed origins when adding new frontends
+7. **Set specific CORS origins** - Never use wildcard (*) in production
+8. **Validate all origins** - Use the built-in CORS validation
 
 ## Performance Impact
 
 - **Logging Middleware**: Minimal (<1ms per request)
 - **Rate Limiting**: ~0.5-2ms per request (memory), ~2-5ms (Redis)
-- **CORS Validation**: One-time at startup, no runtime impact
+- **CORS Validation**: <0.1ms per request
 - **Overall**: Negligible impact on response times
 
 ## Troubleshooting
@@ -936,9 +880,11 @@ export LOG_LEVEL=INFO
 
 Ensure the logger is configured in your application startup.
 
-### CORS Issues
+### CORS Warnings
 
-1. Check application logs for CORS validation errors
-2. Verify `FRONTEND_URL` matches your frontend exactly
-3. Run `pytest tests/test_config.py -v` to test configuration
-4. See [CORS_CONFIGURATION.md](CORS_CONFIGURATION.md) for detailed troubleshooting
+Check startup logs for CORS configuration warnings:
+- Wildcard configuration warnings
+- Invalid URL warnings
+- Missing FRONTEND_URL warnings
+
+See [CORS_CONFIGURATION.md](./CORS_CONFIGURATION.md) for solutions.

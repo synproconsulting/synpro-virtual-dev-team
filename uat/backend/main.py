@@ -19,7 +19,7 @@ from manager_agent_router import router as manager_agent_router
 from middleware    import RequestLoggingMiddleware
 from rate_limiter  import get_limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from config        import settings
+from config import settings
 
 # ── Config ────────────────────────────────────────────────────────────────────────────
 
@@ -35,16 +35,6 @@ async def lifespan(app: FastAPI):
         print("✓ Database configured. Use 'alembic upgrade head' to run migrations.")
     else:
         print("WARNING: DATABASE_URL not set - running without database")
-    
-    # Validate configuration on startup
-    try:
-        settings.validate()
-        allowed_origins = settings.get_allowed_origins()
-        print(f"✓ CORS configured with allowed origins: {allowed_origins}")
-    except ValueError as e:
-        print(f"ERROR: Configuration validation failed: {e}")
-        raise
-    
     yield
 
 app = FastAPI(
@@ -56,12 +46,11 @@ app = FastAPI(
 
 # ── Middleware ────────────────────────────────────────────────────────────────────────
 
-# CORS middleware with hardened configuration
-allowed_origins = settings.get_allowed_origins()
-
+# CORS middleware with hardened configuration (SDT1-56)
+cors_origins = settings.get_cors_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

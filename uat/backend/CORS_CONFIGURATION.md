@@ -1,319 +1,261 @@
-# CORS Configuration Guide (SDT1-56)
-
-This document describes the hardened CORS configuration implemented in the UAT backend.
+# CORS Configuration Guide
 
 ## Overview
 
-The CORS (Cross-Origin Resource Sharing) configuration has been hardened to prevent security vulnerabilities and ensure proper validation of allowed origins. The new configuration system validates origins at startup and provides clear error messages for misconfigurations.
+The UAT backend implements hardened CORS (Cross-Origin Resource Sharing) configuration to protect against unauthorized cross-origin requests while maintaining flexibility for legitimate frontend applications.
 
-## Features
+## Configuration
 
-✅ **Origin Validation**: All configured origins are validated for proper URL format  
-✅ **Multiple Origins**: Support for comma-separated list of allowed origins  
-✅ **Wildcard Protection**: Wildcard (`*`) requires explicit opt-in and warns users  
-✅ **Environment Awareness**: Different defaults and validation rules for dev vs. prod  
-✅ **Startup Validation**: Configuration errors are caught at application startup  
-✅ **Clear Error Messages**: Descriptive errors help identify and fix configuration issues  
-✅ **Comprehensive Testing**: Full test coverage for all validation scenarios  
+CORS is configured via the `FRONTEND_URL` environment variable.
 
-## Environment Variables
-
-### `FRONTEND_URL` (Required)
-
-The primary configuration for CORS origins. Can be:
-
-1. **Single origin**: One frontend URL
-   ```bash
-   FRONTEND_URL=https://app.example.com
-   ```
-
-2. **Multiple origins**: Comma-separated list
-   ```bash
-   FRONTEND_URL=https://app.example.com,https://admin.example.com,https://staging.example.com
-   ```
-
-3. **Wildcard** (not recommended): Allows all origins
-   ```bash
-   FRONTEND_URL=*
-   ALLOW_CORS_WILDCARD=true  # Required to enable wildcard
-   ```
-
-### `ALLOW_CORS_WILDCARD` (Optional, default: `false`)
-
-Explicitly allow wildcard CORS configuration. Must be set to `true` to use `*` as origin.
+### Single Origin (Recommended for Production)
 
 ```bash
-ALLOW_CORS_WILDCARD=true
-```
-
-**⚠️ Security Warning**: Wildcard CORS allows requests from ANY origin, including potentially malicious sites. Only use this in development environments or when you fully understand the security implications.
-
-### `ENVIRONMENT` (Optional, default: `production`)
-
-Specifies the runtime environment. Affects validation behavior:
-
-- **production**: Strict validation, no wildcard without explicit opt-in
-- **development**: Defaults to localhost if `FRONTEND_URL` not set
-
-```bash
-ENVIRONMENT=development  # or production
-```
-
-## Configuration Examples
-
-### Production (Single Frontend)
-
-```bash
-ENVIRONMENT=production
 FRONTEND_URL=https://app.example.com
 ```
 
-### Production (Multiple Frontends)
+### Multiple Origins
+
+Separate multiple origins with commas:
 
 ```bash
-ENVIRONMENT=production
-FRONTEND_URL=https://app.example.com,https://admin.example.com
+FRONTEND_URL=http://localhost:3000,https://staging.example.com,https://app.example.com
 ```
 
-### Production (with Mobile App)
+### Development Mode (Wildcard)
+
+⚠️ **WARNING: INSECURE - Use only in development**
 
 ```bash
-ENVIRONMENT=production
-FRONTEND_URL=https://app.example.com,https://mobile.example.com,capacitor://localhost
-```
-
-### Development (Localhost)
-
-```bash
-ENVIRONMENT=development
-FRONTEND_URL=http://localhost:3000
-```
-
-### Development (Multiple Local Ports)
-
-```bash
-ENVIRONMENT=development
-FRONTEND_URL=http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000
-```
-
-### Development (Wildcard - Not Recommended)
-
-```bash
-ENVIRONMENT=development
 FRONTEND_URL=*
-ALLOW_CORS_WILDCARD=true
 ```
 
-## Valid Origin Formats
+This allows requests from any origin. **Never use in production.**
 
-Origins must be valid HTTP(S) URLs:
+### No CORS (Most Secure)
 
-✅ `https://example.com`  
-✅ `https://example.com:8080`  
-✅ `https://subdomain.example.com`  
+Leave `FRONTEND_URL` empty or unset to block all cross-origin requests:
+
+```bash
+# FRONTEND_URL not set
+```
+
+This is the most secure configuration but will prevent browser-based frontends from accessing the API.
+
+## URL Requirements
+
+Each origin URL must:
+
+- Include the scheme (`http://` or `https://`)
+- Include a valid domain or IP address
+- NOT include a path (automatically stripped if present)
+- NOT include credentials (username/password)
+- NOT include fragments (#) or query strings (?)
+
+### Valid Examples
+
 ✅ `http://localhost:3000`  
-✅ `http://127.0.0.1:3000`  
-✅ `http://[::1]:3000` (IPv6)  
-✅ `capacitor://localhost` (Capacitor mobile apps)  
+✅ `https://app.example.com`  
+✅ `https://staging.app.example.com`  
+✅ `http://127.0.0.1:8080`
 
+### Invalid Examples
+
+❌ `localhost:3000` (missing scheme)  
 ❌ `example.com` (missing scheme)  
-❌ `ftp://example.com` (invalid scheme)  
-❌ `http://` (missing domain)  
-❌ Just `*` without `ALLOW_CORS_WILDCARD=true`  
+❌ `ftp://example.com` (wrong scheme)  
+❌ `http://user:pass@example.com` (includes credentials)  
+❌ `http://example.com/api` (includes path - will be stripped)
 
-## Error Messages
+## Security Features
 
-### Missing Configuration
+### 1. URL Validation
 
-```
-CORSConfigError: FRONTEND_URL must be configured. Set FRONTEND_URL to a comma-separated list of allowed origins.
-```
+All origins are validated for:
+- Proper URL structure
+- HTTP/HTTPS scheme only
+- No embedded credentials
+- Valid domain format
 
-**Solution**: Set the `FRONTEND_URL` environment variable.
+Invalid URLs are automatically rejected with a warning logged.
 
-### Wildcard Not Allowed
+### 2. Automatic Normalization
 
-```
-CORSConfigError: Wildcard '*' origin detected in production environment. Set ALLOW_CORS_WILDCARD=true to explicitly allow this (not recommended).
-```
+Origins are automatically normalized:
+- Trailing slashes removed
+- Whitespace trimmed
+- Empty entries filtered
 
-**Solution**: Either:
-1. Set specific origins instead of wildcard (recommended)
-2. Set `ALLOW_CORS_WILDCARD=true` (only if you understand the risks)
+### 3. Security Warnings
 
-### Invalid Origin Format
+The system logs warnings for:
+- Wildcard configuration (`*`)
+- Invalid URLs in the configuration
+- Missing or empty `FRONTEND_URL`
 
-```
-CORSConfigError: Invalid CORS origin format: example.com
-```
+### 4. Secure Defaults
 
-**Solution**: Add the scheme (http:// or https://) to the origin URL.
+- Empty/unset `FRONTEND_URL` → Block all origins (most secure)
+- Invalid URLs → Ignored, not allowed
+- No wildcard by default
 
-### Mixed Wildcard
+## Testing
 
-```
-CORSConfigError: Cannot mix wildcard '*' with specific origins. Use either '*' or a list of specific origins.
-```
-
-**Solution**: Use either wildcard alone or a list of specific origins, not both.
-
-## Migration Guide
-
-### From Old Configuration
-
-**Old** (.env):
-```bash
-FRONTEND_URL=*
-```
-
-**New** (.env):
-```bash
-# Production (recommended)
-FRONTEND_URL=https://your-frontend-domain.com
-
-# OR development with wildcard (not recommended)
-FRONTEND_URL=*
-ALLOW_CORS_WILDCARD=true
-ENVIRONMENT=development
-```
-
-### Adding Multiple Origins
-
-**Before**:
-```bash
-FRONTEND_URL=https://app.example.com
-```
-
-**After**:
-```bash
-FRONTEND_URL=https://app.example.com,https://admin.example.com,https://mobile.example.com
-```
-
-## Testing CORS Configuration
-
-### Run Tests
+Run the CORS configuration tests:
 
 ```bash
 cd uat/backend
-pytest tests/test_config.py -v
-pytest tests/test_cors_integration.py -v
+pytest tests/test_cors_config.py -v
 ```
 
-### Manual Testing
+Run integration tests:
 
-1. **Test preflight request**:
-   ```bash
-   curl -X OPTIONS http://localhost:8000/health \
-     -H "Origin: https://your-frontend.com" \
-     -H "Access-Control-Request-Method: GET" \
-     -v
-   ```
-
-2. **Check response headers**:
-   Look for:
-   - `access-control-allow-origin: https://your-frontend.com`
-   - `access-control-allow-credentials: true`
-   - `access-control-allow-methods: GET, POST, PUT, DELETE, ...`
-
-3. **Test from browser**:
-   Open browser console on your frontend and make a request:
-   ```javascript
-   fetch('http://localhost:8000/health', {
-     credentials: 'include'
-   }).then(r => r.json()).then(console.log)
-   ```
-
-## Security Best Practices
-
-### ✅ DO
-
-- **Use specific origins**: List all allowed frontend domains explicitly
-- **Use HTTPS**: Always use HTTPS in production (except localhost in dev)
-- **Set credentials**: Keep `allow_credentials=true` for cookie-based auth
-- **Review regularly**: Audit CORS origins when adding new frontends
-- **Test thoroughly**: Test CORS with actual frontend apps before deploying
-
-### ❌ DON'T
-
-- **Don't use wildcard in production**: Allows any website to make requests
-- **Don't use HTTP in production**: Use HTTPS for all production origins
-- **Don't ignore startup errors**: Fix CORS configuration errors immediately
-- **Don't add untrusted origins**: Only add origins you control
-- **Don't mix schemes**: Keep http:// for dev, https:// for prod
+```bash
+pytest tests/test_main.py -v
+```
 
 ## Troubleshooting
 
-### Application Won't Start
-
-**Symptom**: Application crashes on startup with `CORSConfigError`
-
-**Check**:
-1. Is `FRONTEND_URL` set?
-2. Are all origins valid URLs with schemes?
-3. If using wildcard, is `ALLOW_CORS_WILDCARD=true`?
-
 ### Browser Shows CORS Error
 
-**Symptom**: Browser console shows "CORS policy" error
+**Symptom:** Browser console shows CORS policy error
 
-**Check**:
-1. Is the frontend origin in `FRONTEND_URL`?
-2. Does the origin match exactly (including protocol and port)?
-3. Is the backend running and accessible?
+**Solution:** Ensure `FRONTEND_URL` includes the exact origin of your frontend:
+- Check the scheme (http vs https)
+- Check the port number (must match)
+- Check the domain spelling
 
-**Example**:
-```
-Frontend: http://localhost:3000
-FRONTEND_URL: http://localhost:3001  ❌ (port mismatch)
-FRONTEND_URL: http://localhost:3000  ✅ (exact match)
-```
+Example:
+```bash
+# If frontend runs on http://localhost:3000
+FRONTEND_URL=http://localhost:3000
 
-### Preflight Request Fails
-
-**Symptom**: OPTIONS request returns error or missing headers
-
-**Check**:
-1. Origin is in allowed list
-2. Method is in `allow_methods`
-3. Backend is receiving the request
-
-### Multiple Frontends, One Fails
-
-**Symptom**: Some frontends work, others don't
-
-**Check**:
-1. All origins in comma-separated list
-2. No typos in URLs
-3. Correct protocol (http vs https)
-4. Correct port numbers
-
-## CORS Configuration Reference
-
-The new configuration system provides these settings to FastAPI's CORSMiddleware:
-
-```python
-{
-    "allow_origins": ["https://example.com"],  # From FRONTEND_URL
-    "allow_credentials": True,                  # For cookie-based auth
-    "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    "allow_headers": ["*"],                     # All request headers allowed
-    "expose_headers": ["*"],                    # All response headers exposed
-    "max_age": 600,                             # Cache preflight for 10 minutes
-}
+# NOT: http://localhost (missing port)
+# NOT: http://127.0.0.1:3000 (different host)
 ```
 
-## Support
+### Multiple Frontends Not Working
 
-For issues or questions about CORS configuration:
+**Symptom:** One frontend works, others get CORS errors
 
-1. Check application logs for detailed error messages
-2. Run tests: `pytest tests/test_config.py -v`
-3. Review this documentation
-4. Check the `.env.example` file for configuration examples
+**Solution:** List ALL frontend origins, comma-separated:
+
+```bash
+FRONTEND_URL=http://localhost:3000,https://staging.example.com,https://app.example.com
+```
+
+### Warning: "Invalid CORS origins ignored"
+
+**Symptom:** Startup logs show invalid origin warning
+
+**Solution:** Check that each origin:
+1. Starts with `http://` or `https://`
+2. Has a valid domain
+3. Doesn't include paths or credentials
+
+### Production Security Warning
+
+**Symptom:** Logs show "CORS configured with wildcard (*) - INSECURE"
+
+**Solution:** Replace wildcard with specific origins:
+
+```bash
+# BAD (development only):
+FRONTEND_URL=*
+
+# GOOD (production):
+FRONTEND_URL=https://app.example.com
+```
 
 ## Implementation Details
 
-- **Module**: `uat/backend/config.py`
-- **Tests**: `uat/backend/tests/test_config.py`, `uat/backend/tests/test_cors_integration.py`
-- **Integration**: `uat/backend/main.py`
-- **Ticket**: SDT1-56
+### Files
+
+- `uat/backend/cors_config.py` - Core CORS parsing and validation logic
+- `uat/backend/config.py` - Settings integration
+- `uat/backend/main.py` - FastAPI middleware setup
+- `uat/backend/tests/test_cors_config.py` - Unit tests
+- `uat/backend/tests/test_main.py` - Integration tests
+
+### Functions
+
+- `get_cors_origins()` - Parse and validate origins from `FRONTEND_URL`
+- `format_cors_origins_for_middleware()` - Format for FastAPI middleware
+- `_is_valid_url()` - Validate individual URL
+- `_parse_cors_origins()` - Parse comma-separated origins
+
+## Migration from Previous Version
+
+Previous configuration:
+
+```python
+# Old (main.py)
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "*")
+allow_origins=[FRONTEND_URL] if FRONTEND_URL != "*" else ["*"]
+```
+
+New configuration:
+
+```python
+# New (main.py)
+from config import settings
+cors_origins = settings.get_cors_origins()
+allow_origins=cors_origins
+```
+
+### Breaking Changes
+
+1. **Empty `FRONTEND_URL` now blocks all origins** (previously allowed all with `*` default)
+   - **Action:** Explicitly set `FRONTEND_URL` to your frontend origin(s)
+
+2. **Invalid URLs are now rejected** (previously accepted)
+   - **Action:** Ensure all URLs in `FRONTEND_URL` are valid
+
+3. **Paths in URLs are automatically stripped** (previously included)
+   - **Action:** Remove paths from URLs if present
+
+### Migration Steps
+
+1. Set `FRONTEND_URL` explicitly in your environment
+2. Verify format: `http(s)://domain:port`
+3. Test CORS headers in browser dev tools
+4. Check backend startup logs for validation warnings
+
+## Best Practices
+
+### Development
+
+```bash
+# Local development with React dev server
+FRONTEND_URL=http://localhost:3000
+```
+
+### Staging
+
+```bash
+# Staging environment
+FRONTEND_URL=https://staging.app.example.com
+```
+
+### Production
+
+```bash
+# Production with single frontend
+FRONTEND_URL=https://app.example.com
+
+# Production with multiple environments
+FRONTEND_URL=https://app.example.com,https://beta.app.example.com
+```
+
+### Testing Locally
+
+```bash
+# Test multiple frontends locally
+FRONTEND_URL=http://localhost:3000,http://localhost:3001
+```
+
+## See Also
+
+- [FastAPI CORS Documentation](https://fastapi.tiangolo.com/tutorial/cors/)
+- [MDN CORS Guide](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS)
+- [OWASP CORS Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Origin_Resource_Sharing_Cheat_Sheet.html)

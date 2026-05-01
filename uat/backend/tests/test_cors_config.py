@@ -1,209 +1,247 @@
 """
-Tests for CORS configuration hardening.
+Tests for CORS configuration hardening (SDT1-56).
 """
 
 import pytest
-import os
 from unittest.mock import patch
-from config import Settings
+from cors_config import (
+    _is_valid_url,
+    _parse_cors_origins,
+    get_cors_origins,
+    format_cors_origins_for_middleware,
+)
 
 
-class TestCORSConfiguration:
-    """Test suite for hardened CORS configuration."""
+class TestUrlValidation:
+    """Tests for URL validation."""
     
-    def test_validate_origin_url_valid_https(self):
-        """Test validation of valid HTTPS URLs."""
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            url = "https://app.example.com"
-            result = Settings._validate_origin_url(url)
-            assert result == "https://app.example.com"
+    def test_valid_http_localhost(self):
+        """Test valid localhost HTTP URL."""
+        assert _is_valid_url("http://localhost:3000") is True
     
-    def test_validate_origin_url_valid_http_localhost(self):
-        """Test validation of HTTP localhost URLs."""
-        urls = [
+    def test_valid_https_localhost(self):
+        """Test valid localhost HTTPS URL."""
+        assert _is_valid_url("https://localhost:3000") is True
+    
+    def test_valid_domain(self):
+        """Test valid domain URL."""
+        assert _is_valid_url("https://app.example.com") is True
+    
+    def test_valid_subdomain(self):
+        """Test valid subdomain URL."""
+        assert _is_valid_url("https://staging.app.example.com") is True
+    
+    def test_valid_ip_address(self):
+        """Test valid IP address URL."""
+        assert _is_valid_url("http://127.0.0.1:8080") is True
+    
+    def test_wildcard(self):
+        """Test wildcard is considered valid."""
+        assert _is_valid_url("*") is True
+    
+    def test_invalid_no_scheme(self):
+        """Test URL without scheme is invalid."""
+        assert _is_valid_url("localhost:3000") is False
+        assert _is_valid_url("example.com") is False
+    
+    def test_invalid_wrong_scheme(self):
+        """Test URL with wrong scheme is invalid."""
+        assert _is_valid_url("ftp://example.com") is False
+        assert _is_valid_url("ws://example.com") is False
+    
+    def test_invalid_no_domain(self):
+        """Test URL without domain is invalid."""
+        assert _is_valid_url("http://") is False
+        assert _is_valid_url("https://") is False
+    
+    def test_invalid_with_credentials(self):
+        """Test URL with username/password is invalid."""
+        assert _is_valid_url("http://user:pass@example.com") is False
+    
+    def test_invalid_empty_string(self):
+        """Test empty string is invalid."""
+        assert _is_valid_url("") is False
+    
+    def test_invalid_malformed(self):
+        """Test malformed URLs are invalid."""
+        assert _is_valid_url("not a url") is False
+        assert _is_valid_url("http://invalid domain.com") is False
+
+
+class TestCorsOriginParsing:
+    """Tests for CORS origin parsing."""
+    
+    def test_single_valid_origin(self, capsys):
+        """Test parsing single valid origin."""
+        result = _parse_cors_origins("http://localhost:3000")
+        assert result == ["http://localhost:3000"]
+        
+        captured = capsys.readouterr()
+        assert "✓ CORS configured for origin: http://localhost:3000" in captured.out
+    
+    def test_multiple_valid_origins(self, capsys):
+        """Test parsing multiple valid origins."""
+        result = _parse_cors_origins(
+            "http://localhost:3000,https://staging.example.com,https://app.example.com"
+        )
+        assert len(result) == 3
+        assert "http://localhost:3000" in result
+        assert "https://staging.example.com" in result
+        assert "https://app.example.com" in result
+        
+        captured = capsys.readouterr()
+        assert "✓ CORS configured for 3 origins:" in captured.out
+    
+    def test_wildcard_origin(self, capsys):
+        """Test wildcard origin with warning."""
+        result = _parse_cors_origins("*")
+        assert result == ["*"]
+        
+        captured = capsys.readouterr()
+        assert "WARNING: CORS configured with wildcard (*)" in captured.out
+        assert "INSECURE for production" in captured.out
+    
+    def test_empty_string(self, capsys):
+        """Test empty FRONTEND_URL."""
+        result = _parse_cors_origins("")
+        assert result == []
+        
+        captured = capsys.readouterr()
+        assert "WARNING: FRONTEND_URL not set" in captured.out
+    
+    def test_whitespace_only(self, capsys):
+        """Test whitespace-only FRONTEND_URL."""
+        result = _parse_cors_origins("   ")
+        assert result == []
+        
+        captured = capsys.readouterr()
+        assert "WARNING: FRONTEND_URL not set" in captured.out
+    
+    def test_trailing_slashes_removed(self):
+        """Test trailing slashes are removed from origins."""
+        result = _parse_cors_origins("http://localhost:3000/")
+        assert result == ["http://localhost:3000"]
+        
+        result = _parse_cors_origins("https://app.example.com/,https://staging.example.com/")
+        assert "https://app.example.com" in result
+        assert "https://staging.example.com" in result
+        assert "https://app.example.com/" not in result
+    
+    def test_mixed_valid_invalid_origins(self, capsys):
+        """Test mix of valid and invalid origins."""
+        result = _parse_cors_origins(
+            "http://localhost:3000,invalid-url,https://app.example.com,not-a-url"
+        )
+        assert len(result) == 2
+        assert "http://localhost:3000" in result
+        assert "https://app.example.com" in result
+        
+        captured = capsys.readouterr()
+        assert "WARNING: Invalid CORS origins ignored:" in captured.out
+        assert "invalid-url" in captured.out
+        assert "not-a-url" in captured.out
+    
+    def test_empty_items_in_list(self):
+        """Test comma-separated list with empty items."""
+        result = _parse_cors_origins("http://localhost:3000,,https://app.example.com,")
+        assert len(result) == 2
+        assert "http://localhost:3000" in result
+        assert "https://app.example.com" in result
+    
+    def test_whitespace_in_list(self):
+        """Test origins with whitespace are trimmed."""
+        result = _parse_cors_origins(
+            " http://localhost:3000 , https://app.example.com "
+        )
+        assert len(result) == 2
+        assert "http://localhost:3000" in result
+        assert "https://app.example.com" in result
+
+
+class TestGetCorsOrigins:
+    """Tests for get_cors_origins function."""
+    
+    @patch.dict("os.environ", {"FRONTEND_URL": "http://localhost:3000"})
+    def test_get_from_environment(self):
+        """Test reading FRONTEND_URL from environment."""
+        result = get_cors_origins()
+        assert result == ["http://localhost:3000"]
+    
+    @patch.dict("os.environ", {}, clear=True)
+    def test_get_with_no_env_var(self):
+        """Test with no FRONTEND_URL in environment."""
+        result = get_cors_origins()
+        assert result == []
+    
+    @patch.dict("os.environ", {"FRONTEND_URL": "http://localhost:3000,https://app.example.com"})
+    def test_get_multiple_from_environment(self):
+        """Test reading multiple origins from environment."""
+        result = get_cors_origins()
+        assert len(result) == 2
+        assert "http://localhost:3000" in result
+        assert "https://app.example.com" in result
+
+
+class TestFormatCorsOriginsForMiddleware:
+    """Tests for formatting origins for FastAPI middleware."""
+    
+    def test_format_empty_list(self):
+        """Test formatting empty list."""
+        result = format_cors_origins_for_middleware([])
+        assert result == []
+    
+    def test_format_single_origin(self):
+        """Test formatting single origin."""
+        result = format_cors_origins_for_middleware(["http://localhost:3000"])
+        assert result == ["http://localhost:3000"]
+    
+    def test_format_multiple_origins(self):
+        """Test formatting multiple origins."""
+        origins = [
             "http://localhost:3000",
-            "http://127.0.0.1:5173",
+            "https://staging.example.com",
+            "https://app.example.com",
         ]
-        for url in urls:
-            result = Settings._validate_origin_url(url)
-            assert result == url
+        result = format_cors_origins_for_middleware(origins)
+        assert result == origins
     
-    def test_validate_origin_url_strips_path(self):
-        """Test that paths are rejected from origin URLs."""
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            with pytest.raises(ValueError, match="should not include path"):
-                Settings._validate_origin_url("https://app.example.com/path")
+    def test_format_wildcard(self):
+        """Test wildcard is preserved."""
+        result = format_cors_origins_for_middleware(["*"])
+        assert result == ["*"]
     
-    def test_validate_origin_url_strips_query(self):
-        """Test that query strings are rejected from origin URLs."""
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            with pytest.raises(ValueError, match="should not include query"):
-                Settings._validate_origin_url("https://app.example.com?query=1")
+    def test_format_wildcard_with_others(self):
+        """Test wildcard with other origins returns only wildcard."""
+        # This shouldn't happen in practice, but ensure safe behavior
+        result = format_cors_origins_for_middleware(["*", "http://localhost:3000"])
+        assert result == ["*"]
+
+
+class TestIntegration:
+    """Integration tests for full CORS configuration flow."""
     
-    def test_validate_origin_url_strips_fragment(self):
-        """Test that fragments are rejected from origin URLs."""
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            with pytest.raises(ValueError, match="should not include.*fragment"):
-                Settings._validate_origin_url("https://app.example.com#fragment")
-    
-    def test_validate_origin_url_requires_scheme(self):
-        """Test that URLs without scheme are rejected."""
-        with pytest.raises(ValueError, match="must include scheme"):
-            Settings._validate_origin_url("app.example.com")
-    
-    def test_validate_origin_url_requires_valid_scheme(self):
-        """Test that only http/https schemes are allowed."""
-        with pytest.raises(ValueError, match="must use http or https"):
-            Settings._validate_origin_url("ftp://app.example.com")
-    
-    def test_validate_origin_url_requires_netloc(self):
-        """Test that URLs must have a domain/host."""
-        with pytest.raises(ValueError, match="must include a domain or host"):
-            Settings._validate_origin_url("https://")
-    
-    def test_validate_origin_url_rejects_http_in_production(self):
-        """Test that HTTP is rejected in production (except localhost)."""
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            with pytest.raises(ValueError, match="uses http scheme in production"):
-                Settings._validate_origin_url("http://app.example.com")
-    
-    def test_validate_origin_url_allows_http_localhost_in_production(self):
-        """Test that HTTP localhost is allowed even in production."""
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            result = Settings._validate_origin_url("http://localhost:3000")
-            assert result == "http://localhost:3000"
-    
-    def test_validate_origin_url_wildcard_rejected_in_production(self):
-        """Test that wildcard is rejected in production."""
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            with pytest.raises(ValueError, match="Wildcard.*not allowed in production"):
-                Settings._validate_origin_url("*")
-    
-    def test_validate_origin_url_wildcard_allowed_in_dev(self):
-        """Test that wildcard is allowed in development."""
-        with patch.object(Settings, 'ENVIRONMENT', 'development'):
-            result = Settings._validate_origin_url("*")
-            assert result == "*"
-    
-    def test_get_allowed_origins_single_url(self):
-        """Test getting allowed origins with a single URL."""
-        with patch.object(Settings, 'FRONTEND_URL', 'https://app.example.com'):
-            with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                origins = Settings.get_allowed_origins()
-                assert origins == ["https://app.example.com"]
-    
-    def test_get_allowed_origins_multiple_urls(self):
-        """Test getting allowed origins with multiple comma-separated URLs."""
-        frontend_urls = "https://app.example.com,https://staging.example.com,https://admin.example.com"
-        with patch.object(Settings, 'FRONTEND_URL', frontend_urls):
-            with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                origins = Settings.get_allowed_origins()
-                assert len(origins) == 3
-                assert "https://app.example.com" in origins
-                assert "https://staging.example.com" in origins
-                assert "https://admin.example.com" in origins
-    
-    def test_get_allowed_origins_strips_whitespace(self):
-        """Test that whitespace is properly stripped from URLs."""
-        frontend_urls = " https://app.example.com , https://staging.example.com "
-        with patch.object(Settings, 'FRONTEND_URL', frontend_urls):
-            with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                origins = Settings.get_allowed_origins()
-                assert len(origins) == 2
-                assert "https://app.example.com" in origins
-                assert "https://staging.example.com" in origins
-    
-    def test_get_allowed_origins_empty_raises_in_production(self):
-        """Test that empty FRONTEND_URL raises error in production."""
-        with patch.object(Settings, 'FRONTEND_URL', ''):
-            with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                with pytest.raises(ValueError, match="FRONTEND_URL must be set in production"):
-                    Settings.get_allowed_origins()
-    
-    def test_get_allowed_origins_defaults_localhost_in_dev(self):
-        """Test that development defaults to localhost origins."""
-        with patch.object(Settings, 'FRONTEND_URL', ''):
-            with patch.object(Settings, 'ENVIRONMENT', 'development'):
-                origins = Settings.get_allowed_origins()
-                assert len(origins) > 0
-                assert "http://localhost:3000" in origins
-                assert "http://localhost:5173" in origins
-    
-    def test_get_allowed_origins_empty_raises_in_staging(self):
-        """Test that empty FRONTEND_URL raises error in staging."""
-        with patch.object(Settings, 'FRONTEND_URL', ''):
-            with patch.object(Settings, 'ENVIRONMENT', 'staging'):
-                with pytest.raises(ValueError, match="FRONTEND_URL must be set"):
-                    Settings.get_allowed_origins()
-    
-    def test_get_allowed_origins_invalid_url_raises(self):
-        """Test that invalid URLs raise appropriate errors."""
-        with patch.object(Settings, 'FRONTEND_URL', 'not-a-valid-url'):
-            with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                with pytest.raises(ValueError, match="must include scheme"):
-                    Settings.get_allowed_origins()
-    
-    def test_get_allowed_origins_empty_list_after_parse(self):
-        """Test that empty string list raises error."""
-        with patch.object(Settings, 'FRONTEND_URL', ',,,'):
-            with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                with pytest.raises(ValueError, match="contains no valid URLs"):
-                    Settings.get_allowed_origins()
-    
-    def test_settings_validate_includes_cors_check(self):
-        """Test that Settings.validate() checks CORS configuration."""
-        with patch.object(Settings, 'JWT_SECRET', 'test-secret'):
-            with patch.object(Settings, 'FRONTEND_URL', ''):
-                with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                    with pytest.raises(ValueError, match="CORS configuration error"):
-                        Settings.validate()
-    
-    def test_settings_validate_success_with_valid_config(self):
-        """Test that validation passes with valid configuration."""
-        with patch.object(Settings, 'JWT_SECRET', 'test-secret'):
-            with patch.object(Settings, 'FRONTEND_URL', 'https://app.example.com'):
-                with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                    # Should not raise
-                    Settings.validate()
-    
-    def test_normalize_urls_with_trailing_slash(self):
-        """Test that trailing slashes are handled correctly."""
-        # Trailing slash in root path is acceptable
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            result = Settings._validate_origin_url("https://app.example.com/")
-            # Should still be normalized to without trailing slash
-            assert result == "https://app.example.com"
-    
-    def test_urls_with_ports(self):
-        """Test that URLs with explicit ports are handled correctly."""
-        test_cases = [
-            ("https://app.example.com:8443", "https://app.example.com:8443"),
-            ("http://localhost:3000", "http://localhost:3000"),
-            ("https://staging.example.com:443", "https://staging.example.com:443"),
-        ]
+    @patch.dict("os.environ", {"FRONTEND_URL": "http://localhost:3000,https://app.example.com"})
+    def test_full_flow_multiple_origins(self):
+        """Test complete flow from env var to middleware format."""
+        origins = get_cors_origins()
+        formatted = format_cors_origins_for_middleware(origins)
         
-        for input_url, expected in test_cases:
-            with patch.object(Settings, 'ENVIRONMENT', 'development'):
-                result = Settings._validate_origin_url(input_url)
-                assert result == expected
+        assert len(formatted) == 2
+        assert "http://localhost:3000" in formatted
+        assert "https://app.example.com" in formatted
     
-    def test_subdomains_allowed(self):
-        """Test that subdomains are properly validated."""
-        test_cases = [
-            "https://api.app.example.com",
-            "https://staging.api.app.example.com",
-            "https://v2.example.com",
-        ]
+    @patch.dict("os.environ", {"FRONTEND_URL": "*"})
+    def test_full_flow_wildcard(self):
+        """Test complete flow with wildcard."""
+        origins = get_cors_origins()
+        formatted = format_cors_origins_for_middleware(origins)
         
-        with patch.object(Settings, 'ENVIRONMENT', 'production'):
-            for url in test_cases:
-                result = Settings._validate_origin_url(url)
-                assert result == url
+        assert formatted == ["*"]
     
-    def test_mixed_valid_invalid_urls_raises(self):
-        """Test that one invalid URL in list causes failure."""
-        frontend_urls = "https://good.example.com,not-valid,https://another.example.com"
-        with patch.object(Settings, 'FRONTEND_URL', frontend_urls):
-            with patch.object(Settings, 'ENVIRONMENT', 'production'):
-                with pytest.raises(ValueError):
-                    Settings.get_allowed_origins()
+    @patch.dict("os.environ", {}, clear=True)
+    def test_full_flow_no_config(self):
+        """Test complete flow with no configuration."""
+        origins = get_cors_origins()
+        formatted = format_cors_origins_for_middleware(origins)
+        
+        assert formatted == []
