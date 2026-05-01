@@ -264,9 +264,17 @@ Agents do not share memory or communicate directly. Coordination happens through
 ## 3. API Endpoints (UAT Backend)
 
 **Base URL:** `https://synpro-virtual-dev-team-production.up.railway.app`  
-**Source:** `uat/backend/main.py`  
+**Source:** `uat/backend/main.py` (router split — SDT1-47)  
 **Framework:** FastAPI (Python)  
-**CORS:** Configured via `FRONTEND_URL` env var (default: `*`)
+**CORS:** Configured via `FRONTEND_URL` env var (default: `*`). Must be `*` or explicitly include the Control Centre URL (`https://control-centre-service-production.up.railway.app`). If set to the UAT frontend URL only, all Control Centre proxy calls fail — browser receives no `Access-Control-Allow-Origin` header. Set `FRONTEND_URL=*` in Railway backend service variables for UAT.
+
+**Backend router modules** (`uat/backend/`):
+- `auth.py` — registration, login, JWT, password reset
+- `profile.py` — profile read/update
+- `notifications.py` — notification system
+- `proxy.py` — Jira proxy endpoints (avoids CORS)
+- `pm_agent.py` — PM Agent chat and sprint generation
+- `manager_agent_router.py` — Jira transition endpoints with exponential backoff retry (self-contained, no imports from `agents/`)
 
 ### Auth Endpoints
 
@@ -523,9 +531,16 @@ CrewAI has a schema size limit per agent. Manager tools are split into two group
 | sonarcloud | main push only | No (continue-on-error) | Full code analysis |
 | quality-gate | After sonarcloud | No | Reads SonarCloud gate result |
 | playwright | main push only | No (continue-on-error) | E2E against live UAT backend |
-| deploy | main push only | No | `railway redeploy` or `railway up --detach` |
+| deploy | main push only | No | Railway GraphQL API `serviceInstanceRedeploy` mutation via `curl` + `jq` — no CLI install required |
 
 **Graceful skip:** If `src/` or `tests/` directories don't exist, test jobs skip without failing.
+
+**Railway deploy flow (GraphQL API):**
+1. `printf` constructs query JSON: `project(id: "$RAILWAY_PROJECT_ID"){ environments services }`
+2. `jq` with `ascii_downcase` resolves production environment ID and service ID by name
+3. `serviceInstanceRedeploy(environmentId, serviceId)` mutation triggers the redeploy
+4. Full API response echoed to CI logs; step exits 0 on any error (non-blocking)
+5. Service names: backend = `synpro-virtual-dev-team`, frontend = `Virtual-Dev-Team-UAT-Frontend`
 
 ---
 
@@ -691,7 +706,7 @@ Scripts that have accumulated at the project root from prior sprints. These are 
 |----------|---------|-------------|
 | `DATABASE_URL` | None | PostgreSQL connection string |
 | `JWT_SECRET` | `"dev-secret-change-in-production"` | JWT signing secret |
-| `FRONTEND_URL` | `"*"` | CORS allowed origins |
+| `FRONTEND_URL` | `"*"` | CORS allowed origins — must be `*` or include Control Centre URL; set in Railway service variables |
 
 ### Optional
 
