@@ -29,6 +29,12 @@ class DeploymentTriggerRequest(BaseModel):
     environment_id: str = Field(..., description="Railway environment ID")
 
 
+class RedeployRequest(BaseModel):
+    """Request to trigger a redeployment."""
+    service_id: str = Field(..., description="Railway service ID")
+    environment_id: str = Field(..., description="Railway environment ID")
+
+
 class DeploymentStatusResponse(BaseModel):
     """Response containing deployment status."""
     id: str
@@ -266,6 +272,53 @@ async def trigger_deployment(
         )
     except Exception as e:
         logger.error(f"Unexpected error triggering deployment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
+@router.post("/redeploy", response_model=DeploymentStatusResponse)
+async def redeploy_service(
+    request: RedeployRequest,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Trigger a redeployment for a service in a specific environment.
+    
+    This is a convenience endpoint that triggers a new deployment,
+    effectively redeploying the service with the current configuration.
+    
+    Args:
+        request: Redeploy request with service_id and environment_id
+        
+    Requires authentication.
+    
+    Returns:
+        DeploymentStatusResponse: New deployment information
+    """
+    try:
+        client = await get_railway_client()
+        deployment = await client.trigger_deployment(
+            request.service_id,
+            request.environment_id
+        )
+        
+        logger.info(
+            f"User {current_user.get('email', 'unknown')} triggered redeploy "
+            f"{deployment.get('id')} for service {request.service_id}"
+        )
+        
+        return _format_deployment(deployment)
+    
+    except RailwayAPIError as e:
+        logger.error(f"Railway API error during redeploy: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Railway API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during redeploy: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
