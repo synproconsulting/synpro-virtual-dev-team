@@ -1,0 +1,62 @@
+# Railway Deployment Configuration
+# Configuration for Railway GraphQL deployment validation and alerting
+
+# Default deployment settings
+defaults:
+  environment: production
+  validate_deployment: true
+  timeout_seconds: 300
+  check_interval: 10
+
+# Services to deploy
+services:
+  - name: synpro-virtual-dev-team
+    type: backend
+    description: Virtual Dev Team UAT Backend
+    health_check_path: /health
+    
+  - name: Virtual-Dev-Team-UAT-Frontend
+    type: frontend
+    description: Virtual Dev Team UAT Frontend
+    health_check_path: /
+
+# Environments configuration
+environments:
+  production:
+    name: production
+    validate_before_deploy: true
+    send_alerts: true
+    require_tests_pass: true
+    
+  staging:
+    name: staging
+    validate_before_deploy: true
+    send_alerts: false
+    require_tests_pass: false
+
+# Alerting configuration
+alerting:
+  slack:
+    enabled: true
+    webhook_url_env: SLACK_WEBHOOK_URL
+    notify_on_success: true
+    notify_on_failure: true
+    notify_on_warning: true
+    include_build_url: true
+    
+# Validation settings
+validation:
+  api_connectivity_check: true
+  deployment_status_check: true
+  retry_on_transient_errors: true
+  max_retries: 3
+  retry_delay_seconds: 5
+
+# CI/CD integration
+ci:
+  run_on_branches:
+    - main
+  require_jobs:
+    - test
+    - security
+  continue_on_error: false
