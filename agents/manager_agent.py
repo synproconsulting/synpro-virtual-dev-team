@@ -7,6 +7,7 @@ The Manager Agent is responsible for:
 - Managing issue assignments and status updates
 - Coordinating with other agents in the system
 - Reviewing PRs with intelligent diff truncation
+- Preventing infinite retrigger loops with configurable caps
 """
 
 import os
@@ -17,7 +18,8 @@ from typing import Optional, Dict, Any, List
 from enum import Enum
 import base64
 import httpx
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 
 # Add tools to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -38,6 +40,9 @@ DEFAULT_BASE_DELAY = 1.0  # seconds
 DEFAULT_MAX_DELAY = 60.0  # seconds
 DEFAULT_EXPONENTIAL_BASE = 2
 
+# Retrigger loop configuration
+DEFAULT_MAX_RETRIGGER_COUNT = 3  # Maximum times Manager Agent can be retriggered for same operation
+
 # Diff review configuration
 DEFAULT_DIFF_MAX_CHARS = 50000
 
@@ -48,6 +53,11 @@ class TransitionStatus(Enum):
     FAILED = "failed"
     RETRYING = "retrying"
     MAX_RETRIES_EXCEEDED = "max_retries_exceeded"
+
+
+class RetriggerLimitExceeded(Exception):
+    """Exception raised when retrigger limit is exceeded."""
+    pass
 
 
 @dataclass
@@ -61,6 +71,7 @@ class TransitionResult:
     total_time: float = 0.0
     error_message: Optional[str] = None
     final_status: Optional[str] = None
+    retrigger_count: int = 0
 
 
 @dataclass
@@ -80,6 +91,64 @@ class DiffReviewResult:
     def was_truncated(self) -> bool:
         """Check if the diff was truncated."""
         return self.metadata.get("truncated", False)
+
+
+@dataclass
+class OperationState:
+    """Tracks state of an operation to prevent infinite retrigger loops."""
+    operation_id: str
+    issue_key: str
+    operation_type: str
+    trigger_count: int = 0
+    first_triggered_at: datetime = field(default_factory=datetime.utcnow)
+    last_triggered_at: datetime = field(default_factory=datetime.utcnow)
+    error_history: List[str] = field(default_factory=list)
+    
+    def increment_trigger(self, error_message: Optional[str] = None) -> int:
+        """
+        Increment trigger count and update timestamp.
+        
+        Args:
+            error_message: Optional error message to record
+            
+        Returns:
+            Updated trigger count
+        """
+        self.trigger_count += 1
+        self.last_triggered_at = datetime.utcnow()
+        if error_message:
+            self.error_history.append(error_message)
+        return self.trigger_count
+    
+    def is_limit_exceeded(self, max_count: int) -> bool:
+        """
+        Check if trigger count exceeds the limit.
+        
+        Args:
+            max_count: Maximum allowed trigger count
+            
+        Returns:
+            True if limit exceeded
+        """
+        return self.trigger_count >= max_count
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """
+        Get summary of operation state.
+        
+        Returns:
+            Dictionary with operation state summary
+        """
+        return {
+            "operation_id": self.operation_id,
+            "issue_key": self.issue_key,
+            "operation_type": self.operation_type,
+            "trigger_count": self.trigger_count,
+            "first_triggered_at": self.first_triggered_at.isoformat(),
+            "last_triggered_at": self.last_triggered_at.isoformat(),
+            "error_count": len(self.error_history),
+            "recent_errors": self.error_history[-3:] if self.error_history else [],
+        }
 
 
 # ── Jira Client with Retry Logic ─────────────────────────────────────────────────────
@@ -458,6 +527,8 @@ class ManagerAgent:
     The Manager Agent orchestrates issue lifecycle management with robust
     retry logic and error handling. It also reviews PRs with intelligent
     diff truncation that prioritizes new files.
+    
+    Features retrigger loop protection to prevent infinite cycles.
     """
     
     def __init__(
@@ -465,20 +536,139 @@ class ManagerAgent:
         max_retries: int = DEFAULT_MAX_RETRIES,
         base_delay: float = DEFAULT_BASE_DELAY,
         diff_max_chars: int = DEFAULT_DIFF_MAX_CHARS,
+        max_retrigger_count: int = DEFAULT_MAX_RETRIGGER_COUNT,
     ):
         """
         Initialize the Manager Agent.
         
         Args:
-            max_retries: Maximum number of retry attempts
+            max_retries: Maximum number of retry attempts for API calls
             base_delay: Base delay in seconds before first retry
             diff_max_chars: Maximum characters for diff reviews
+            max_retrigger_count: Maximum times an operation can be retriggered
         """
         self.client = JiraRetryClient(
             max_retries=max_retries,
             base_delay=base_delay,
         )
         self.diff_max_chars = diff_max_chars
+        self.max_retrigger_count = max_retrigger_count
+        
+        # Track operation states to prevent infinite retrigger loops
+        self._operation_states: Dict[str, OperationState] = {}
+    
+    def _get_operation_id(self, operation_type: str, issue_key: str) -> str:
+        """
+        Generate operation ID for tracking.
+        
+        Args:
+            operation_type: Type of operation (e.g., "start_work", "transition")
+            issue_key: Jira issue key
+            
+        Returns:
+            Operation ID string
+        """
+        return f"{operation_type}:{issue_key}"
+    
+    def _check_and_increment_retrigger(
+        self,
+        operation_type: str,
+        issue_key: str,
+        error_message: Optional[str] = None,
+    ) -> int:
+        """
+        Check retrigger count and increment. Raises exception if limit exceeded.
+        
+        Args:
+            operation_type: Type of operation
+            issue_key: Jira issue key
+            error_message: Optional error message to record
+            
+        Returns:
+            Current retrigger count after increment
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
+        """
+        operation_id = self._get_operation_id(operation_type, issue_key)
+        
+        # Get or create operation state
+        if operation_id not in self._operation_states:
+            self._operation_states[operation_id] = OperationState(
+                operation_id=operation_id,
+                issue_key=issue_key,
+                operation_type=operation_type,
+            )
+        
+        state = self._operation_states[operation_id]
+        
+        # Check if limit already exceeded
+        if state.is_limit_exceeded(self.max_retrigger_count):
+            summary = state.get_summary()
+            raise RetriggerLimitExceeded(
+                f"Retrigger limit exceeded for {operation_type} on {issue_key}. "
+                f"Max: {self.max_retrigger_count}, Current: {state.trigger_count}. "
+                f"Summary: {summary}"
+            )
+        
+        # Increment and return new count
+        count = state.increment_trigger(error_message)
+        
+        if count >= self.max_retrigger_count:
+            print(
+                f"⚠ Warning: {operation_type} for {issue_key} has reached retrigger limit "
+                f"({count}/{self.max_retrigger_count}). This will be the final attempt."
+            )
+        
+        return count
+    
+    def _reset_retrigger_count(self, operation_type: str, issue_key: str) -> None:
+        """
+        Reset retrigger count for an operation (e.g., after success).
+        
+        Args:
+            operation_type: Type of operation
+            issue_key: Jira issue key
+        """
+        operation_id = self._get_operation_id(operation_type, issue_key)
+        if operation_id in self._operation_states:
+            del self._operation_states[operation_id]
+    
+    def get_operation_state(self, operation_type: str, issue_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Get current state of an operation.
+        
+        Args:
+            operation_type: Type of operation
+            issue_key: Jira issue key
+            
+        Returns:
+            Operation state summary or None if not tracked
+        """
+        operation_id = self._get_operation_id(operation_type, issue_key)
+        if operation_id in self._operation_states:
+            return self._operation_states[operation_id].get_summary()
+        return None
+    
+    def get_all_operation_states(self) -> List[Dict[str, Any]]:
+        """
+        Get all tracked operation states.
+        
+        Returns:
+            List of operation state summaries
+        """
+        return [state.get_summary() for state in self._operation_states.values()]
+    
+    def clear_all_operation_states(self) -> int:
+        """
+        Clear all tracked operation states.
+        
+        Returns:
+            Number of states cleared
+        """
+        count = len(self._operation_states)
+        self._operation_states.clear()
+        return count
     
     async def start_work(
         self,
@@ -496,17 +686,38 @@ class ManagerAgent:
         
         Returns:
             TransitionResult
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
+        # Check and increment retrigger count
+        retrigger_count = self._check_and_increment_retrigger("start_work", issue_key)
+        
         fields = {}
         if assignee:
             fields["assignee"] = {"name": assignee}
         
-        return await self.client.transition_issue_by_name(
+        result = await self.client.transition_issue_by_name(
             issue_key=issue_key,
             target_status="In Progress",
             fields=fields if fields else None,
             comment=comment or "Work started by Manager Agent",
         )
+        
+        result.retrigger_count = retrigger_count
+        
+        # Reset count on success
+        if result.status == TransitionStatus.SUCCESS:
+            self._reset_retrigger_count("start_work", issue_key)
+        else:
+            # Record error for tracking
+            self._check_and_increment_retrigger(
+                "start_work",
+                issue_key,
+                error_message=result.error_message,
+            )
+        
+        return result
     
     async def complete_work(
         self,
@@ -522,12 +733,32 @@ class ManagerAgent:
         
         Returns:
             TransitionResult
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
-        return await self.client.transition_issue_by_name(
+        # Check and increment retrigger count
+        retrigger_count = self._check_and_increment_retrigger("complete_work", issue_key)
+        
+        result = await self.client.transition_issue_by_name(
             issue_key=issue_key,
             target_status="Done",
             comment=comment or "Work completed by Manager Agent",
         )
+        
+        result.retrigger_count = retrigger_count
+        
+        # Reset count on success
+        if result.status == TransitionStatus.SUCCESS:
+            self._reset_retrigger_count("complete_work", issue_key)
+        else:
+            self._check_and_increment_retrigger(
+                "complete_work",
+                issue_key,
+                error_message=result.error_message,
+            )
+        
+        return result
     
     async def move_to_code_review(
         self,
@@ -543,12 +774,32 @@ class ManagerAgent:
         
         Returns:
             TransitionResult
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
-        return await self.client.transition_issue_by_name(
+        # Check and increment retrigger count
+        retrigger_count = self._check_and_increment_retrigger("move_to_code_review", issue_key)
+        
+        result = await self.client.transition_issue_by_name(
             issue_key=issue_key,
             target_status="Code Review",
             comment=comment or "Ready for code review",
         )
+        
+        result.retrigger_count = retrigger_count
+        
+        # Reset count on success
+        if result.status == TransitionStatus.SUCCESS:
+            self._reset_retrigger_count("move_to_code_review", issue_key)
+        else:
+            self._check_and_increment_retrigger(
+                "move_to_code_review",
+                issue_key,
+                error_message=result.error_message,
+            )
+        
+        return result
     
     async def move_to_testing(
         self,
@@ -564,7 +815,13 @@ class ManagerAgent:
         
         Returns:
             TransitionResult
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
+        # Check and increment retrigger count
+        retrigger_count = self._check_and_increment_retrigger("move_to_testing", issue_key)
+        
         # Try "Testing" first, fall back to "QA"
         result = await self.client.transition_issue_by_name(
             issue_key=issue_key,
@@ -577,6 +834,18 @@ class ManagerAgent:
                 issue_key=issue_key,
                 target_status="QA",
                 comment=comment or "Ready for QA",
+            )
+        
+        result.retrigger_count = retrigger_count
+        
+        # Reset count on success
+        if result.status == TransitionStatus.SUCCESS:
+            self._reset_retrigger_count("move_to_testing", issue_key)
+        else:
+            self._check_and_increment_retrigger(
+                "move_to_testing",
+                issue_key,
+                error_message=result.error_message,
             )
         
         return result
@@ -700,7 +969,7 @@ class ManagerAgent:
         self,
         issue_key: str,
         diff_text: str,
-    ) -> Tuple[DiffReviewResult, TransitionResult]:
+    ) -> tuple[DiffReviewResult, TransitionResult]:
         """
         Review a PR diff and post review comments to Jira.
         
@@ -710,6 +979,9 @@ class ManagerAgent:
         
         Returns:
             Tuple of (DiffReviewResult, TransitionResult)
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
         # Review the diff
         review_result = self.review_diff(diff_text, generate_comments=True)
@@ -764,14 +1036,16 @@ def create_manager_agent(
     max_retries: int = DEFAULT_MAX_RETRIES,
     base_delay: float = DEFAULT_BASE_DELAY,
     diff_max_chars: int = DEFAULT_DIFF_MAX_CHARS,
+    max_retrigger_count: int = DEFAULT_MAX_RETRIGGER_COUNT,
 ) -> ManagerAgent:
     """
     Factory function to create a Manager Agent instance.
     
     Args:
-        max_retries: Maximum number of retry attempts
+        max_retries: Maximum number of retry attempts for API calls
         base_delay: Base delay in seconds before first retry
         diff_max_chars: Maximum characters for diff reviews
+        max_retrigger_count: Maximum times an operation can be retriggered
     
     Returns:
         ManagerAgent instance
@@ -780,4 +1054,5 @@ def create_manager_agent(
         max_retries=max_retries,
         base_delay=base_delay,
         diff_max_chars=diff_max_chars,
+        max_retrigger_count=max_retrigger_count,
     )
