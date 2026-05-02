@@ -1,338 +1,352 @@
 import React, { useState, useEffect } from 'react';
 import {
-  getRailwayProjects,
-  getEnvironmentDeployments,
+  getServices,
+  getEnvironments,
   triggerDeployment,
-  formatDeploymentStatus,
-  checkRailwayHealth
-} from '../api/railway';
+  getDeploymentStatus,
+  getServiceDeployments,
+} from '../api/deploymentApi';
 import './UATDeployment.css';
 
 const UATDeployment = () => {
   const [loading, setLoading] = useState(false);
-  const [projectsLoading, setProjectsLoading] = useState(true);
-  const [deploymentsLoading, setDeploymentsLoading] = useState(false);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const [projects, setProjects] = useState([]);
-  const [selectedProject, setSelectedProject] = useState('');
-  const [deployments, setDeployments] = useState([]);
-  const [environmentName, setEnvironmentName] = useState('production');
-  const [railwayHealth, setRailwayHealth] = useState(null);
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [lastRefresh, setLastRefresh] = useState(null);
+  const [services, setServices] = useState([]);
+  const [environments, setEnvironments] = useState([]);
+  const [selectedServices, setSelectedServices] = useState([]);
+  const [selectedEnvironment, setSelectedEnvironment] = useState(null);
+  const [customBranch, setCustomBranch] = useState('');
+  const [deploymentNotes, setDeploymentNotes] = useState('');
+  const [recentDeployments, setRecentDeployments] = useState({});
+  const [pollingDeployments, setPollingDeployments] = useState(new Set());
 
-  // Load Railway projects and health on mount
+  // Load services and environments on mount
   useEffect(() => {
-    loadInitialData();
+    loadServicesAndEnvironments();
   }, []);
 
-  // Auto-refresh deployments every 30 seconds if enabled
+  // Poll deployment status for active deployments
   useEffect(() => {
-    let interval;
-    if (autoRefresh && selectedProject) {
-      interval = setInterval(() => {
-        loadDeployments(selectedProject, environmentName, true);
-      }, 30000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [autoRefresh, selectedProject, environmentName]);
+    if (pollingDeployments.size === 0) return;
 
-  const loadInitialData = async () => {
-    setProjectsLoading(true);
+    const interval = setInterval(() => {
+      pollingDeployments.forEach(async (deploymentId) => {
+        try {
+          const statusData = await getDeploymentStatus(deploymentId);
+          const status = statusData.deployment?.status;
+          
+          // Stop polling if deployment is complete or failed
+          if (status === 'SUCCESS' || status === 'FAILED' || status === 'CRASHED') {
+            setPollingDeployments(prev => {
+              const next = new Set(prev);
+              next.delete(deploymentId);
+              return next;
+            });
+          }
+        } catch (err) {
+          console.error('Error polling deployment status:', err);
+        }
+      });
+    }, 5000); // Poll every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [pollingDeployments]);
+
+  const loadServicesAndEnvironments = async () => {
+    setServicesLoading(true);
     setError(null);
     
     try {
-      // Check Railway health
-      const health = await checkRailwayHealth();
-      setRailwayHealth(health);
-
-      if (!health.configured) {
-        setError('Railway API is not configured. Please set RAILWAY_API_TOKEN environment variable.');
-        setProjectsLoading(false);
-        return;
-      }
-
-      // Load projects
-      const projectsData = await getRailwayProjects();
-      setProjects(projectsData.projects || []);
-
-      // Auto-select first project if available and get Railway project ID from env
-      const defaultProjectId = import.meta.env.VITE_RAILWAY_PROJECT_ID;
-      if (defaultProjectId && projectsData.projects.some(p => p.id === defaultProjectId)) {
-        setSelectedProject(defaultProjectId);
-        loadDeployments(defaultProjectId, environmentName);
-      } else if (projectsData.projects.length > 0) {
-        const firstProject = projectsData.projects[0].id;
-        setSelectedProject(firstProject);
-        loadDeployments(firstProject, environmentName);
+      const [servicesData, environmentsData] = await Promise.all([
+        getServices(),
+        getEnvironments(),
+      ]);
+      
+      setServices(servicesData.services || []);
+      setEnvironments(environmentsData.environments || []);
+      
+      // Auto-select UAT environment if available
+      const uatEnv = environmentsData.environments?.find(
+        env => env.name.toLowerCase() === 'uat'
+      );
+      if (uatEnv) {
+        setSelectedEnvironment(uatEnv.id);
+      } else if (environmentsData.environments?.length > 0) {
+        setSelectedEnvironment(environmentsData.environments[0].id);
       }
     } catch (err) {
-      console.error('Failed to load initial data:', err);
-      setError(err.message || 'Failed to load Railway data');
+      setError(err.message || 'Failed to load services and environments');
     } finally {
-      setProjectsLoading(false);
+      setServicesLoading(false);
     }
   };
 
-  const loadDeployments = async (projectId, envName, silent = false) => {
-    if (!silent) {
-      setDeploymentsLoading(true);
-    }
-    setError(null);
-
+  const loadServiceDeployments = async (serviceId) => {
     try {
-      const data = await getEnvironmentDeployments(projectId, envName);
-      setDeployments(data.deployments || []);
-      setLastRefresh(new Date());
+      const deploymentsData = await getServiceDeployments(serviceId, 5);
+      setRecentDeployments(prev => ({
+        ...prev,
+        [serviceId]: deploymentsData.deployments || [],
+      }));
     } catch (err) {
-      console.error('Failed to load deployments:', err);
-      if (!silent) {
-        setError(err.message || 'Failed to load deployments');
-      }
-    } finally {
-      if (!silent) {
-        setDeploymentsLoading(false);
-      }
+      console.error('Error loading service deployments:', err);
     }
   };
 
-  const handleProjectChange = (e) => {
-    const projectId = e.target.value;
-    setSelectedProject(projectId);
-    if (projectId) {
-      loadDeployments(projectId, environmentName);
+  const handleServiceToggle = (serviceId) => {
+    setSelectedServices(prev => {
+      if (prev.includes(serviceId)) {
+        return prev.filter(id => id !== serviceId);
+      } else {
+        // Load recent deployments when service is selected
+        loadServiceDeployments(serviceId);
+        return [...prev, serviceId];
+      }
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedServices.length === services.length) {
+      setSelectedServices([]);
+      setRecentDeployments({});
     } else {
-      setDeployments([]);
+      const allServiceIds = services.map(s => s.id);
+      setSelectedServices(allServiceIds);
+      // Load deployments for all services
+      allServiceIds.forEach(loadServiceDeployments);
     }
   };
 
-  const handleEnvironmentChange = (e) => {
-    const envName = e.target.value;
-    setEnvironmentName(envName);
-    if (selectedProject) {
-      loadDeployments(selectedProject, envName);
-    }
-  };
-
-  const handleRefresh = () => {
-    if (selectedProject) {
-      loadDeployments(selectedProject, environmentName);
-    }
-  };
-
-  const handleTriggerDeployment = async (serviceId, environmentId) => {
+  const handleTriggerDeployment = async () => {
     setLoading(true);
     setError(null);
+    setResult(null);
 
     try {
-      const result = await triggerDeployment(serviceId, environmentId);
-      // Refresh deployments after triggering
-      setTimeout(() => {
-        if (selectedProject) {
-          loadDeployments(selectedProject, environmentName);
-        }
-      }, 2000);
-      return result;
+      // Trigger deployment for each selected service
+      const deploymentPromises = selectedServices.map(serviceId =>
+        triggerDeployment(
+          serviceId,
+          selectedEnvironment,
+          customBranch || null,
+          deploymentNotes || null
+        )
+      );
+
+      const results = await Promise.all(deploymentPromises);
+      
+      // Start polling for these deployments
+      const newDeploymentIds = results.map(r => r.deployment_id);
+      setPollingDeployments(prev => new Set([...prev, ...newDeploymentIds]));
+
+      setResult({
+        success: true,
+        deployments: results,
+        count: results.length,
+      });
+
+      // Refresh deployment lists
+      selectedServices.forEach(loadServiceDeployments);
+
     } catch (err) {
-      console.error('Failed to trigger deployment:', err);
-      setError(err.message || 'Failed to trigger deployment');
-      throw err;
+      setError(err.message || 'Failed to trigger deployments');
     } finally {
       setLoading(false);
     }
   };
 
+  const isFormValid = () => {
+    return selectedServices.length > 0 && selectedEnvironment;
+  };
+
+  const getStatusBadgeClass = (status) => {
+    const statusLower = status?.toLowerCase() || '';
+    if (statusLower === 'success') return 'status-success';
+    if (statusLower === 'building' || statusLower === 'deploying') return 'status-building';
+    if (statusLower === 'failed' || statusLower === 'crashed') return 'status-failed';
+    return 'status-unknown';
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    return date.toLocaleString();
   };
-
-  const getTimeSince = (dateString) => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const now = new Date();
-    const seconds = Math.floor((now - date) / 1000);
-    
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  };
-
-  if (projectsLoading) {
-    return (
-      <div className="uat-deployment-container">
-        <div className="loading-state">
-          <div className="spinner"></div>
-          <p>Loading Railway projects...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="uat-deployment-container">
       <div className="uat-deployment-header">
-        <div>
-          <h2>Railway UAT Deployment Monitor</h2>
-          <p className="subtitle">Monitor and manage deployments on Railway</p>
-        </div>
-        {railwayHealth && (
-          <div className={`health-badge ${railwayHealth.status}`}>
-            <span className="health-dot"></span>
-            {railwayHealth.status === 'healthy' ? 'Connected' : 'Disconnected'}
-          </div>
-        )}
+        <h2>UAT Deployment - Railway</h2>
+        <p className="subtitle">Deploy selected services to Railway UAT environment</p>
       </div>
 
-      {error && (
-        <div className="alert alert-error">
-          <strong>Error:</strong> {error}
-        </div>
-      )}
-
-      <div className="deployment-controls">
-        <div className="control-group">
-          <label htmlFor="project-select">Project:</label>
-          <select
-            id="project-select"
-            value={selectedProject}
-            onChange={handleProjectChange}
-            disabled={projects.length === 0}
-          >
-            <option value="">Select a project</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="control-group">
-          <label htmlFor="environment-select">Environment:</label>
-          <select
-            id="environment-select"
-            value={environmentName}
-            onChange={handleEnvironmentChange}
-            disabled={!selectedProject}
-          >
-            <option value="production">Production</option>
-            <option value="staging">Staging</option>
-            <option value="uat">UAT</option>
-            <option value="development">Development</option>
-          </select>
-        </div>
-
-        <div className="control-actions">
-          <button
-            onClick={handleRefresh}
-            disabled={!selectedProject || deploymentsLoading}
-            className="btn-secondary"
-          >
-            {deploymentsLoading ? 'Refreshing...' : '🔄 Refresh'}
-          </button>
-
-          <label className="auto-refresh-toggle">
-            <input
-              type="checkbox"
-              checked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              disabled={!selectedProject}
-            />
-            <span>Auto-refresh (30s)</span>
-          </label>
-        </div>
-      </div>
-
-      {lastRefresh && (
-        <div className="last-refresh">
-          Last updated: {formatDate(lastRefresh)} ({getTimeSince(lastRefresh)})
-        </div>
-      )}
-
-      {deploymentsLoading && deployments.length === 0 ? (
+      {servicesLoading ? (
         <div className="loading-state">
           <div className="spinner"></div>
-          <p>Loading deployments...</p>
-        </div>
-      ) : deployments.length === 0 ? (
-        <div className="empty-state">
-          <p>
-            {selectedProject
-              ? `No deployments found in ${environmentName} environment`
-              : 'Select a project to view deployments'}
-          </p>
+          <p>Loading services from Railway...</p>
         </div>
       ) : (
-        <div className="deployments-grid">
-          {deployments.map((deployment) => {
-            const statusInfo = formatDeploymentStatus(deployment.status);
-            return (
-              <div key={deployment.id} className="deployment-card">
-                <div className="deployment-header">
-                  <h3>{deployment.serviceName || 'Unknown Service'}</h3>
-                  <span
-                    className="status-badge"
-                    style={{ backgroundColor: statusInfo.color }}
-                  >
-                    {statusInfo.label}
-                  </span>
+        <>
+          <div className="uat-deployment-form">
+            <div className="form-section">
+              <h3>Deployment Configuration</h3>
+              
+              <div className="form-group">
+                <label htmlFor="environment">Environment</label>
+                <select
+                  id="environment"
+                  value={selectedEnvironment || ''}
+                  onChange={(e) => setSelectedEnvironment(e.target.value)}
+                >
+                  {environments.map(env => (
+                    <option key={env.id} value={env.id}>
+                      {env.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="customBranch">Custom Branch (Optional)</label>
+                <input
+                  type="text"
+                  id="customBranch"
+                  value={customBranch}
+                  onChange={(e) => setCustomBranch(e.target.value)}
+                  placeholder="e.g., feature/new-feature (leave empty for default)"
+                />
+                <small>Leave empty to use the default branch configured in Railway</small>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="deploymentNotes">Deployment Notes (Optional)</label>
+                <textarea
+                  id="deploymentNotes"
+                  value={deploymentNotes}
+                  onChange={(e) => setDeploymentNotes(e.target.value)}
+                  placeholder="Enter any notes about this deployment..."
+                  rows="3"
+                />
+              </div>
+            </div>
+
+            <div className="form-section">
+              <div className="services-header">
+                <h3>Select Services to Deploy ({services.length} available)</h3>
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  className="select-all-btn"
+                  disabled={services.length === 0}
+                >
+                  {selectedServices.length === services.length ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+
+              {services.length === 0 ? (
+                <div className="empty-state">
+                  <p>No services found in Railway project</p>
                 </div>
-
-                <div className="deployment-details">
-                  <div className="detail-row">
-                    <span className="detail-label">Deployment ID:</span>
-                    <span className="detail-value monospace">
-                      {deployment.id.substring(0, 8)}...
-                    </span>
-                  </div>
-
-                  <div className="detail-row">
-                    <span className="detail-label">Created:</span>
-                    <span className="detail-value">
-                      {formatDate(deployment.createdAt)}
-                    </span>
-                  </div>
-
-                  {deployment.updatedAt && (
-                    <div className="detail-row">
-                      <span className="detail-label">Updated:</span>
-                      <span className="detail-value">
-                        {formatDate(deployment.updatedAt)}
-                      </span>
+              ) : (
+                <div className="services-grid">
+                  {services.map(service => (
+                    <div
+                      key={service.id}
+                      className={`service-card ${
+                        selectedServices.includes(service.id) ? 'selected' : ''
+                      }`}
+                      onClick={() => handleServiceToggle(service.id)}
+                    >
+                      <div className="service-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={selectedServices.includes(service.id)}
+                          onChange={() => handleServiceToggle(service.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                      <div className="service-info">
+                        <h4>{service.name}</h4>
+                        <small>ID: {service.id.substring(0, 8)}...</small>
+                        
+                        {/* Show recent deployments for selected services */}
+                        {selectedServices.includes(service.id) && recentDeployments[service.id] && (
+                          <div className="recent-deployments">
+                            <p className="recent-title">Recent Deployments:</p>
+                            {recentDeployments[service.id].slice(0, 3).map(dep => (
+                              <div key={dep.id} className="deployment-mini">
+                                <span className={`status-badge ${getStatusBadgeClass(dep.status)}`}>
+                                  {dep.status}
+                                </span>
+                                <span className="deployment-time">
+                                  {formatDate(dep.created_at)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
+                  ))}
+                </div>
+              )}
 
-                  {deployment.staticUrl && (
-                    <div className="detail-row">
-                      <span className="detail-label">URL:</span>
-                      <a
-                        href={deployment.staticUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="detail-link"
-                      >
-                        {deployment.staticUrl}
-                      </a>
+              <div className="selected-count">
+                {selectedServices.length} service{selectedServices.length !== 1 ? 's' : ''} selected
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button
+                onClick={handleTriggerDeployment}
+                disabled={!isFormValid() || loading}
+                className="deploy-btn"
+              >
+                {loading ? 'Deploying...' : `Deploy ${selectedServices.length} Service${selectedServices.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="alert alert-error">
+              <strong>Error:</strong> {error}
+            </div>
+          )}
+
+          {result && result.success && (
+            <div className="alert alert-success">
+              <h3>Deployment Triggered Successfully</h3>
+              <div className="result-details">
+                <p><strong>Services Deployed:</strong> {result.count}</p>
+                <div className="deployments-list">
+                  {result.deployments.map((dep, idx) => (
+                    <div key={idx} className="deployment-result">
+                      <p><strong>Deployment ID:</strong> {dep.deployment_id}</p>
+                      <p><strong>Status:</strong> <span className={`status-badge ${getStatusBadgeClass(dep.status)}`}>{dep.status}</span></p>
+                      <p><strong>Triggered:</strong> {formatDate(dep.triggered_at)}</p>
+                      {dep.static_url && (
+                        <p>
+                          <strong>URL:</strong>{' '}
+                          <a href={dep.static_url} target="_blank" rel="noopener noreferrer">
+                            {dep.static_url}
+                          </a>
+                        </p>
+                      )}
                     </div>
-                  )}
+                  ))}
                 </div>
               </div>
-            );
-          })}
-        </div>
+            </div>
+          )}
+
+          {pollingDeployments.size > 0 && (
+            <div className="alert alert-info">
+              <p>Monitoring {pollingDeployments.size} active deployment{pollingDeployments.size !== 1 ? 's' : ''}...</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -1,324 +1,289 @@
 """
-Tests for Railway GraphQL API client.
+backend/tests/test_railway_client.py
+════════════════════════════════════
+Unit tests for Railway GraphQL API client.
+Tests SDT1-58: UAT Deploy tab - wire to Railway GraphQL API
 """
 
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
-from railway_client import RailwayClient, get_railway_client
+from unittest.mock import AsyncMock, patch, MagicMock
+from railway_client import RailwayClient, RailwayAPIError
 
 
-class TestRailwayClient:
-    """Test suite for RailwayClient class."""
+@pytest.fixture
+def railway_client():
+    """Create a Railway client with mock token."""
+    return RailwayClient(api_token="test-token-123")
 
+
+@pytest.fixture
+def mock_httpx_client():
+    """Create a mock httpx client."""
+    with patch('railway_client.httpx.AsyncClient') as mock:
+        yield mock
+
+
+class TestRailwayClientInit:
+    """Tests for RailwayClient initialization."""
+    
     def test_init_with_token(self):
         """Test initialization with explicit token."""
-        client = RailwayClient(api_token="test_token")
-        assert client.api_token == "test_token"
-        assert client.headers["Authorization"] == "Bearer test_token"
-
-    def test_init_with_env_token(self, monkeypatch):
-        """Test initialization with environment variable token."""
-        monkeypatch.setenv("RAILWAY_API_TOKEN", "env_token")
+        client = RailwayClient(api_token="my-token")
+        assert client.api_token == "my-token"
+        assert "Bearer my-token" in client.headers["Authorization"]
+    
+    def test_init_from_env(self, monkeypatch):
+        """Test initialization from environment variable."""
+        monkeypatch.setenv("RAILWAY_API_TOKEN", "env-token")
         client = RailwayClient()
-        assert client.api_token == "env_token"
-
-    def test_init_without_token(self, monkeypatch):
-        """Test initialization fails without token."""
+        assert client.api_token == "env-token"
+    
+    def test_init_no_token_raises_error(self, monkeypatch):
+        """Test that initialization without token raises error."""
         monkeypatch.delenv("RAILWAY_API_TOKEN", raising=False)
         with pytest.raises(ValueError, match="Railway API token is required"):
             RailwayClient()
 
+
+class TestRailwayClientExecuteQuery:
+    """Tests for GraphQL query execution."""
+    
     @pytest.mark.asyncio
-    async def test_execute_query_success(self):
-        """Test successful GraphQL query execution."""
-        client = RailwayClient(api_token="test_token")
-        
-        mock_response = Mock()
+    async def test_execute_query_success(self, railway_client, mock_httpx_client):
+        """Test successful query execution."""
+        mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "data": {"projects": {"edges": []}}
+            "data": {"project": {"id": "123", "name": "Test Project"}}
         }
-        mock_response.raise_for_status = Mock()
         
-        with patch("httpx.AsyncClient") as mock_async_client:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value.post.return_value = mock_response
-            mock_async_client.return_value = mock_client
-            
-            result = await client._execute_query("query { projects { edges { node { id } } } }")
-            
-            assert result == {"projects": {"edges": []}}
-
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_httpx_client.return_value.__aenter__.return_value = mock_client_instance
+        
+        result = await railway_client._execute_query("query { project { id name } }")
+        
+        assert result == {"project": {"id": "123", "name": "Test Project"}}
+        mock_client_instance.post.assert_called_once()
+    
     @pytest.mark.asyncio
-    async def test_execute_query_with_graphql_errors(self):
-        """Test query execution with GraphQL errors."""
-        client = RailwayClient(api_token="test_token")
+    async def test_execute_query_with_variables(self, railway_client, mock_httpx_client):
+        """Test query execution with variables."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"data": {"result": "ok"}}
         
-        mock_response = Mock()
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_httpx_client.return_value.__aenter__.return_value = mock_client_instance
+        
+        variables = {"projectId": "abc123"}
+        await railway_client._execute_query("query($projectId: String!) {}", variables)
+        
+        call_args = mock_client_instance.post.call_args
+        assert call_args.kwargs["json"]["variables"] == variables
+    
+    @pytest.mark.asyncio
+    async def test_execute_query_graphql_error(self, railway_client, mock_httpx_client):
+        """Test handling of GraphQL errors."""
+        mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "errors": [{"message": "Invalid query"}]
+            "errors": [
+                {"message": "Field not found"},
+                {"message": "Invalid query"}
+            ]
         }
-        mock_response.raise_for_status = Mock()
         
-        with patch("httpx.AsyncClient") as mock_async_client:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value.post.return_value = mock_response
-            mock_async_client.return_value = mock_client
-            
-            with pytest.raises(Exception, match="GraphQL errors: Invalid query"):
-                await client._execute_query("invalid query")
-
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_httpx_client.return_value.__aenter__.return_value = mock_client_instance
+        
+        with pytest.raises(RailwayAPIError, match="GraphQL errors"):
+            await railway_client._execute_query("query { invalid }")
+    
     @pytest.mark.asyncio
-    async def test_get_projects(self):
-        """Test fetching projects."""
-        client = RailwayClient(api_token="test_token")
+    async def test_execute_query_http_error(self, railway_client, mock_httpx_client):
+        """Test handling of HTTP errors."""
+        import httpx
         
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Unauthorized", request=MagicMock(), response=mock_response
+        )
+        
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_httpx_client.return_value.__aenter__.return_value = mock_client_instance
+        
+        with pytest.raises(RailwayAPIError, match="Railway API request failed"):
+            await railway_client._execute_query("query { test }")
+
+
+class TestRailwayClientGetProject:
+    """Tests for get_project method."""
+    
+    @pytest.mark.asyncio
+    async def test_get_project_success(self, railway_client):
+        """Test successful project retrieval."""
         mock_data = {
-            "projects": {
+            "project": {
+                "id": "proj123",
+                "name": "My Project",
+                "description": "Test project",
+                "services": {"edges": []},
+                "environments": {"edges": []}
+            }
+        }
+        
+        with patch.object(railway_client, '_execute_query', return_value=mock_data):
+            result = await railway_client.get_project("proj123")
+            
+            assert result["id"] == "proj123"
+            assert result["name"] == "My Project"
+
+
+class TestRailwayClientListServices:
+    """Tests for list_services method."""
+    
+    @pytest.mark.asyncio
+    async def test_list_services_success(self, railway_client):
+        """Test successful service listing."""
+        mock_data = {
+            "project": {
+                "services": {
+                    "edges": [
+                        {"node": {"id": "svc1", "name": "API Service"}},
+                        {"node": {"id": "svc2", "name": "Frontend"}},
+                    ]
+                }
+            }
+        }
+        
+        with patch.object(railway_client, '_execute_query', return_value=mock_data):
+            result = await railway_client.list_services("proj123")
+            
+            assert len(result) == 2
+            assert result[0]["id"] == "svc1"
+            assert result[1]["name"] == "Frontend"
+
+
+class TestRailwayClientTriggerDeployment:
+    """Tests for trigger_deployment method."""
+    
+    @pytest.mark.asyncio
+    async def test_trigger_deployment_success(self, railway_client):
+        """Test successful deployment triggering."""
+        mock_data = {
+            "serviceDeploy": {
+                "id": "deploy123",
+                "status": "BUILDING",
+                "createdAt": "2024-01-15T10:00:00Z",
+                "staticUrl": "https://my-app.railway.app"
+            }
+        }
+        
+        with patch.object(railway_client, '_execute_query', return_value=mock_data):
+            result = await railway_client.trigger_deployment(
+                service_id="svc123",
+                environment_id="env123"
+            )
+            
+            assert result["id"] == "deploy123"
+            assert result["status"] == "BUILDING"
+    
+    @pytest.mark.asyncio
+    async def test_trigger_deployment_no_data(self, railway_client):
+        """Test deployment triggering with no data returned."""
+        mock_data = {}
+        
+        with patch.object(railway_client, '_execute_query', return_value=mock_data):
+            with pytest.raises(RailwayAPIError, match="Failed to trigger deployment"):
+                await railway_client.trigger_deployment(
+                    service_id="svc123",
+                    environment_id="env123"
+                )
+
+
+class TestRailwayClientGetDeploymentStatus:
+    """Tests for get_deployment_status method."""
+    
+    @pytest.mark.asyncio
+    async def test_get_deployment_status_success(self, railway_client):
+        """Test successful deployment status retrieval."""
+        mock_data = {
+            "deployment": {
+                "id": "deploy123",
+                "status": "SUCCESS",
+                "createdAt": "2024-01-15T10:00:00Z",
+                "updatedAt": "2024-01-15T10:05:00Z",
+                "environment": {"id": "env123", "name": "UAT"},
+                "service": {"id": "svc123", "name": "API"}
+            }
+        }
+        
+        with patch.object(railway_client, '_execute_query', return_value=mock_data):
+            result = await railway_client.get_deployment_status("deploy123")
+            
+            assert result["id"] == "deploy123"
+            assert result["status"] == "SUCCESS"
+            assert result["environment"]["name"] == "UAT"
+
+
+class TestRailwayClientGetServiceDeployments:
+    """Tests for get_service_deployments method."""
+    
+    @pytest.mark.asyncio
+    async def test_get_service_deployments_success(self, railway_client):
+        """Test successful service deployments retrieval."""
+        mock_data = {
+            "deployments": {
                 "edges": [
-                    {
-                        "node": {
-                            "id": "project1",
-                            "name": "Test Project",
-                            "description": "A test project",
-                            "createdAt": "2024-01-01T00:00:00Z",
-                            "updatedAt": "2024-01-01T00:00:00Z"
-                        }
-                    }
+                    {"node": {"id": "d1", "status": "SUCCESS"}},
+                    {"node": {"id": "d2", "status": "BUILDING"}},
                 ]
             }
         }
         
-        with patch.object(client, "_execute_query", return_value=mock_data):
-            projects = await client.get_projects()
+        with patch.object(railway_client, '_execute_query', return_value=mock_data):
+            result = await railway_client.get_service_deployments("svc123", limit=5)
             
-            assert len(projects) == 1
-            assert projects[0]["id"] == "project1"
-            assert projects[0]["name"] == "Test Project"
+            assert len(result) == 2
+            assert result[0]["id"] == "d1"
+            assert result[1]["status"] == "BUILDING"
 
+
+class TestRailwayClientGetEnvironments:
+    """Tests for get_environments method."""
+    
     @pytest.mark.asyncio
-    async def test_get_project_services(self):
-        """Test fetching services for a project."""
-        client = RailwayClient(api_token="test_token")
-        
+    async def test_get_environments_success(self, railway_client):
+        """Test successful environments retrieval."""
         mock_data = {
             "project": {
-                "services": {
-                    "edges": [
-                        {
-                            "node": {
-                                "id": "service1",
-                                "name": "API Service",
-                                "createdAt": "2024-01-01T00:00:00Z",
-                                "updatedAt": "2024-01-01T00:00:00Z"
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-        
-        with patch.object(client, "_execute_query", return_value=mock_data):
-            services = await client.get_project_services("project1")
-            
-            assert len(services) == 1
-            assert services[0]["id"] == "service1"
-            assert services[0]["name"] == "API Service"
-
-    @pytest.mark.asyncio
-    async def test_get_service_deployments(self):
-        """Test fetching deployments for a service."""
-        client = RailwayClient(api_token="test_token")
-        
-        mock_data = {
-            "service": {
-                "id": "service1",
-                "name": "API Service",
-                "deployments": {
-                    "edges": [
-                        {
-                            "node": {
-                                "id": "deployment1",
-                                "status": "SUCCESS",
-                                "createdAt": "2024-01-01T00:00:00Z",
-                                "updatedAt": "2024-01-01T00:01:00Z",
-                                "staticUrl": "https://api.railway.app",
-                                "meta": {},
-                                "environmentId": "env1"
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-        
-        with patch.object(client, "_execute_query", return_value=mock_data):
-            deployments = await client.get_service_deployments("service1", limit=10)
-            
-            assert len(deployments) == 1
-            assert deployments[0]["id"] == "deployment1"
-            assert deployments[0]["status"] == "SUCCESS"
-
-    @pytest.mark.asyncio
-    async def test_get_service_deployments_with_environment_filter(self):
-        """Test fetching deployments filtered by environment."""
-        client = RailwayClient(api_token="test_token")
-        
-        mock_data = {
-            "service": {
-                "id": "service1",
-                "name": "API Service",
-                "deployments": {
-                    "edges": [
-                        {
-                            "node": {
-                                "id": "deployment1",
-                                "status": "SUCCESS",
-                                "createdAt": "2024-01-01T00:00:00Z",
-                                "environmentId": "env1"
-                            }
-                        },
-                        {
-                            "node": {
-                                "id": "deployment2",
-                                "status": "SUCCESS",
-                                "createdAt": "2024-01-01T01:00:00Z",
-                                "environmentId": "env2"
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-        
-        with patch.object(client, "_execute_query", return_value=mock_data):
-            deployments = await client.get_service_deployments(
-                "service1", 
-                environment_id="env1",
-                limit=10
-            )
-            
-            assert len(deployments) == 1
-            assert deployments[0]["id"] == "deployment1"
-            assert deployments[0]["environmentId"] == "env1"
-
-    @pytest.mark.asyncio
-    async def test_get_environment_deployments(self):
-        """Test fetching deployments for an environment."""
-        client = RailwayClient(api_token="test_token")
-        
-        mock_data = {
-            "project": {
-                "id": "project1",
-                "name": "Test Project",
                 "environments": {
                     "edges": [
-                        {
-                            "node": {
-                                "id": "env1",
-                                "name": "production",
-                                "deployments": {
-                                    "edges": [
-                                        {
-                                            "node": {
-                                                "id": "deployment1",
-                                                "status": "SUCCESS",
-                                                "createdAt": "2024-01-01T00:00:00Z",
-                                                "updatedAt": "2024-01-01T00:01:00Z",
-                                                "staticUrl": "https://api.railway.app",
-                                                "serviceId": "service1"
-                                            }
-                                        }
-                                    ]
-                                }
-                            }
-                        }
-                    ]
-                },
-                "services": {
-                    "edges": [
-                        {
-                            "node": {
-                                "id": "service1",
-                                "name": "API Service"
-                            }
-                        }
+                        {"node": {"id": "env1", "name": "Production"}},
+                        {"node": {"id": "env2", "name": "UAT"}},
                     ]
                 }
             }
         }
         
-        with patch.object(client, "_execute_query", return_value=mock_data):
-            deployments = await client.get_environment_deployments(
-                "project1", 
-                "production"
-            )
+        with patch.object(railway_client, '_execute_query', return_value=mock_data):
+            result = await railway_client.get_environments("proj123")
             
-            assert len(deployments) == 1
-            assert deployments[0]["id"] == "deployment1"
-            assert deployments[0]["serviceName"] == "API Service"
+            assert len(result) == 2
+            assert result[0]["name"] == "Production"
+            assert result[1]["name"] == "UAT"
 
-    @pytest.mark.asyncio
-    async def test_get_environment_deployments_not_found(self):
-        """Test fetching deployments for non-existent environment."""
-        client = RailwayClient(api_token="test_token")
-        
-        mock_data = {
-            "project": {
-                "id": "project1",
-                "name": "Test Project",
-                "environments": {
-                    "edges": [
-                        {
-                            "node": {
-                                "id": "env1",
-                                "name": "production",
-                                "deployments": {"edges": []}
-                            }
-                        }
-                    ]
-                },
-                "services": {"edges": []}
-            }
-        }
-        
-        with patch.object(client, "_execute_query", return_value=mock_data):
-            deployments = await client.get_environment_deployments(
-                "project1", 
-                "staging"
-            )
-            
-            assert deployments == []
 
-    @pytest.mark.asyncio
-    async def test_trigger_deployment(self):
-        """Test triggering a deployment."""
-        client = RailwayClient(api_token="test_token")
-        
-        mock_data = {
-            "serviceDeploy": {
-                "id": "deployment1",
-                "status": "INITIALIZING",
-                "createdAt": "2024-01-01T00:00:00Z"
-            }
-        }
-        
-        with patch.object(client, "_execute_query", return_value=mock_data):
-            result = await client.trigger_deployment("service1", "env1")
-            
-            assert result["id"] == "deployment1"
-            assert result["status"] == "INITIALIZING"
-
-    def test_get_railway_client_success(self, monkeypatch):
-        """Test factory function with configured token."""
-        monkeypatch.setenv("RAILWAY_API_TOKEN", "test_token")
+def test_get_railway_client():
+    """Test get_railway_client factory function."""
+    from railway_client import get_railway_client
+    
+    with patch.dict('os.environ', {'RAILWAY_API_TOKEN': 'test-token'}):
         client = get_railway_client()
         assert isinstance(client, RailwayClient)
-        assert client.api_token == "test_token"
-
-    def test_get_railway_client_no_token(self, monkeypatch):
-        """Test factory function without token."""
-        monkeypatch.delenv("RAILWAY_API_TOKEN", raising=False)
-        with pytest.raises(ValueError, match="Railway API token is required"):
-            get_railway_client()
+        assert client.api_token == "test-token"
