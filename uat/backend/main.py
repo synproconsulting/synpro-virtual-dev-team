@@ -18,6 +18,7 @@ from proxy         import router as proxy_router
 from pm_agent      import router as pm_agent_router
 from manager_agent_router import router as manager_agent_router
 from railway_router import router as railway_router
+from orchestrator_router import router as orchestrator_router
 from middleware    import RequestLoggingMiddleware
 from rate_limiter  import get_limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -100,6 +101,7 @@ app.include_router(proxy_router)
 app.include_router(pm_agent_router)
 app.include_router(manager_agent_router)
 app.include_router(railway_router)
+app.include_router(orchestrator_router)
 
 
 # ── Root ──────────────────────────────────────────────────────────────────────────────

@@ -1,275 +1,264 @@
-# Agents
+# Virtual Dev Team Agents
 
-This directory contains the AI agents that make up the virtual development team.
+This directory contains the autonomous agents that power the SynPro Virtual Dev Team.
 
-## Agents
+## Overview
 
-### PM Agent (`pm_agent.py`)
-The Project Manager Agent is responsible for:
-- Reading and grooming the Jira backlog
-- Creating Epics and Stories from requirements
-- Estimating and prioritizing tickets
-- Setting execution_order (customfield_10071) on stories
-- Creating and populating sprints
-- Posting status comments on issues
+The Virtual Dev Team uses a multi-agent architecture with specialized agents for different roles:
 
-### Orchestrator (`orchestrator.py`)
-The Sprint Orchestrator sequences and executes stories in dependency order:
-- Reads tickets from a sprint
-- Sorts by execution_order (customfield_10071)
-- Executes tickets sequentially
-- Persists state for resume capability
-- Handles failures gracefully
-- Provides progress tracking
+- **PM Agent**: Product management, sprint planning, ticket creation
+- **Dev Agent**: Code implementation, pull requests, code reviews
+- **QA Agent**: Test creation, test execution, bug reporting
+- **Manager Agent**: Sprint orchestration, resource allocation, progress tracking
+- **Orchestrator**: Coordinates agent execution and manages sprint workflow
 
-### Cap Manager Agent (`cap_manager_agent.py`)
-The Capacity Manager Agent manages capacity planning and prevents infinite retrigger loops:
-- **Retrigger Loop Protection**: Prevents infinite cycles by capping the number of retrigger attempts per ticket
-- **Configurable Limits**: Customize max attempts and time windows via environment variables or initialization parameters
-- **Time Window Reset**: Automatically resets retrigger counts after a configurable time window
-- **Detailed Tracking**: Maintains complete history of retrigger attempts with timestamps and reasons
-- **Manual Reset**: Allows manual reset of retrigger state when needed
+## Orchestrator
 
-#### Features
+The Orchestrator is the central coordinator that:
 
-- **Retrigger Loop Protection**: Prevents infinite cycles by capping the number of retrigger attempts per ticket
-- **Configurable Limits**: Customize max attempts and time windows via environment variables or initialization parameters
-- **Time Window Reset**: Automatically resets retrigger counts after a configurable time window
-- **Detailed Tracking**: Maintains complete history of retrigger attempts with timestamps and reasons
-- **Manual Reset**: Allows manual reset of retrigger state when needed
+1. Sequences tickets by execution order (from Jira `customfield_10071`)
+2. Assigns tickets to appropriate agents
+3. Monitors execution progress
+4. Persists state for crash recovery
+5. Handles failures gracefully
 
-#### Configuration
+### Key Features
 
-Environment variables:
-- `MAX_RETRIGGER_ATTEMPTS`: Maximum number of retrigger attempts per ticket (default: 3)
-- `RETRIGGER_WINDOW_MINUTES`: Time window in minutes for counting retriggers (default: 60)
+- **State Persistence**: All execution state saved to database
+- **Resume Capability**: Continue from last checkpoint after crashes
+- **Progress Tracking**: Real-time monitoring of sprint progress
+- **Failure Handling**: Detailed tracking of failed tickets
+- **Multiple Interfaces**: CLI, REST API, and Python API
 
-#### Usage
+### Quick Start
 
-```python
-from agents.cap_manager_agent import CapManagerAgent
+#### Start a Sprint
 
-# Initialize with defaults
-agent = CapManagerAgent()
-
-# Or with custom configuration
-agent = CapManagerAgent(
-    max_retrigger_attempts=5,
-    retrigger_window_minutes=120
-)
-
-# Check if a ticket can be retriggered
-if agent.can_retrigger("STORY-123", "dependency resolved"):
-    agent.record_retrigger("STORY-123", "dependency resolved")
-    # ... perform retrigger logic
-
-# Or use the unified interface
-result = agent.manage_capacity(
-    ticket_id="STORY-123",
-    action="retrigger",
-    context={"reason": "capacity available"}
-)
-
-if result["success"]:
-    print(f"Retrigger successful: {result}")
-else:
-    print(f"Retrigger blocked: {result['error']}")
-```
-
-#### Actions
-
-The `manage_capacity()` method supports the following actions:
-
-- **`retrigger`**: Attempt to retrigger a ticket (checks limit and records attempt)
-- **`check`**: Check if a ticket can be retriggered without recording an attempt
-- **`reset`**: Reset the retrigger state for a ticket
-- **`query`**: Get the current retrigger state for a ticket
-
-#### Integration
-
-See `agents/examples/orchestrator_integration.py` for a complete example of integrating the Cap Manager Agent into the orchestrator's ticket processing pipeline.
-
-## Supporting Modules
-
-### Orchestrator State Manager (`orchestrator_state.py`)
-Manages state persistence for the orchestrator:
-- Create and retrieve execution states
-- Checkpoint management
-- Progress tracking
-- State transitions
-
-### Orchestrator CLI (`orchestrator_cli.py`)
-Command-line interface for managing orchestrator executions:
-- Start and resume sprints
-- Monitor progress
-- Pause and cancel executions
-- List resumable sprints
-
-### Retrigger Monitoring (`monitoring.py`)
-Monitors retrigger patterns and generates alerts:
-- Tracks retrigger behavior across tickets
-- Identifies tickets hitting retrigger limits
-- Detects high-frequency retrigger patterns
-- Finds common failure reasons
-- Identifies systemic issues affecting multiple tickets
-- Generates comprehensive reports and dashboards
-
-#### Usage
-
-```python
-from agents.monitoring import RetriggerMonitor, create_dashboard_data
-
-# Initialize monitor
-monitor = RetriggerMonitor(alert_threshold=2)
-
-# Analyze retrigger states
-all_states = cap_manager.get_all_retrigger_states()
-report = monitor.analyze_all_states(all_states)
-
-print(f"Total tickets: {report['total_tickets']}")
-print(f"Tickets at limit: {report['tickets_at_limit']}")
-print(f"Alerts: {len(report['alerts'])}")
-
-# Generate human-readable report
-print(monitor.generate_report())
-
-# Create dashboard data
-dashboard = create_dashboard_data(monitor)
-```
-
-## Usage Examples
-
-### PM Agent
-```python
-from agents.pm_agent import build_pm_agent
-from crewai import Crew, Task
-
-pm_agent = build_pm_agent(verbose=True)
-
-task = Task(
-    description="Create a sprint with stories for user authentication feature",
-    expected_output="Sprint created with stories, each having execution_order set",
-    agent=pm_agent,
-)
-
-crew = Crew(agents=[pm_agent], tasks=[task])
-result = crew.kickoff()
-```
-
-### Orchestrator
-```python
-from agents.orchestrator import Orchestrator
-
-# Start a sprint
-with Orchestrator(jira_project_key="SDT1", verbose=True) as orch:
-    state_id = orch.start_sprint(
-        sprint_id=123,
-        sprint_name="Sprint 1",
-    )
-
-# Resume a sprint later
-with Orchestrator(jira_project_key="SDT1", verbose=True) as orch:
-    orch.resume_sprint(state_id)
-```
-
-### CLI
 ```bash
-# Start a sprint
-python agents/orchestrator_cli.py start \
-    --sprint-id 123 \
-    --sprint-name "Sprint 1" \
-    --project SDT1
+# CLI
+python -m agents.cli start --sprint-id 123 --sprint-name "Sprint 42" --project SDT1
 
-# Resume a sprint
-python agents/orchestrator_cli.py resume \
-    --state-id <uuid> \
-    --project SDT1
+# Python
+from agents.orchestrator import start_sprint_execution
 
-# Check progress
-python agents/orchestrator_cli.py progress \
-    --state-id <uuid> \
-    --project SDT1
+state_id = start_sprint_execution(
+    sprint_id=123,
+    sprint_name="Sprint 42",
+    jira_project_key="SDT1",
+)
+```
 
+#### Resume After Interruption
+
+```bash
 # List resumable sprints
-python agents/orchestrator_cli.py list --project SDT1
+python -m agents.cli list-resumable
+
+# Resume execution
+python -m agents.cli resume --state-id <uuid> --project SDT1
 ```
 
-## Integration Flow
+#### Check Progress
 
-```
-1. PM Agent creates sprint with stories
-   └─> Sets execution_order on each story
-   
-2. Orchestrator starts sprint execution
-   └─> Fetches stories sorted by execution_order
-   └─> Creates OrchestratorState in database
-   └─> Begins sequential execution
-   
-3. For each story:
-   └─> Cap Manager checks retrigger eligibility
-   └─> Executes ticket
-   └─> Cap Manager records retrigger if needed
-   └─> Checkpoints state
-   └─> Handles failures
-   └─> Monitoring alerts on issues
-   
-4. If interrupted:
-   └─> State persisted in database
-   └─> Can resume from last checkpoint
-   └─> Skips completed tickets
-   
-5. Completion:
-   └─> Marks state as COMPLETED
-   └─> Reports summary
-   └─> Resets Cap Manager state for completed tickets
+```bash
+python -m agents.cli progress --state-id <uuid>
 ```
 
-## Dependencies
+### Architecture
 
-- `crewai` - AI agent framework
-- `sqlalchemy` - Database ORM
-- `psycopg2-binary` - PostgreSQL driver
-- `pydantic` - Data validation
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Orchestrator                         │
+│                                                             │
+│  ┌──────────────┐     ┌──────────────┐     ┌────────────┐ │
+│  │ State Manager│────▶│   Database   │◀────│ Checkpoint │ │
+│  └──────────────┘     └──────────────┘     └────────────┘ │
+│         │                                         ▲        │
+│         ▼                                         │        │
+│  ┌──────────────────────────────────────────────┐│        │
+│  │          Sprint Execution Engine              ││        │
+│  │                                               ││        │
+│  │  1. Fetch tickets from Jira                  ││        │
+│  │  2. Sort by execution_order                  ││        │
+│  │  3. Execute sequentially                     ││        │
+│  │  4. Save state after each ticket ────────────┘│        │
+│  └──────────────────────────────────────────────┘         │
+│         │                                                  │
+│         ▼                                                  │
+│  ┌────────────────┐  ┌────────────┐  ┌─────────────┐     │
+│  │   Dev Agent    │  │  QA Agent  │  │ Other Agents│     │
+│  └────────────────┘  └────────────┘  └─────────────┘     │
+└─────────────────────────────────────────────────────────────┘
+```
 
-## Configuration
+### State Persistence
 
-Environment variables:
-- `DATABASE_URL` - PostgreSQL connection string
-- `ANTHROPIC_API_KEY` - Claude API key for PM Agent
-- `JIRA_*` - Jira API credentials (configured in tools/jira_client.py)
-- `MAX_RETRIGGER_ATTEMPTS` - Max retrigger attempts (default: 3)
-- `RETRIGGER_WINDOW_MINUTES` - Retrigger time window (default: 60)
+The orchestrator persists state to the `orchestrator_states` table:
+
+```python
+{
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "sprint_id": 123,
+    "sprint_name": "Sprint 42",
+    "status": "running",
+    "ticket_queue": ["SDT1-104", "SDT1-105"],
+    "completed_tickets": ["SDT1-101", "SDT1-102", "SDT1-103"],
+    "failed_tickets": [],
+    "current_ticket": "SDT1-104",
+    "total_tickets": 5,
+    "progress": 60.0
+}
+```
+
+### Status States
+
+- **PENDING**: Created but not started
+- **RUNNING**: Currently executing
+- **PAUSED**: Manually paused (resumable)
+- **COMPLETED**: Successfully completed
+- **FAILED**: Failed with error (resumable)
+- **CANCELLED**: Cancelled by user
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `start` | Start sprint execution |
+| `resume` | Resume paused/failed sprint |
+| `list-resumable` | List sprints that can be resumed |
+| `progress` | Show execution progress |
+| `pause` | Pause running sprint |
+| `cancel` | Cancel sprint execution |
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/orchestrator/start` | POST | Start sprint execution |
+| `/api/orchestrator/resume` | POST | Resume paused/failed sprint |
+| `/api/orchestrator/progress/{state_id}` | GET | Get progress |
+| `/api/orchestrator/resumable` | GET | List resumable sprints |
+| `/api/orchestrator/pause` | POST | Pause execution |
+| `/api/orchestrator/cancel` | POST | Cancel execution |
+
+## State Manager
+
+The `StateManager` class handles all state persistence operations:
+
+```python
+from agents.orchestrator_state import StateManager
+
+with StateManager() as state_manager:
+    # Create state
+    state = state_manager.create_state(
+        sprint_id=123,
+        sprint_name="Sprint 42",
+        jira_project_key="SDT1",
+        ticket_queue=["SDT1-1", "SDT1-2"],
+    )
+    
+    # Mark tickets
+    state_manager.mark_ticket_completed(state.id, "SDT1-1")
+    state_manager.mark_ticket_failed(state.id, "SDT1-2", "Error message")
+    
+    # Checkpoint
+    state_manager.checkpoint(state.id, current_ticket="SDT1-3")
+    
+    # Get progress
+    progress = state_manager.get_progress(state.id)
+```
+
+## Examples
+
+See `/examples/orchestrator_resume_example.py` for comprehensive examples:
+
+- Basic sprint execution
+- Resume after crash
+- Manual pause/resume
+- Progress monitoring
+- Failure handling
+
+## Documentation
+
+- [Orchestrator Resume Guide](../docs/orchestrator-resume.md) - Comprehensive guide
+- [API Reference](../docs/api-reference.md) - REST API documentation
+- [Database Schema](../docs/database-schema.md) - Database design
 
 ## Testing
 
 Run tests:
+
 ```bash
-cd uat/backend
-pytest tests/test_orchestrator.py -v
-pytest tests/test_orchestrator_state.py -v
+# All orchestrator tests
+pytest uat/backend/tests/test_orchestrator.py -v
 
-# Test Cap Manager Agent
-pytest agents/tests/test_cap_manager_agent.py -v
+# State manager tests
+pytest uat/backend/tests/test_orchestrator.py::test_resume_sprint -v
 
-# Test monitoring
-pytest agents/tests/test_monitoring.py -v
+# API tests
+pytest uat/backend/tests/test_orchestrator_router.py -v
 ```
 
-## Documentation
+## Development
 
-See `docs/orchestrator_resume_capability.md` for detailed documentation on:
-- Architecture and design
-- State persistence
-- Resume capability
-- Error handling
-- Best practices
-- Troubleshooting
+### Adding New Agent Types
 
-## Future Agents
+1. Create agent class in `agents/<agent_name>.py`
+2. Implement `execute_ticket(ticket_key)` method
+3. Register with orchestrator in ticket execution logic
+4. Add tests in `uat/backend/tests/test_<agent_name>.py`
 
-Planned agents for the virtual dev team:
-- Dev Agent - Implements stories
-- QA Agent - Tests implementations
-- DevOps Agent - Handles deployments
-- Security Agent - Performs security reviews
-- Code Review Agent - Reviews pull requests
+### Extending State Persistence
+
+To add new state fields:
+
+1. Add column to `OrchestratorState` model in `uat/backend/models.py`
+2. Create Alembic migration
+3. Update `StateManager` methods as needed
+4. Update API response models in `uat/backend/orchestrator_router.py`
+
+## Troubleshooting
+
+### Database Connection Issues
+
+Ensure `DATABASE_URL` is set:
+
+```bash
+export DATABASE_URL="postgresql://user:password@host:5432/database"
+```
+
+### State Not Found
+
+List all states:
+
+```bash
+python -m agents.cli list-resumable
+```
+
+Query database:
+
+```sql
+SELECT id, sprint_name, status FROM orchestrator_states ORDER BY updated_at DESC;
+```
+
+### Performance Issues
+
+For large sprints (>100 tickets), consider:
+
+- Batching checkpoints (save every N tickets)
+- Using database connection pooling
+- Running orchestrator on dedicated infrastructure
+
+## Contributing
+
+When contributing to the orchestrator:
+
+1. Add type hints to all functions
+2. Write comprehensive docstrings
+3. Add tests for new functionality
+4. Update documentation
+5. Ensure backward compatibility with existing states
+
+## License
+
+Copyright SynPro - Proprietary and Confidential
