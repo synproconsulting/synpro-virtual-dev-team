@@ -244,6 +244,42 @@ The module includes comprehensive tests for:
   - SQLite: `sqlite:///path/to/database.db`
   - MySQL: `mysql://user:password@host:port/database`
 
+## CI Configuration
+
+### CI Wait Timeout (SDT1-64)
+
+The orchestrator's CI wait timeout has been extended from 15 minutes to 30 minutes to accommodate longer-running CI pipelines. This change affects:
+
+- **Timeout Setting**: `CI_WAIT_TIMEOUT_SECONDS = 30 * 60` (1800 seconds)
+- **Location**: `tools/ci_wait.py`
+- **Poll Interval**: 30 seconds (allows up to 60 polling attempts)
+
+This extension provides better support for:
+- Comprehensive test suites
+- Multi-stage CI pipelines
+- Security scans and code quality checks
+- E2E testing with deployment steps
+
+The CI wait functionality monitors GitHub Actions check runs and commit statuses, automatically detecting when all checks have completed (passed or failed) or timing out after the configured duration.
+
+### Usage Example
+
+```python
+from tools.ci_wait import wait_for_ci, wait_for_ci_by_branch
+
+# Wait for CI on a specific PR
+result = wait_for_ci(pr_number=42)
+if result.success:
+    print(f"✓ All CI checks passed in {result.duration_seconds/60:.1f} minutes")
+elif result.timeout:
+    print(f"⏱ CI timeout after {result.duration_seconds/60:.1f} minutes")
+else:
+    print(f"✗ CI checks failed")
+
+# Wait for CI on a branch
+result = wait_for_ci_by_branch("feature/sdt1-64-ci-timeout")
+```
+
 ## Best Practices
 
 1. **Always use context managers or try/finally for sessions**:

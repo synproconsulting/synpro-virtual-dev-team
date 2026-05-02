@@ -3,13 +3,14 @@ tools/github_client.py
 ──────────────────────
 Low-level GitHub REST API v3 wrapper.
 Handles repo creation, branch management, file commits, and pull requests.
+Extended with CI status checking capabilities.
 """
 
 import os
 import base64
 import requests
 from dotenv import load_dotenv
-from typing import Optional
+from typing import Optional, List, Dict
 
 load_dotenv()
 
@@ -192,6 +193,130 @@ def list_pull_requests(state: str = "open") -> list[dict]:
     return [{"number": p["number"], "title": p["title"],
              "branch": p["head"]["ref"], "url": p["html_url"]} for p in prs]
 
+
+def get_pull_request(pr_number: int) -> dict:
+    """Get details of a specific pull request."""
+    return _get(f"/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/pulls/{pr_number}")
+
+
+# ── CI Status Checks ──────────────────────────────────────────────────────────
+
+def get_commit_check_runs(commit_sha: str) -> List[Dict]:
+    """
+    Get all check runs for a commit.
+    
+    Args:
+        commit_sha: Git commit SHA
+    
+    Returns:
+        List of check run dictionaries
+    """
+    try:
+        data = _get(f"/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/commits/{commit_sha}/check-runs")
+        return data.get("check_runs", [])
+    except Exception as e:
+        print(f"Error getting check runs for {commit_sha[:8]}: {e}")
+        return []
+
+
+def get_commit_status(commit_sha: str) -> Dict:
+    """
+    Get the combined status for a commit.
+    
+    This checks the older "statuses" API which some CI systems still use
+    in addition to the newer "check runs" API.
+    
+    Args:
+        commit_sha: Git commit SHA
+    
+    Returns:
+        Combined status dictionary
+    """
+    try:
+        return _get(f"/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/commits/{commit_sha}/status")
+    except Exception as e:
+        print(f"Error getting commit status for {commit_sha[:8]}: {e}")
+        return {}
+
+
+def get_pr_check_status(pr_number: int) -> Dict:
+    """
+    Get a summary of CI check status for a pull request.
+    
+    Args:
+        pr_number: Pull request number
+    
+    Returns:
+        Dictionary with check status summary:
+        {
+            "all_complete": bool,
+            "all_passed": bool,
+            "check_runs": list,
+            "summary": str,
+        }
+    """
+    try:
+        pr = get_pull_request(pr_number)
+        head_sha = pr["head"]["sha"]
+        
+        check_runs = get_commit_check_runs(head_sha)
+        commit_status = get_commit_status(head_sha)
+        
+        if not check_runs:
+            # Use commit status API
+            state = commit_status.get("state", "pending")
+            return {
+                "all_complete": state != "pending",
+                "all_passed": state == "success",
+                "check_runs": [],
+                "summary": f"Commit status: {state}",
+            }
+        
+        incomplete = []
+        failed = []
+        passed = []
+        
+        for run in check_runs:
+            status = run.get("status")
+            conclusion = run.get("conclusion")
+            name = run.get("name", "Unknown")
+            
+            if status != "completed":
+                incomplete.append(name)
+            elif conclusion == "success":
+                passed.append(name)
+            elif conclusion in ["skipped", "neutral"]:
+                passed.append(name)  # Non-blocking
+            else:
+                failed.append(name)
+        
+        all_complete = len(incomplete) == 0
+        all_passed = all_complete and len(failed) == 0
+        
+        if incomplete:
+            summary = f"{len(incomplete)} checks pending: {', '.join(incomplete)}"
+        elif failed:
+            summary = f"{len(failed)} checks failed: {', '.join(failed)}"
+        else:
+            summary = f"All {len(check_runs)} checks passed"
+        
+        return {
+            "all_complete": all_complete,
+            "all_passed": all_passed,
+            "check_runs": check_runs,
+            "summary": summary,
+        }
+    
+    except Exception as e:
+        return {
+            "all_complete": False,
+            "all_passed": False,
+            "check_runs": [],
+            "summary": f"Error getting check status: {e}",
+        }
+
+
+# ── Repository Tree ───────────────────────────────────────────────────────────
 
 def list_tree(branch: str = "main", path_prefix: str = "") -> list[dict]:
     """Return all blob entries in the repo tree, optionally filtered by path prefix.
