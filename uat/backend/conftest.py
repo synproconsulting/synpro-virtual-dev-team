@@ -1,18 +1,14 @@
 """
-tests/conftest.py
-=================
-Pytest configuration and shared fixtures for backend integration tests.
+conftest.py
+===========
+Pytest configuration and shared fixtures for backend tests.
 
-Provides common test fixtures and setup for all test modules in the tests directory.
+Provides common test fixtures and setup for all test modules.
 """
 
 import pytest
 import os
-import sys
 from unittest.mock import patch
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 
 @pytest.fixture(scope="session", autouse=True)

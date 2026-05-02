@@ -14,10 +14,6 @@ from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, timezone
 import os
-import sys
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from main import app
 from railway_api import RailwayClient, RailwayAPIError
@@ -271,7 +267,6 @@ def test_get_service_deployments_with_limit(client, mock_railway_client, mock_cu
 # ── Deployment Trigger Tests (Redeploy) ───────────────────────────────────────
 
 
-@pytest.mark.integration
 def test_trigger_deployment_success(client, mock_railway_client, mock_current_user, mock_auth_token):
     """
     Test successfully triggering a deployment (redeploy operation).
@@ -461,7 +456,6 @@ def test_get_service_variables_missing_environment(client, mock_current_user, mo
 # ── Integration Test: Full Deployment Workflow ────────────────────────────────
 
 
-@pytest.mark.integration
 def test_full_deployment_workflow(client, mock_railway_client, mock_current_user, mock_auth_token):
     """
     Integration test for complete deployment workflow.

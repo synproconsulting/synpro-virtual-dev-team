@@ -1,8 +1,6 @@
-# UAT Backend Tests
+# Backend Integration Tests
 
-## Overview
-
-This directory contains tests for the UAT backend API, with a focus on security and authentication functionality.
+This directory contains integration tests for the UAT backend API.
 
 ## Running Tests
 
@@ -12,83 +10,90 @@ cd uat/backend
 pytest
 ```
 
-### Run with coverage
+### Run specific test file
+```bash
+pytest tests/test_railway_router.py
+```
+
+### Run tests with coverage
 ```bash
 pytest --cov=. --cov-report=html
 ```
 
-### Run specific test file
+### Run only integration tests
 ```bash
-pytest tests/test_auth_security.py -v
+pytest -m integration
 ```
 
-### Run specific test class
+### Run with verbose output
 ```bash
-pytest tests/test_auth_security.py::TestPasswordResetSecurity -v
-```
-
-### Run specific test
-```bash
-pytest tests/test_auth_security.py::TestPasswordResetSecurity::test_password_reset_request_does_not_return_token -v
+pytest -v
 ```
 
 ## Test Structure
 
-### `test_auth_security.py`
-Security-focused tests for authentication endpoints, particularly:
-- Password reset token security (SDT1-62)
-- Token exposure prevention
-- Logging security
-- Email enumeration prevention
-
-## Test Fixtures
-
-### `mock_db`
-Provides a mocked database connection and cursor for testing without requiring a real database.
-
-### `client`
-FastAPI test client with mocked database dependency injection.
+- `conftest.py` - Shared fixtures and test configuration
+- `test_railway_router.py` - Integration tests for Railway deployment API endpoints (SDT1-68)
 
 ## Writing New Tests
 
-When adding new tests:
+1. Create a new file with the prefix `test_` (e.g., `test_my_feature.py`)
+2. Import necessary modules and fixtures from `conftest.py`
+3. Write test functions with the prefix `test_`
+4. Use markers to categorize tests:
+   - `@pytest.mark.integration` - For integration tests
+   - `@pytest.mark.unit` - For unit tests
+   - `@pytest.mark.slow` - For slow-running tests
 
-1. **Use type hints**: All test functions should have proper type hints
-2. **Use descriptive names**: Test names should clearly describe what they test
-3. **Mock external dependencies**: Use `@patch` for database, email, and external services
-4. **Test security**: Always consider security implications
-5. **Document with docstrings**: Explain what the test verifies
+## Test Coverage
 
-Example:
-```python
-@patch('auth.send_password_reset_email', new_callable=AsyncMock)
-def test_new_feature(self, mock_send_email, client, mock_db):
-    """
-    Test that new feature works correctly and securely.
-    """
-    # Arrange
-    mock_conn, mock_cursor = mock_db
-    mock_cursor.fetchone.return_value = {"id": "test-id"}
-    
-    # Act
-    response = client.post("/endpoint", json={"data": "test"})
-    
-    # Assert
-    assert response.status_code == 200
-    assert "sensitive_data" not in response.json()
-```
+The tests cover:
 
-## Continuous Integration
+- Railway API endpoints
+  - Health check
+  - Project management (list projects)
+  - Service management (list services per project)
+  - Environment management (list environments)
+  - Deployment operations (trigger deployment/redeploy)
+  - Deployment status queries
+  - Service variables retrieval
 
-These tests run automatically on:
-- Every pull request
-- Every commit to main
-- Scheduled daily runs
+- Error scenarios
+  - Unauthorized access
+  - Missing required fields
+  - Railway API errors
+  - Unexpected errors
 
-All tests must pass before code can be merged.
+- Integration workflows
+  - Full deployment workflow from project selection to deployment status
 
-## Coverage Goals
+## SDT1-68: Railway Redeploy Endpoint
 
-- **Target**: 80%+ code coverage
-- **Critical paths**: 100% coverage for authentication and security code
-- **Focus areas**: Error handling, edge cases, security boundaries
+The primary focus of these tests is the `/api/railway/deployments/trigger` endpoint, which performs redeploy operations. The comprehensive test suite includes:
+
+- Success scenarios for deployment triggering
+- Authentication and authorization tests
+- Input validation
+- Error handling
+- Full end-to-end deployment workflow
+
+## Environment Variables
+
+Tests automatically set up required environment variables via `conftest.py`. The following are configured for testing:
+
+- `JWT_SECRET` - Test JWT secret key
+- `JWT_EXPIRY_HOURS` - Token expiry time
+- `RAILWAY_API_TOKEN` - Mock Railway API token
+- `CORS_ALLOWED_ORIGINS` - Allowed CORS origins
+- `ENVIRONMENT` - Set to "test"
+- `LOG_LEVEL` - Logging level
+
+## Mocking
+
+Tests use `unittest.mock` to mock external dependencies:
+
+- Railway API client (`RailwayClient`)
+- Authentication (`get_current_user`)
+- Database connections (when needed)
+
+This ensures tests run quickly and don't depend on external services.
