@@ -108,11 +108,6 @@ class ResetCompleteModel(BaseModel):
     new_password: str
 
 
-class MessageResponse(BaseModel):
-    """Generic message response model."""
-    message: str
-
-
 class UserResponse(BaseModel):
     id:         str
     email:      str
@@ -184,39 +179,33 @@ def login(req: LoginRequest, db=Depends(get_db)):
     )
 
 
-@router.post("/password-reset/request", response_model=MessageResponse)
+@router.post("/password-reset/request")
 async def request_password_reset(req: ResetRequestModel, db=Depends(get_db)):
     """
     Request a password reset token.
     
     Generates a reset token and sends it to the user's email address.
+    For security, always returns success message even if email doesn't exist.
     
-    Security considerations (SDT1-62):
-    - The reset token is NEVER returned in the API response body
-    - The token is only sent via email to the registered address
-    - Always returns the same generic message to prevent email enumeration
-    - Token is single-use and expires after 1 hour
-    
-    Args:
-        req: Reset request containing user email
-        db: Database connection dependency
-    
-    Returns:
-        MessageResponse: Generic success message (same regardless of email existence)
+    SECURITY (SDT1-62): The reset token is NEVER returned in the API response.
+    It is only sent via email to prevent token exposure through logs, client-side
+    code, or browser developer tools. This is critical for security.
     """
     cur = db.cursor()
     cur.execute("SELECT id FROM users WHERE email = %s", (req.email.lower(),))
     user = cur.fetchone()
 
-    # SECURITY: Always return the same message to prevent email enumeration
+    # Always return the same message to prevent email enumeration
     response_message = "If that email exists in our system, a password reset link has been sent"
 
     if not user:
         logger.info("Password reset requested for non-existent email: %s", req.email.lower())
-        # Return immediately without generating token for non-existent users
-        return MessageResponse(message=response_message)
+        # Return immediately without generating a token for non-existent users
+        return {"message": response_message}
 
-    # Generate reset token (stored in DB and sent via email, never in API response)
+    # Generate reset token
+    # SECURITY NOTE: This token is stored in the database and sent via email only.
+    # It must NEVER be included in the API response (SDT1-62).
     token      = str(uuid.uuid4())
     expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
     
@@ -226,41 +215,35 @@ async def request_password_reset(req: ResetRequestModel, db=Depends(get_db)):
     )
     db.commit()
 
-    # SECURITY: Token is sent via email only, never logged or returned in response
+    # Send email with reset token
     try:
         email_sent = await send_password_reset_email(req.email.lower(), token)
         if email_sent:
-            logger.info("Password reset email sent to %s", req.email.lower())
+            # Log success but never log the actual token value (SDT1-62)
+            logger.info("Password reset email sent to %s (user_id: %s)", 
+                       req.email.lower(), str(user["id"]))
         else:
-            logger.warning("Failed to send password reset email to %s", req.email.lower())
+            logger.warning("Failed to send password reset email to %s (user_id: %s)", 
+                          req.email.lower(), str(user["id"]))
     except Exception as e:
-        logger.error("Error sending password reset email to %s: %s", req.email.lower(), str(e))
+        # Log error but never log the token value (SDT1-62)
+        logger.error("Error sending password reset email to %s (user_id: %s): %s", 
+                    req.email.lower(), str(user["id"]), str(e))
     
-    # SECURITY: Return generic message only - no token, no user info
-    return MessageResponse(message=response_message)
+    # SECURITY (SDT1-62): Only return a generic message.
+    # The token is delivered via email only, never in the API response.
+    return {"message": response_message}
 
 
-@router.post("/password-reset/complete", response_model=MessageResponse)
+@router.post("/password-reset/complete")
 def complete_password_reset(req: ResetCompleteModel, db=Depends(get_db)):
     """
     Complete the password reset using a valid token.
     
     Validates the token and updates the user's password.
-    The token must be:
-    - Valid (exists in database)
-    - Not already used
-    - Not expired (within 1 hour of generation)
     
-    Args:
-        req: Reset completion request with token and new password
-        db: Database connection dependency
-    
-    Returns:
-        MessageResponse: Success message on successful password reset
-    
-    Raises:
-        HTTPException: 400 if token is invalid, used, or expired
-        HTTPException: 400 if new password doesn't meet requirements
+    SECURITY (SDT1-62): The token is accepted in the request but never echoed
+    back in the response. Only a success/error message is returned.
     """
     cur = db.cursor()
     cur.execute(
@@ -294,8 +277,11 @@ def complete_password_reset(req: ResetCompleteModel, db=Depends(get_db)):
     )
     db.commit()
     
+    # Log success but never log the token value (SDT1-62)
     logger.info("Password reset completed for user_id: %s", str(token_row["user_id"]))
-    return MessageResponse(message="Password reset successfully")
+    
+    # SECURITY (SDT1-62): Only return success message, never echo the token
+    return {"message": "Password reset successfully"}
 
 
 @router.get("/me")

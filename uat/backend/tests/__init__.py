@@ -1,1 +1,1 @@
-"""Tests for UAT backend."""
+"""Tests for the UAT backend."""
