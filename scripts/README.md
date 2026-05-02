@@ -1,216 +1,394 @@
-# SDT1 Platform Scripts
+# Token Rotation Scripts
 
-This directory contains automation and operational scripts for the SDT1 platform.
+This directory contains automated scripts for rotating API tokens and secrets used by the PM Agent system.
 
-## Token Rotation Scripts
+## Overview
 
-### rotate_token.py
+Regular token rotation is a critical security practice. These scripts automate the process while maintaining audit trails and minimizing downtime.
 
-Automates token rotation for various services with support for zero-downtime strategies.
+## Scripts
 
-**Usage:**
+### `rotate_tokens.py`
 
-```bash
-# Basic rotation
-python3 rotate_token.py --service <SERVICE> --token '<NEW_TOKEN>' --environment <ENV>
-
-# Zero-downtime JWT rotation
-python3 rotate_token.py --service jwt --token '<NEW_SECRET>' --environment production --zero-downtime
-
-# Dry-run mode (test without applying changes)
-python3 rotate_token.py --service jira --token '<NEW_TOKEN>' --environment staging --dry-run
-
-# Verify rotation
-python3 rotate_token.py --service openai --environment production --verify
-```
-
-**Supported Services:**
-- `jira` - Jira API token
-- `openai` - OpenAI API key
-- `github` - GitHub personal access token
-- `jwt` - JWT secret key
-- `database` - Database password
-- `redis` - Redis password
-
-**Requirements:**
-- `kubectl` configured with access to target cluster
-- Python 3.11+
-- PyYAML package: `pip install pyyaml`
-
-### verify_token_rotation.py
-
-Verifies that token rotation was successful by testing connectivity and authentication.
+Primary token rotation script with comprehensive features:
+- Automated rotation for multiple token types
+- Dry-run mode for testing
+- Audit logging
+- Health checks and validation
+- Rollback support
 
 **Usage:**
-
 ```bash
-# Verify all services
-python3 verify_token_rotation.py --environment production
+# Dry run - test without making changes
+python rotate_tokens.py --environment staging --tokens all --dry-run
 
-# Verify specific service
-python3 verify_token_rotation.py --environment production --service jira
+# Rotate specific tokens
+python rotate_tokens.py --environment production --tokens jira,openai
 
-# Save results to custom file
-python3 verify_token_rotation.py --environment staging --output results.json
+# Automated rotation (no prompts)
+python rotate_tokens.py --environment production --tokens jwt --force
+
+# With audit log
+python rotate_tokens.py --environment production --tokens all --audit-log /var/log/rotation.json
 ```
 
-**Checks Performed:**
-- API authentication tests
-- Kubernetes deployment health
-- Pod logs for authentication errors
-- Service endpoint availability
+### `emergency_rotation.sh`
 
-**Requirements:**
-- `kubectl` configured with access to target cluster
+Emergency rotation script for compromised credentials:
+- Fast rotation without extensive testing
+- Manual verification steps
+- Audit logging
+- Immediate token revocation
+
+**Usage:**
+```bash
+# Emergency rotation
+./emergency_rotation.sh production jira
+./emergency_rotation.sh staging openai
+```
+
+### `verify_rotation.sh`
+
+Post-rotation verification script:
+- Tests all API endpoints
+- Verifies token functionality
+- Checks deployment status
+- Generates health report
+
+**Usage:**
+```bash
+./verify_rotation.sh production
+./verify_rotation.sh staging
+```
+
+## Supported Token Types
+
+| Token Type | Description | Rotation Impact |
+|------------|-------------|-----------------|
+| `jira` | Jira API Token | Low - seamless rotation |
+| `openai` | OpenAI API Key | Low - seamless rotation |
+| `github` | GitHub PAT | Low - seamless rotation |
+| `jwt` | JWT Secret Key | High - invalidates user sessions |
+| `database` | Database Password | Medium - requires coordination |
+
+## Prerequisites
+
+### Required Tools
+
 - Python 3.11+
-- `requests` package: `pip install requests`
+- AWS CLI (configured with credentials)
+- kubectl (configured for cluster access)
+- bash 4.0+
 
-## Installation
-
-Install required dependencies:
-
-```bash
-pip install -r requirements-scripts.txt
-```
-
-Or install individually:
+### Python Dependencies
 
 ```bash
-pip install pyyaml requests
+pip install -r requirements.txt
 ```
 
-## Configuration
+Required packages:
+- boto3 (AWS SDK)
+- requests (HTTP client)
 
-Scripts read configuration from:
-1. Environment variables
-2. Kubernetes secrets (via kubectl)
-3. Default configuration values
+### AWS Permissions
 
-### Required Environment Variables
+Required IAM permissions:
+- `secretsmanager:GetSecretValue`
+- `secretsmanager:UpdateSecret`
+- `ssm:GetParameter` (if using SSM)
+- `ssm:PutParameter` (if using SSM)
 
-For verification script:
-- `JIRA_BASE_URL` - Jira instance URL (default: auto-detected)
-- `JIRA_EMAIL` - Jira service account email
+### Kubernetes Permissions
 
-### Kubernetes Access
+Required RBAC permissions:
+- `deployments.apps/get`
+- `deployments.apps/patch`
+- `pods/get`
+- `pods/list`
 
-Ensure kubectl is configured:
+## Environment Variables
+
+### For Automated Rotation
+
+Set these when using `--force` mode:
 
 ```bash
-# Test access
-kubectl get pods -n production
+# For Jira rotation
+export NEW_JIRA_TOKEN="your-new-token"
+export JIRA_EMAIL="your-email@example.com"
+export JIRA_DOMAIN="yourcompany.atlassian.net"
 
-# Configure if needed
-kubectl config use-context <your-cluster>
+# For OpenAI rotation
+export NEW_OPENAI_KEY="sk-..."
+
+# For GitHub rotation
+export NEW_GITHUB_TOKEN="ghp_..."
 ```
 
-## Usage Examples
+## Testing
 
-### Complete Rotation Workflow
+Run the test suite:
 
 ```bash
-# 1. Backup current secrets
-kubectl get secret sdt1-secrets -n production -o yaml > backup.yaml
+# All tests
+pytest scripts/tests/
 
-# 2. Generate new token at source (Jira/GitHub/OpenAI)
+# With coverage
+pytest --cov=scripts scripts/tests/
 
-# 3. Rotate token
-python3 rotate_token.py --service jira --token '<NEW_TOKEN>' --environment production
-
-# 4. Verify rotation
-python3 verify_token_rotation.py --environment production --service jira
-
-# 5. If successful, revoke old token at source
+# Specific test file
+pytest scripts/tests/test_token_rotation.py -v
 ```
 
-### Testing in Staging First
+## Best Practices
+
+### 1. Always Use Dry-Run First
 
 ```bash
-# Always test in staging before production
-python3 rotate_token.py --service openai --token '<TEST_KEY>' --environment staging
-python3 verify_token_rotation.py --environment staging --service openai
+# Test the rotation before executing
+python rotate_tokens.py --environment production --tokens all --dry-run
 ```
 
-### Dry-Run Mode
+### 2. Schedule Regular Rotations
+
+Add to crontab for quarterly rotation:
+```bash
+# First Sunday of each quarter at 2 AM
+0 2 1 1,4,7,10 * /opt/pm-agent/scripts/rotate_tokens.py --environment production --tokens all --force
+```
+
+### 3. Maintain Audit Logs
 
 ```bash
-# Test rotation process without making changes
-python3 rotate_token.py --service github --token '<NEW_TOKEN>' --environment production --dry-run
+# Always save audit logs
+python rotate_tokens.py \
+  --environment production \
+  --tokens all \
+  --audit-log /var/log/pm-agent/rotation-$(date +%Y%m%d).json
 ```
+
+### 4. Verify After Rotation
+
+```bash
+# Run verification script
+./verify_rotation.sh production
+```
+
+### 5. Document Emergency Rotations
+
+```bash
+# Document why emergency rotation was needed
+cat >> /var/log/pm-agent/emergency-rotation-log.txt << EOF
+Date: $(date)
+Token: jira
+Reason: Suspected credential exposure in logs
+Rotated by: $(whoami)
+Incident: INC-12345
+EOF
+```
+
+## Rotation Schedule
+
+| Environment | Token Types | Frequency | Day |
+|-------------|-------------|-----------|-----|
+| Production | All | Quarterly | First Sunday |
+| Staging | All | Monthly | First Sunday |
 
 ## Troubleshooting
 
-### "kubectl: command not found"
+### Issue: Script fails with AWS credentials error
 
-Install kubectl:
+**Solution:**
 ```bash
-# macOS
-brew install kubectl
+# Verify AWS credentials
+aws sts get-caller-identity
 
-# Linux
-curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-chmod +x kubectl
-sudo mv kubectl /usr/local/bin/
+# Refresh credentials
+aws sso login
 ```
 
-### "Failed to get secret"
+### Issue: Kubernetes connection timeout
 
-Check kubectl configuration:
+**Solution:**
 ```bash
+# Verify kubectl context
 kubectl config current-context
-kubectl get secret sdt1-secrets -n production
+
+# Test connectivity
+kubectl cluster-info
 ```
 
-### "No module named 'yaml'"
+### Issue: Token validation fails
 
-Install dependencies:
+**Solution:**
 ```bash
-pip install pyyaml
+# Manually test the new token
+curl -H "Authorization: Bearer ${NEW_TOKEN}" https://api.example.com/test
+
+# Check token scopes/permissions in the provider platform
 ```
 
-### Script permissions
+### Issue: Deployment rollout stuck
 
-Make scripts executable:
+**Solution:**
 ```bash
-chmod +x rotate_token.py verify_token_rotation.py
+# Check pod status
+kubectl get pods -n production
+
+# Check logs
+kubectl logs -f deployment/pm-agent-backend -n production
+
+# If needed, rollback
+kubectl rollout undo deployment/pm-agent-backend -n production
 ```
 
-## Security Notes
+## Security Considerations
 
-- **Never commit tokens or secrets** to version control
-- **Never log token values** - only log last 4 characters
-- **Use secure channels** for sharing tokens (password managers, encrypted chat)
-- **Revoke old tokens** immediately after successful rotation
-- **Backup before rotation** - always keep a backup of current configuration
-- **Test in staging** before rotating production tokens
+### Token Storage
 
-## Logging
+- Never commit tokens to git
+- Use AWS Secrets Manager or equivalent
+- Encrypt tokens at rest
+- Limit access to rotation scripts
 
-Scripts maintain logs in:
-- `token_rotation_log.json` - Rotation history
-- `verification_results.json` - Verification results
-- `backups/` - Secret backups
+### Access Control
 
-These files should not be committed to version control.
+- Limit who can run rotation scripts
+- Use IAM roles with minimum required permissions
+- Enable MFA for production rotations
+- Log all rotation activities
+
+### Audit Trail
+
+All rotations are logged to:
+- AWS CloudTrail (automatic)
+- Local audit logs (`logs/` directory)
+- Kubernetes audit logs
+- Application logs
+
+Query audit trail:
+```bash
+# AWS CloudTrail
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=ResourceType,AttributeValue=AWS::SecretsManager::Secret \
+  --max-results 50
+
+# Local logs
+cat /var/log/pm-agent/rotation-*.json | jq '.results'
+```
+
+## Rollback Procedures
+
+### Quick Rollback
+
+If rotation causes issues:
+
+```bash
+# Get previous secret version
+aws secretsmanager get-secret-value \
+  --secret-id pm-agent/production/jira-token \
+  --version-stage AWSPREVIOUS
+
+# Update to previous version
+aws secretsmanager update-secret \
+  --secret-id pm-agent/production/jira-token \
+  --secret-string "$(aws secretsmanager get-secret-value \
+    --secret-id pm-agent/production/jira-token \
+    --version-stage AWSPREVIOUS \
+    --query 'SecretString' \
+    --output text)"
+
+# Restart deployment
+kubectl rollout restart deployment/pm-agent-backend -n production
+```
+
+### Per-Token Rollback
+
+Use the backup files created during rotation:
+
+```bash
+# List backups
+ls -la logs/backup-*.enc
+
+# Restore from backup
+cat logs/backup-production-jira-token-20240101-120000.enc | \
+  aws secretsmanager update-secret \
+    --secret-id pm-agent/production/jira-token \
+    --secret-string file:///dev/stdin
+```
+
+## Monitoring
+
+### Post-Rotation Monitoring
+
+Monitor these metrics for 24 hours after rotation:
+
+1. **Error Rates**
+   ```bash
+   kubectl logs deployment/pm-agent-backend -n production | grep ERROR | wc -l
+   ```
+
+2. **API Response Times**
+   ```bash
+   curl -w "@curl-format.txt" -o /dev/null -s https://api.yourdomain.com/health
+   ```
+
+3. **Authentication Failures**
+   ```bash
+   kubectl logs deployment/pm-agent-backend -n production | grep -i "auth" | grep -i "fail"
+   ```
+
+4. **Active Connections**
+   ```bash
+   kubectl get pods -n production -o wide
+   kubectl top pods -n production
+   ```
+
+## Compliance
+
+### SOC 2 Requirements
+
+- Rotate tokens every 90 days
+- Maintain audit logs for 1 year
+- Implement dual-person control for production
+- Document all rotations
+
+### Audit Documentation
+
+Each rotation should document:
+- Date and time
+- Environment
+- Tokens rotated
+- Who performed rotation
+- Reason (scheduled/emergency)
+- Any issues encountered
+- Verification results
 
 ## Related Documentation
 
-- [Token Rotation Runbook](../docs/runbooks/TOKEN_ROTATION.md)
-- [Quick Reference Card](../docs/runbooks/TOKEN_ROTATION_QUICK_REFERENCE.md)
-- [Rotation Checklist Template](../docs/runbooks/templates/token_rotation_checklist.md)
-
-## Contributing
-
-When adding new scripts:
-1. Include type hints and docstrings
-2. Add usage examples to this README
-3. Support `--dry-run` mode for safety
-4. Handle errors gracefully with clear messages
-5. Log important actions for audit trail
+- [Token Rotation Runbook](../docs/runbooks/token-rotation.md) - Detailed procedures
+- [Security Best Practices](../docs/security.md) - Security guidelines
+- [Incident Response](../docs/incident-response.md) - Emergency procedures
 
 ## Support
 
 For issues or questions:
-- Internal: #operations Slack channel
-- Emergency: On-call rotation (see runbook)
-- Documentation: [Token Rotation Runbook](../docs/runbooks/TOKEN_ROTATION.md)
+- On-call engineer: Check PagerDuty
+- Security team: security@yourcompany.com
+- DevOps team: devops@yourcompany.com
+
+## Contributing
+
+When contributing to these scripts:
+
+1. Test in staging first
+2. Add unit tests for new functionality
+3. Update this README
+4. Document breaking changes
+5. Follow Python best practices
+6. Add type hints
+7. Include error handling
+
+## License
+
+Internal use only - PM Agent system
