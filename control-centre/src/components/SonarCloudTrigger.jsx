@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { triggerSonarAnalysis, fetchSonarResults } from '../api/sonarApi';
+import SonarResultsView from './SonarResultsView';
 import './SonarCloudTrigger.css';
 
 const SonarCloudTrigger = () => {
@@ -13,6 +14,17 @@ const SonarCloudTrigger = () => {
     branch: 'main',
     pullRequest: ''
   });
+  const [activeView, setActiveView] = useState('trigger'); // 'trigger' or 'results'
+
+  // Auto-load results if projectKey is set
+  useEffect(() => {
+    const loadInitialResults = async () => {
+      if (sonarConfig.projectKey && activeView === 'results') {
+        await handleFetchResults();
+      }
+    };
+    loadInitialResults();
+  }, [activeView]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -26,11 +38,14 @@ const SonarCloudTrigger = () => {
     setLoading(true);
     setError(null);
     setResult(null);
-    setAnalysisResults(null);
 
     try {
       const response = await triggerSonarAnalysis(sonarConfig);
       setResult(response);
+      // Switch to results view after triggering
+      setTimeout(() => {
+        setActiveView('results');
+      }, 2000);
     } catch (err) {
       setError(err.message || 'Failed to trigger SonarCloud analysis');
     } finally {
@@ -50,8 +65,10 @@ const SonarCloudTrigger = () => {
     try {
       const response = await fetchSonarResults(sonarConfig.projectKey, sonarConfig.branch);
       setAnalysisResults(response);
+      setError(null);
     } catch (err) {
       setError(err.message || 'Failed to fetch SonarCloud results');
+      setAnalysisResults(null);
     } finally {
       setFetchingResults(false);
     }
@@ -61,95 +78,108 @@ const SonarCloudTrigger = () => {
     return sonarConfig.projectKey.trim() !== '';
   };
 
-  const getQualityGateColor = (status) => {
-    switch (status) {
-      case 'OK':
-      case 'PASSED':
-        return '#52c41a';
-      case 'ERROR':
-      case 'FAILED':
-        return '#f5222d';
-      case 'WARN':
-      case 'WARNING':
-        return '#faad14';
-      default:
-        return '#8c8c8c';
-    }
-  };
-
   return (
     <div className="sonar-trigger-container">
-      <h2>SonarCloud On-Demand Analysis</h2>
-      
-      <div className="sonar-form">
-        <div className="form-group">
-          <label htmlFor="projectKey">Project Key *</label>
-          <input
-            type="text"
-            id="projectKey"
-            name="projectKey"
-            value={sonarConfig.projectKey}
-            onChange={handleInputChange}
-            placeholder="e.g., my-org_my-project"
-            disabled={loading}
-          />
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="branch">Branch</label>
-          <input
-            type="text"
-            id="branch"
-            name="branch"
-            value={sonarConfig.branch}
-            onChange={handleInputChange}
-            placeholder="main"
-            disabled={loading}
-          />
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="pullRequest">Pull Request (optional)</label>
-          <input
-            type="text"
-            id="pullRequest"
-            name="pullRequest"
-            value={sonarConfig.pullRequest}
-            onChange={handleInputChange}
-            placeholder="e.g., 123"
-            disabled={loading}
-          />
-        </div>
-
-        <div className="button-group">
+      {/* Header with view toggle */}
+      <div className="sonar-header">
+        <h2>SonarCloud Analysis</h2>
+        <div className="view-toggle">
           <button
-            onClick={handleTriggerAnalysis}
-            disabled={loading || !isFormValid()}
-            className="btn-primary"
+            className={`toggle-btn ${activeView === 'trigger' ? 'active' : ''}`}
+            onClick={() => setActiveView('trigger')}
           >
-            {loading ? 'Triggering...' : 'Trigger Analysis'}
+            Trigger Analysis
           </button>
-
           <button
-            onClick={handleFetchResults}
-            disabled={fetchingResults || !isFormValid()}
-            className="btn-secondary"
+            className={`toggle-btn ${activeView === 'results' ? 'active' : ''}`}
+            onClick={() => setActiveView('results')}
+            disabled={!sonarConfig.projectKey}
           >
-            {fetchingResults ? 'Fetching...' : 'Fetch Results'}
+            View Results
           </button>
         </div>
       </div>
 
+      {/* Configuration Form */}
+      <div className="sonar-form">
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="projectKey">Project Key *</label>
+            <input
+              type="text"
+              id="projectKey"
+              name="projectKey"
+              value={sonarConfig.projectKey}
+              onChange={handleInputChange}
+              placeholder="e.g., my-org_my-project"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="branch">Branch</label>
+            <input
+              type="text"
+              id="branch"
+              name="branch"
+              value={sonarConfig.branch}
+              onChange={handleInputChange}
+              placeholder="main"
+              disabled={loading}
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="pullRequest">Pull Request (optional)</label>
+            <input
+              type="text"
+              id="pullRequest"
+              name="pullRequest"
+              value={sonarConfig.pullRequest}
+              onChange={handleInputChange}
+              placeholder="e.g., 123"
+              disabled={loading}
+            />
+          </div>
+        </div>
+
+        {activeView === 'trigger' && (
+          <div className="button-group">
+            <button
+              onClick={handleTriggerAnalysis}
+              disabled={loading || !isFormValid()}
+              className="btn-primary"
+            >
+              {loading ? 'Triggering...' : 'Trigger Analysis'}
+            </button>
+          </div>
+        )}
+
+        {activeView === 'results' && (
+          <div className="button-group">
+            <button
+              onClick={handleFetchResults}
+              disabled={fetchingResults || !isFormValid()}
+              className="btn-secondary"
+            >
+              {fetchingResults ? 'Fetching...' : 'Refresh Results'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Error Alert */}
       {error && (
         <div className="alert alert-error">
           <strong>Error:</strong> {error}
         </div>
       )}
 
-      {result && (
+      {/* Success Alert (Trigger) */}
+      {activeView === 'trigger' && result && (
         <div className="alert alert-success">
           <strong>Analysis Triggered Successfully!</strong>
-          {result.taskId && <p>Task ID: {result.taskId}</p>}
+          {result.message && <p>{result.message}</p>}
           {result.dashboardUrl && (
             <p>
               <a href={result.dashboardUrl} target="_blank" rel="noopener noreferrer">
@@ -160,59 +190,30 @@ const SonarCloudTrigger = () => {
         </div>
       )}
 
-      {analysisResults && (
-        <div className="sonar-results">
-          <h3>Analysis Results</h3>
+      {/* Results View */}
+      {activeView === 'results' && (
+        <>
+          {fetchingResults && (
+            <div className="loading-overlay">
+              <div className="spinner"></div>
+              <p>Loading analysis results...</p>
+            </div>
+          )}
           
-          <div className="quality-gate">
-            <div className="quality-gate-status">
-              <span className="label">Quality Gate:</span>
-              <span 
-                className="status-badge"
-                style={{ backgroundColor: getQualityGateColor(analysisResults.qualityGateStatus) }}
-              >
-                {analysisResults.qualityGateStatus || 'UNKNOWN'}
-              </span>
-            </div>
-          </div>
-
-          <div className="metrics-grid">
-            {analysisResults.metrics && analysisResults.metrics.map((metric, index) => (
-              <div key={index} className="metric-card">
-                <div className="metric-name">{metric.name}</div>
-                <div className="metric-value">{metric.value}</div>
-              </div>
-            ))}
-          </div>
-
-          {analysisResults.issues && (
-            <div className="issues-summary">
-              <h4>Issues Summary</h4>
-              <div className="issues-grid">
-                <div className="issue-type">
-                  <span className="issue-label bug">Bugs</span>
-                  <span className="issue-count">{analysisResults.issues.bugs || 0}</span>
-                </div>
-                <div className="issue-type">
-                  <span className="issue-label vulnerability">Vulnerabilities</span>
-                  <span className="issue-count">{analysisResults.issues.vulnerabilities || 0}</span>
-                </div>
-                <div className="issue-type">
-                  <span className="issue-label code-smell">Code Smells</span>
-                  <span className="issue-count">{analysisResults.issues.codeSmells || 0}</span>
-                </div>
-              </div>
+          {!fetchingResults && analysisResults && (
+            <SonarResultsView 
+              results={analysisResults} 
+              projectKey={sonarConfig.projectKey}
+              branch={sonarConfig.branch}
+            />
+          )}
+          
+          {!fetchingResults && !analysisResults && !error && (
+            <div className="empty-state">
+              <p>No results available. Click "Refresh Results" to fetch the latest analysis.</p>
             </div>
           )}
-
-          {analysisResults.dashboardUrl && (
-            <div className="dashboard-link">
-              <a href={analysisResults.dashboardUrl} target="_blank" rel="noopener noreferrer">
-                View Full Report on SonarCloud →
-              </a>
-            </div>
-          )}
-        </div>
+        </>
       )}
     </div>
   );
