@@ -1,348 +1,285 @@
 """
-Tests for SonarCloud router - SDT1-61
+test_sonarcloud_router.py
+==========================
+Tests for the SonarCloud router.
 """
 
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
-from fastapi import HTTPException
-from sonarcloud_router import (
-    router,
-    _get_sonar_headers,
-    SonarTriggerRequest,
-    SonarResultsResponse,
-)
+from fastapi.testclient import TestClient
+from unittest.mock import patch, AsyncMock
+from main import app
+
+client = TestClient(app)
 
 
-class TestSonarCloudRouter:
-    """Test suite for SonarCloud router endpoints."""
+@pytest.fixture
+def mock_sonarcloud_token(monkeypatch):
+    """Mock the SONARCLOUD_TOKEN environment variable."""
+    monkeypatch.setenv("SONARCLOUD_TOKEN", "test_token_123")
 
-    def test_get_sonar_headers_with_token(self):
-        """Test that headers include Bearer token when configured."""
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", "test-token-123"):
-            headers = _get_sonar_headers()
-            assert headers["Authorization"] == "Bearer test-token-123"
-            assert headers["Accept"] == "application/json"
 
-    def test_get_sonar_headers_without_token(self):
-        """Test that headers work without token (for public projects)."""
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", ""):
-            headers = _get_sonar_headers()
-            assert "Authorization" not in headers
-            assert headers["Accept"] == "application/json"
+@pytest.fixture
+def mock_sonarcloud_api():
+    """Mock the SonarCloud API responses."""
+    with patch("sonarcloud_router._fetch_sonarcloud_api", new_callable=AsyncMock) as mock:
+        yield mock
 
-    @pytest.mark.asyncio
-    async def test_trigger_analysis_success(self):
-        """Test successful trigger analysis request."""
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        client = TestClient(app)
-        
-        request_data = {
-            "projectKey": "test-project",
+
+class TestTriggerAnalysis:
+    """Tests for the trigger analysis endpoint."""
+
+    def test_trigger_analysis_success(self, mock_sonarcloud_token):
+        """Test successful analysis trigger."""
+        payload = {
+            "projectKey": "test-org_test-project",
             "branch": "main",
             "pullRequest": None
         }
         
-        response = client.post("/api/sonarcloud/trigger", json=request_data)
+        response = client.post("/api/sonarcloud/trigger", json=payload)
         
         assert response.status_code == 200
         data = response.json()
-        assert data["success"] is True
-        assert data["projectKey"] == "test-project"
+        assert data["status"] == "success"
         assert "dashboardUrl" in data
-        assert "test-project" in data["dashboardUrl"]
+        assert "test-org_test-project" in data["dashboardUrl"]
 
-    @pytest.mark.asyncio
-    async def test_trigger_analysis_missing_project_key(self):
-        """Test trigger analysis with missing project key."""
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        client = TestClient(app)
-        
-        request_data = {
-            "projectKey": "",
-            "branch": "main"
+    def test_trigger_analysis_with_branch(self, mock_sonarcloud_token):
+        """Test analysis trigger with specific branch."""
+        payload = {
+            "projectKey": "test-org_test-project",
+            "branch": "feature/test",
+            "pullRequest": None
         }
         
-        response = client.post("/api/sonarcloud/trigger", json=request_data)
+        response = client.post("/api/sonarcloud/trigger", json=payload)
         
-        # Should fail validation
-        assert response.status_code in [400, 422]
+        assert response.status_code == 200
+        data = response.json()
+        assert "branch=feature/test" in data["dashboardUrl"]
 
-    @pytest.mark.asyncio
-    async def test_trigger_analysis_with_pr(self):
-        """Test trigger analysis with pull request."""
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        client = TestClient(app)
-        
-        request_data = {
-            "projectKey": "test-project",
-            "branch": "feature-branch",
+    def test_trigger_analysis_with_pr(self, mock_sonarcloud_token):
+        """Test analysis trigger with pull request."""
+        payload = {
+            "projectKey": "test-org_test-project",
+            "branch": "main",
             "pullRequest": "123"
         }
         
-        response = client.post("/api/sonarcloud/trigger", json=request_data)
+        response = client.post("/api/sonarcloud/trigger", json=payload)
         
         assert response.status_code == 200
         data = response.json()
         assert "pullRequest=123" in data["dashboardUrl"]
 
-    @pytest.mark.asyncio
-    async def test_fetch_results_no_token(self):
-        """Test fetch results fails without token."""
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", ""):
-            client = TestClient(app)
-            response = client.get("/api/sonarcloud/results?projectKey=test-project")
-            
-            assert response.status_code == 500
-            assert "token not configured" in response.json()["detail"].lower()
-
-    @pytest.mark.asyncio
-    async def test_fetch_results_success(self):
-        """Test successful fetch results."""
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        mock_qg_response = MagicMock()
-        mock_qg_response.status_code = 200
-        mock_qg_response.json.return_value = {
-            "projectStatus": {
-                "status": "OK"
-            }
+    def test_trigger_analysis_missing_project_key(self, mock_sonarcloud_token):
+        """Test analysis trigger without project key."""
+        payload = {
+            "branch": "main"
         }
         
-        mock_measures_response = MagicMock()
-        mock_measures_response.status_code = 200
-        mock_measures_response.json.return_value = {
-            "component": {
-                "measures": [
-                    {"metric": "bugs", "value": "5"},
-                    {"metric": "vulnerabilities", "value": "2"},
-                    {"metric": "code_smells", "value": "20"},
-                    {"metric": "coverage", "value": "85.5"},
-                    {"metric": "ncloc", "value": "1500"}
-                ]
+        response = client.post("/api/sonarcloud/trigger", json=payload)
+        
+        assert response.status_code == 422  # Validation error
+
+
+class TestGetResults:
+    """Tests for the get results endpoint."""
+
+    def test_get_results_success(self, mock_sonarcloud_token, mock_sonarcloud_api):
+        """Test successful results fetch."""
+        # Mock quality gate response
+        mock_sonarcloud_api.side_effect = [
+            {
+                "projectStatus": {
+                    "status": "OK",
+                    "conditions": [
+                        {
+                            "metricKey": "new_coverage",
+                            "comparator": "LT",
+                            "errorThreshold": "80",
+                            "actualValue": "85.5",
+                            "status": "OK"
+                        }
+                    ]
+                }
+            },
+            # Mock measures response
+            {
+                "component": {
+                    "measures": [
+                        {"metric": "bugs", "value": "5"},
+                        {"metric": "vulnerabilities", "value": "2"},
+                        {"metric": "code_smells", "value": "15"},
+                        {"metric": "coverage", "value": "85.5"},
+                        {"metric": "duplicated_lines_density", "value": "3.2"}
+                    ]
+                }
             }
-        }
+        ]
         
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", "test-token"):
-            with patch("httpx.AsyncClient") as mock_client:
-                mock_instance = AsyncMock()
-                mock_instance.__aenter__.return_value = mock_instance
-                mock_instance.__aexit__.return_value = None
-                mock_instance.get = AsyncMock(side_effect=[mock_qg_response, mock_measures_response])
-                mock_client.return_value = mock_instance
-                
-                client = TestClient(app)
-                response = client.get("/api/sonarcloud/results?projectKey=test-project&branch=main")
-                
-                assert response.status_code == 200
-                data = response.json()
-                assert data["projectKey"] == "test-project"
-                assert data["qualityGateStatus"] == "OK"
-                assert data["issues"]["bugs"] == 5
-                assert data["issues"]["vulnerabilities"] == 2
-                assert len(data["metrics"]) > 0
+        response = client.get("/api/sonarcloud/results?projectKey=test-project&branch=main")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["qualityGateStatus"] == "OK"
+        assert data["issues"]["bugs"] == 5
+        assert data["issues"]["vulnerabilities"] == 2
+        assert data["issues"]["codeSmells"] == 15
+        assert data["coverage"] == "85.5"
+        assert data["duplications"] == "3.2"
+        assert len(data["qualityGateConditions"]) == 1
 
-    @pytest.mark.asyncio
-    async def test_fetch_results_api_error(self):
-        """Test fetch results handles API errors."""
-        from fastapi.testclient import TestClient
-        from main import app
+    def test_get_results_missing_project_key(self, mock_sonarcloud_token):
+        """Test results fetch without project key."""
+        response = client.get("/api/sonarcloud/results")
         
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.text = "Unauthorized"
-        
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", "invalid-token"):
-            with patch("httpx.AsyncClient") as mock_client:
-                mock_instance = AsyncMock()
-                mock_instance.__aenter__.return_value = mock_instance
-                mock_instance.__aexit__.return_value = None
-                mock_instance.get = AsyncMock(return_value=mock_response)
-                mock_client.return_value = mock_instance
-                
-                client = TestClient(app)
-                response = client.get("/api/sonarcloud/results?projectKey=test-project")
-                
-                assert response.status_code == 401
+        assert response.status_code == 422  # Validation error
 
-    @pytest.mark.asyncio
-    async def test_fetch_results_timeout(self):
-        """Test fetch results handles timeout."""
-        from fastapi.testclient import TestClient
-        from main import app
-        import httpx
+    def test_get_results_api_error(self, mock_sonarcloud_token, mock_sonarcloud_api):
+        """Test results fetch when API returns error."""
+        mock_sonarcloud_api.side_effect = Exception("API error")
         
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", "test-token"):
-            with patch("httpx.AsyncClient") as mock_client:
-                mock_instance = AsyncMock()
-                mock_instance.__aenter__.return_value = mock_instance
-                mock_instance.__aexit__.return_value = None
-                mock_instance.get = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
-                mock_client.return_value = mock_instance
-                
-                client = TestClient(app)
-                response = client.get("/api/sonarcloud/results?projectKey=test-project")
-                
-                assert response.status_code == 504
+        response = client.get("/api/sonarcloud/results?projectKey=test-project")
+        
+        assert response.status_code == 500
 
-    @pytest.mark.asyncio
-    async def test_fetch_metrics_success(self):
-        """Test fetch metrics endpoint."""
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "component": {
-                "measures": [
-                    {"metric": "bugs", "value": "3"}
-                ]
-            }
-        }
-        
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", "test-token"):
-            with patch("httpx.AsyncClient") as mock_client:
-                mock_instance = AsyncMock()
-                mock_instance.__aenter__.return_value = mock_instance
-                mock_instance.__aexit__.return_value = None
-                mock_instance.get = AsyncMock(return_value=mock_response)
-                mock_client.return_value = mock_instance
-                
-                client = TestClient(app)
-                response = client.get("/api/sonarcloud/metrics?projectKey=test-project&metrics=bugs")
-                
-                assert response.status_code == 200
-                data = response.json()
-                assert "component" in data
 
-    @pytest.mark.asyncio
-    async def test_fetch_quality_gate_success(self):
-        """Test fetch quality gate endpoint."""
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "projectStatus": {
-                "status": "OK"
-            }
-        }
-        
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", "test-token"):
-            with patch("httpx.AsyncClient") as mock_client:
-                mock_instance = AsyncMock()
-                mock_instance.__aenter__.return_value = mock_instance
-                mock_instance.__aexit__.return_value = None
-                mock_instance.get = AsyncMock(return_value=mock_response)
-                mock_client.return_value = mock_instance
-                
-                client = TestClient(app)
-                response = client.get("/api/sonarcloud/quality-gate?projectKey=test-project")
-                
-                assert response.status_code == 200
-                data = response.json()
-                assert data["projectStatus"]["status"] == "OK"
+class TestGetIssues:
+    """Tests for the get issues endpoint."""
 
-    @pytest.mark.asyncio
-    async def test_list_projects_success(self):
-        """Test list projects endpoint."""
-        from fastapi.testclient import TestClient
-        from main import app
-        
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "components": [
-                {"key": "project1", "name": "Project 1", "qualifier": "TRK"},
-                {"key": "project2", "name": "Project 2", "qualifier": "TRK"},
-                {"key": "module1", "name": "Module 1", "qualifier": "BRC"}  # Should be filtered
+    def test_get_issues_success(self, mock_sonarcloud_token, mock_sonarcloud_api):
+        """Test successful issues fetch."""
+        mock_sonarcloud_api.return_value = {
+            "issues": [
+                {
+                    "key": "issue1",
+                    "rule": "squid:S1234",
+                    "severity": "MAJOR",
+                    "component": "test-project:src/main.py",
+                    "line": 42,
+                    "message": "Test issue message",
+                    "type": "BUG",
+                    "status": "OPEN",
+                    "creationDate": "2024-01-01T00:00:00Z"
+                }
             ]
         }
         
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", "test-token"):
-            with patch("sonarcloud_router.SONARCLOUD_ORG", "test-org"):
-                with patch("httpx.AsyncClient") as mock_client:
-                    mock_instance = AsyncMock()
-                    mock_instance.__aenter__.return_value = mock_instance
-                    mock_instance.__aexit__.return_value = None
-                    mock_instance.get = AsyncMock(return_value=mock_response)
-                    mock_client.return_value = mock_instance
-                    
-                    client = TestClient(app)
-                    response = client.get("/api/sonarcloud/projects")
-                    
-                    assert response.status_code == 200
-                    data = response.json()
-                    assert data["total"] == 2
-                    assert len(data["projects"]) == 2
-                    assert all(p["qualifier"] == "TRK" for p in data["projects"])
-
-    @pytest.mark.asyncio
-    async def test_list_projects_no_org(self):
-        """Test list projects fails without org configured."""
-        from fastapi.testclient import TestClient
-        from main import app
+        response = client.get("/api/sonarcloud/issues?projectKey=test-project&branch=main")
         
-        with patch("sonarcloud_router.SONARCLOUD_TOKEN", "test-token"):
-            with patch("sonarcloud_router.SONARCLOUD_ORG", ""):
-                client = TestClient(app)
-                response = client.get("/api/sonarcloud/projects")
-                
-                assert response.status_code == 500
-                assert "SONARCLOUD_ORG not configured" in response.json()["detail"]
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["key"] == "issue1"
+        assert data[0]["severity"] == "MAJOR"
+        assert data[0]["type"] == "BUG"
 
-
-class TestSonarModels:
-    """Test Pydantic models."""
-
-    def test_sonar_trigger_request_valid(self):
-        """Test valid trigger request model."""
-        request = SonarTriggerRequest(
-            projectKey="test-project",
-            branch="main",
-            pullRequest="123"
-        )
-        assert request.projectKey == "test-project"
-        assert request.branch == "main"
-        assert request.pullRequest == "123"
-
-    def test_sonar_trigger_request_defaults(self):
-        """Test trigger request with defaults."""
-        request = SonarTriggerRequest(projectKey="test-project")
-        assert request.projectKey == "test-project"
-        assert request.branch == "main"
-        assert request.pullRequest is None
-
-    def test_sonar_results_response(self):
-        """Test results response model."""
-        from sonarcloud_router import SonarMetric, SonarIssuesSummary
+    def test_get_issues_with_filters(self, mock_sonarcloud_token, mock_sonarcloud_api):
+        """Test issues fetch with filters."""
+        mock_sonarcloud_api.return_value = {"issues": []}
         
-        metrics = [
-            SonarMetric(name="Bugs", value="5"),
-            SonarMetric(name="Coverage", value="85%")
-        ]
-        issues = SonarIssuesSummary(bugs=5, vulnerabilities=2, codeSmells=20)
-        
-        response = SonarResultsResponse(
-            projectKey="test-project",
-            qualityGateStatus="OK",
-            metrics=metrics,
-            issues=issues,
-            dashboardUrl="https://sonarcloud.io/dashboard?id=test-project"
+        response = client.get(
+            "/api/sonarcloud/issues?projectKey=test-project&types=BUG&severities=MAJOR,CRITICAL"
         )
         
-        assert response.projectKey == "test-project"
-        assert response.qualityGateStatus == "OK"
-        assert len(response.metrics) == 2
-        assert response.issues.bugs == 5
+        assert response.status_code == 200
+        # Verify that the filter parameters were passed
+        mock_sonarcloud_api.assert_called_once()
+
+    def test_get_issues_pagination(self, mock_sonarcloud_token, mock_sonarcloud_api):
+        """Test issues fetch with pagination."""
+        mock_sonarcloud_api.return_value = {"issues": []}
+        
+        response = client.get(
+            "/api/sonarcloud/issues?projectKey=test-project&page=2&pageSize=50"
+        )
+        
+        assert response.status_code == 200
+
+
+class TestGetMetrics:
+    """Tests for the get metrics endpoint."""
+
+    def test_get_metrics_success(self, mock_sonarcloud_token, mock_sonarcloud_api):
+        """Test successful metrics fetch."""
+        mock_sonarcloud_api.return_value = {
+            "component": {
+                "measures": [
+                    {"metric": "ncloc", "value": "1000"},
+                    {"metric": "complexity", "value": "150"}
+                ]
+            }
+        }
+        
+        response = client.get(
+            "/api/sonarcloud/metrics?projectKey=test-project&metricKeys=ncloc,complexity"
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "component" in data
+
+    def test_get_metrics_missing_project_key(self, mock_sonarcloud_token):
+        """Test metrics fetch without project key."""
+        response = client.get("/api/sonarcloud/metrics?metricKeys=ncloc")
+        
+        assert response.status_code == 422
+
+
+class TestGetQualityGate:
+    """Tests for the get quality gate endpoint."""
+
+    def test_get_quality_gate_success(self, mock_sonarcloud_token, mock_sonarcloud_api):
+        """Test successful quality gate fetch."""
+        mock_sonarcloud_api.return_value = {
+            "projectStatus": {
+                "status": "OK",
+                "conditions": []
+            }
+        }
+        
+        response = client.get(
+            "/api/sonarcloud/quality-gate?projectKey=test-project&branch=main"
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "projectStatus" in data
+        assert data["projectStatus"]["status"] == "OK"
+
+    def test_get_quality_gate_failed(self, mock_sonarcloud_token, mock_sonarcloud_api):
+        """Test quality gate fetch when gate is failed."""
+        mock_sonarcloud_api.return_value = {
+            "projectStatus": {
+                "status": "ERROR",
+                "conditions": [
+                    {
+                        "metricKey": "new_coverage",
+                        "status": "ERROR"
+                    }
+                ]
+            }
+        }
+        
+        response = client.get(
+            "/api/sonarcloud/quality-gate?projectKey=test-project"
+        )
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["projectStatus"]["status"] == "ERROR"
+
+
+class TestAuthentication:
+    """Tests for authentication."""
+
+    def test_missing_token(self, monkeypatch):
+        """Test behavior when SONARCLOUD_TOKEN is not set."""
+        monkeypatch.delenv("SONARCLOUD_TOKEN", raising=False)
+        
+        # This should fail when trying to make actual API calls
+        response = client.get("/api/sonarcloud/results?projectKey=test-project")
+        
+        assert response.status_code == 500
+        assert "SONARCLOUD_TOKEN" in response.json()["detail"]

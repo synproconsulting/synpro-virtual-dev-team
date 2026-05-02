@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { triggerSonarAnalysis, fetchSonarResults } from '../api/sonarApi';
+import SonarResultsView from './SonarResultsView';
 import './SonarCloudTrigger.css';
 
 const SonarCloudTrigger = () => {
@@ -8,25 +9,22 @@ const SonarCloudTrigger = () => {
   const [result, setResult] = useState(null);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [error, setError] = useState(null);
-  const [autoRefresh, setAutoRefresh] = useState(false);
   const [sonarConfig, setSonarConfig] = useState({
     projectKey: '',
     branch: 'main',
     pullRequest: ''
   });
+  const [activeView, setActiveView] = useState('trigger'); // 'trigger' or 'results'
 
-  // Auto-refresh results every 30 seconds if enabled
+  // Auto-load results if projectKey is set
   useEffect(() => {
-    let interval;
-    if (autoRefresh && sonarConfig.projectKey && analysisResults) {
-      interval = setInterval(() => {
-        handleFetchResults(true); // silent refresh
-      }, 30000);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
+    const loadInitialResults = async () => {
+      if (sonarConfig.projectKey && activeView === 'results') {
+        await handleFetchResults();
+      }
     };
-  }, [autoRefresh, sonarConfig.projectKey, analysisResults]);
+    loadInitialResults();
+  }, [activeView]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -44,9 +42,9 @@ const SonarCloudTrigger = () => {
     try {
       const response = await triggerSonarAnalysis(sonarConfig);
       setResult(response);
-      // After triggering, auto-fetch results
+      // Switch to results view after triggering
       setTimeout(() => {
-        handleFetchResults();
+        setActiveView('results');
       }, 2000);
     } catch (err) {
       setError(err.message || 'Failed to trigger SonarCloud analysis');
@@ -55,31 +53,24 @@ const SonarCloudTrigger = () => {
     }
   };
 
-  const handleFetchResults = async (silent = false) => {
+  const handleFetchResults = async () => {
     if (!sonarConfig.projectKey) {
       setError('Project key is required to fetch results');
       return;
     }
 
-    if (!silent) {
-      setFetchingResults(true);
-      setError(null);
-    }
+    setFetchingResults(true);
+    setError(null);
 
     try {
       const response = await fetchSonarResults(sonarConfig.projectKey, sonarConfig.branch);
       setAnalysisResults(response);
-      if (error && silent) {
-        setError(null); // clear error on successful silent refresh
-      }
+      setError(null);
     } catch (err) {
-      if (!silent) {
-        setError(err.message || 'Failed to fetch SonarCloud results');
-      }
+      setError(err.message || 'Failed to fetch SonarCloud results');
+      setAnalysisResults(null);
     } finally {
-      if (!silent) {
-        setFetchingResults(false);
-      }
+      setFetchingResults(false);
     }
   };
 
@@ -87,56 +78,33 @@ const SonarCloudTrigger = () => {
     return sonarConfig.projectKey.trim() !== '';
   };
 
-  const getQualityGateColor = (status) => {
-    switch (status) {
-      case 'OK':
-      case 'PASSED':
-        return '#52c41a';
-      case 'ERROR':
-      case 'FAILED':
-        return '#f5222d';
-      case 'WARN':
-      case 'WARNING':
-        return '#faad14';
-      default:
-        return '#8c8c8c';
-    }
-  };
-
-  const getSeverityColor = (count, type) => {
-    if (count === 0) return '#52c41a';
-    if (type === 'bugs' || type === 'vulnerabilities') {
-      if (count > 10) return '#f5222d';
-      if (count > 5) return '#faad14';
-    }
-    if (type === 'codeSmells') {
-      if (count > 50) return '#f5222d';
-      if (count > 20) return '#faad14';
-    }
-    return '#ff7a45';
-  };
-
-  const formatMetricValue = (metric) => {
-    if (!metric || !metric.value) return 'N/A';
-    return metric.value;
-  };
-
   return (
     <div className="sonar-trigger-container">
+      {/* Header with view toggle */}
       <div className="sonar-header">
-        <h2>SonarCloud Code Quality Analysis</h2>
-        <p className="sonar-subtitle">
-          Monitor code quality, security vulnerabilities, and technical debt
-        </p>
+        <h2>SonarCloud Analysis</h2>
+        <div className="view-toggle">
+          <button
+            className={`toggle-btn ${activeView === 'trigger' ? 'active' : ''}`}
+            onClick={() => setActiveView('trigger')}
+          >
+            Trigger Analysis
+          </button>
+          <button
+            className={`toggle-btn ${activeView === 'results' ? 'active' : ''}`}
+            onClick={() => setActiveView('results')}
+            disabled={!sonarConfig.projectKey}
+          >
+            View Results
+          </button>
+        </div>
       </div>
-      
+
+      {/* Configuration Form */}
       <div className="sonar-form">
         <div className="form-row">
           <div className="form-group">
-            <label htmlFor="projectKey">
-              Project Key *
-              <span className="field-hint">Your SonarCloud project identifier</span>
-            </label>
+            <label htmlFor="projectKey">Project Key *</label>
             <input
               type="text"
               id="projectKey"
@@ -144,15 +112,12 @@ const SonarCloudTrigger = () => {
               value={sonarConfig.projectKey}
               onChange={handleInputChange}
               placeholder="e.g., my-org_my-project"
-              disabled={loading || fetchingResults}
+              disabled={loading}
             />
           </div>
 
           <div className="form-group">
-            <label htmlFor="branch">
-              Branch
-              <span className="field-hint">Branch to analyze</span>
-            </label>
+            <label htmlFor="branch">Branch</label>
             <input
               type="text"
               id="branch"
@@ -160,15 +125,12 @@ const SonarCloudTrigger = () => {
               value={sonarConfig.branch}
               onChange={handleInputChange}
               placeholder="main"
-              disabled={loading || fetchingResults}
+              disabled={loading}
             />
           </div>
 
           <div className="form-group">
-            <label htmlFor="pullRequest">
-              Pull Request
-              <span className="field-hint">Optional PR number</span>
-            </label>
+            <label htmlFor="pullRequest">Pull Request (optional)</label>
             <input
               type="text"
               id="pullRequest"
@@ -176,233 +138,82 @@ const SonarCloudTrigger = () => {
               value={sonarConfig.pullRequest}
               onChange={handleInputChange}
               placeholder="e.g., 123"
-              disabled={loading || fetchingResults}
+              disabled={loading}
             />
           </div>
         </div>
 
-        <div className="form-actions">
-          <button
-            onClick={handleTriggerAnalysis}
-            disabled={loading || !isFormValid()}
-            className="btn-primary"
-          >
-            {loading ? (
-              <>
-                <span className="spinner"></span>
-                Triggering...
-              </>
-            ) : (
-              <>
-                <span className="icon">🚀</span>
-                Trigger Analysis
-              </>
-            )}
-          </button>
+        {activeView === 'trigger' && (
+          <div className="button-group">
+            <button
+              onClick={handleTriggerAnalysis}
+              disabled={loading || !isFormValid()}
+              className="btn-primary"
+            >
+              {loading ? 'Triggering...' : 'Trigger Analysis'}
+            </button>
+          </div>
+        )}
 
-          <button
-            onClick={() => handleFetchResults(false)}
-            disabled={fetchingResults || !isFormValid()}
-            className="btn-secondary"
-          >
-            {fetchingResults ? (
-              <>
-                <span className="spinner"></span>
-                Fetching...
-              </>
-            ) : (
-              <>
-                <span className="icon">📊</span>
-                Fetch Results
-              </>
-            )}
-          </button>
-
-          {analysisResults && (
-            <label className="auto-refresh-toggle">
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)}
-              />
-              <span>Auto-refresh (30s)</span>
-            </label>
-          )}
-        </div>
+        {activeView === 'results' && (
+          <div className="button-group">
+            <button
+              onClick={handleFetchResults}
+              disabled={fetchingResults || !isFormValid()}
+              className="btn-secondary"
+            >
+              {fetchingResults ? 'Fetching...' : 'Refresh Results'}
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* Error Alert */}
       {error && (
         <div className="alert alert-error">
-          <span className="alert-icon">⚠️</span>
-          <div>
-            <strong>Error</strong>
-            <p>{error}</p>
-          </div>
+          <strong>Error:</strong> {error}
         </div>
       )}
 
-      {result && !analysisResults && (
-        <div className="alert alert-info">
-          <span className="alert-icon">ℹ️</span>
-          <div>
-            <strong>Analysis Trigger Information</strong>
-            <p>{result.message}</p>
-            {result.instructions && (
-              <p className="code-snippet">{result.instructions}</p>
-            )}
-            {result.dashboardUrl && (
-              <p>
-                <a href={result.dashboardUrl} target="_blank" rel="noopener noreferrer">
-                  View on SonarCloud →
-                </a>
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {analysisResults && (
-        <div className="sonar-results">
-          <div className="results-header">
-            <h3>Analysis Results</h3>
-            {autoRefresh && (
-              <span className="refresh-indicator">
-                <span className="pulse-dot"></span>
-                Auto-refreshing
-              </span>
-            )}
-          </div>
-          
-          {/* Quality Gate Status */}
-          <div className="quality-gate-card">
-            <div className="quality-gate-header">
-              <span className="quality-gate-label">Quality Gate</span>
-              <span 
-                className="quality-gate-badge"
-                style={{ backgroundColor: getQualityGateColor(analysisResults.qualityGateStatus) }}
-              >
-                {analysisResults.qualityGateStatus || 'UNKNOWN'}
-              </span>
-            </div>
-            {analysisResults.qualityGateStatus === 'OK' || analysisResults.qualityGateStatus === 'PASSED' ? (
-              <p className="quality-gate-message success">
-                ✅ All quality gate conditions passed!
-              </p>
-            ) : (
-              <p className="quality-gate-message failed">
-                ❌ Quality gate failed. Review the issues below.
-              </p>
-            )}
-          </div>
-
-          {/* Issues Overview */}
-          {analysisResults.issues && (
-            <div className="issues-overview">
-              <h4>Issues Overview</h4>
-              <div className="issues-grid">
-                <div className="issue-card bugs">
-                  <div className="issue-header">
-                    <span className="issue-icon">🐛</span>
-                    <span className="issue-label">Bugs</span>
-                  </div>
-                  <div 
-                    className="issue-count"
-                    style={{ color: getSeverityColor(analysisResults.issues.bugs, 'bugs') }}
-                  >
-                    {analysisResults.issues.bugs || 0}
-                  </div>
-                  <div className="issue-description">
-                    Code defects that should be fixed
-                  </div>
-                </div>
-
-                <div className="issue-card vulnerabilities">
-                  <div className="issue-header">
-                    <span className="issue-icon">🔒</span>
-                    <span className="issue-label">Vulnerabilities</span>
-                  </div>
-                  <div 
-                    className="issue-count"
-                    style={{ color: getSeverityColor(analysisResults.issues.vulnerabilities, 'vulnerabilities') }}
-                  >
-                    {analysisResults.issues.vulnerabilities || 0}
-                  </div>
-                  <div className="issue-description">
-                    Security-related issues
-                  </div>
-                </div>
-
-                <div className="issue-card code-smells">
-                  <div className="issue-header">
-                    <span className="issue-icon">💨</span>
-                    <span className="issue-label">Code Smells</span>
-                  </div>
-                  <div 
-                    className="issue-count"
-                    style={{ color: getSeverityColor(analysisResults.issues.codeSmells, 'codeSmells') }}
-                  >
-                    {analysisResults.issues.codeSmells || 0}
-                  </div>
-                  <div className="issue-description">
-                    Maintainability issues
-                  </div>
-                </div>
-
-                <div className="issue-card security-hotspots">
-                  <div className="issue-header">
-                    <span className="issue-icon">🔥</span>
-                    <span className="issue-label">Security Hotspots</span>
-                  </div>
-                  <div className="issue-count">
-                    {analysisResults.issues.securityHotspots || 0}
-                  </div>
-                  <div className="issue-description">
-                    Security-sensitive code to review
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Key Metrics */}
-          {analysisResults.metrics && analysisResults.metrics.length > 0 && (
-            <div className="metrics-section">
-              <h4>Key Metrics</h4>
-              <div className="metrics-grid">
-                {analysisResults.metrics.map((metric, index) => (
-                  <div key={index} className="metric-card">
-                    <div className="metric-name">{metric.name}</div>
-                    <div className="metric-value">{formatMetricValue(metric)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="results-footer">
-            {analysisResults.dashboardUrl && (
-              <a 
-                href={analysisResults.dashboardUrl} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="btn-link-primary"
-              >
-                View Full Report on SonarCloud
-                <span className="external-icon">↗</span>
+      {/* Success Alert (Trigger) */}
+      {activeView === 'trigger' && result && (
+        <div className="alert alert-success">
+          <strong>Analysis Triggered Successfully!</strong>
+          {result.message && <p>{result.message}</p>}
+          {result.dashboardUrl && (
+            <p>
+              <a href={result.dashboardUrl} target="_blank" rel="noopener noreferrer">
+                View on SonarCloud →
               </a>
-            )}
-          </div>
+            </p>
+          )}
         </div>
       )}
 
-      {/* Empty State */}
-      {!analysisResults && !result && !error && (
-        <div className="empty-state">
-          <div className="empty-state-icon">📊</div>
-          <h3>No Analysis Results Yet</h3>
-          <p>Enter a project key and fetch results to see code quality metrics</p>
-        </div>
+      {/* Results View */}
+      {activeView === 'results' && (
+        <>
+          {fetchingResults && (
+            <div className="loading-overlay">
+              <div className="spinner"></div>
+              <p>Loading analysis results...</p>
+            </div>
+          )}
+          
+          {!fetchingResults && analysisResults && (
+            <SonarResultsView 
+              results={analysisResults} 
+              projectKey={sonarConfig.projectKey}
+              branch={sonarConfig.branch}
+            />
+          )}
+          
+          {!fetchingResults && !analysisResults && !error && (
+            <div className="empty-state">
+              <p>No results available. Click "Refresh Results" to fetch the latest analysis.</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

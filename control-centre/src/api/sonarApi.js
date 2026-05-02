@@ -66,6 +66,45 @@ export const fetchSonarResults = async (projectKey, branch = 'main') => {
 };
 
 /**
+ * Fetch detailed issues from SonarCloud
+ * @param {string} projectKey - SonarCloud project key
+ * @param {string} branch - Branch name (optional)
+ * @param {Object} filters - Filter options (types, severities, statuses)
+ * @returns {Promise<Array>} Array of detailed issues
+ */
+export const fetchSonarIssues = async (projectKey, branch = 'main', filters = {}) => {
+  try {
+    const params = new URLSearchParams({
+      projectKey,
+      branch,
+      ...(filters.types && { types: filters.types }),
+      ...(filters.severities && { severities: filters.severities }),
+      ...(filters.statuses && { statuses: filters.statuses }),
+    });
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/sonarcloud/issues?${params.toString()}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching SonarCloud issues:', error);
+    throw error;
+  }
+};
+
+/**
  * Get SonarCloud project metrics
  * @param {string} projectKey - SonarCloud project key
  * @param {string[]} metricKeys - Array of metric keys to fetch
