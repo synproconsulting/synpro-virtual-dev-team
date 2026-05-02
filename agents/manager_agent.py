@@ -14,12 +14,12 @@ import os
 import sys
 import time
 import asyncio
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List
 from enum import Enum
 import base64
 import httpx
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Add tools to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -40,10 +40,8 @@ DEFAULT_BASE_DELAY = 1.0  # seconds
 DEFAULT_MAX_DELAY = 60.0  # seconds
 DEFAULT_EXPONENTIAL_BASE = 2
 
-# Retrigger loop protection configuration
-DEFAULT_MAX_RETRIGGERS = 3  # Maximum number of times to retrigger the same operation
-DEFAULT_RETRIGGER_WINDOW = 3600  # Time window in seconds (1 hour) to track retriggers
-DEFAULT_COOLDOWN_PERIOD = 300  # Cooldown period in seconds (5 minutes) after hitting limit
+# Retrigger loop configuration
+DEFAULT_MAX_RETRIGGER_COUNT = 3  # Maximum times Manager Agent can be retriggered for same operation
 
 # Diff review configuration
 DEFAULT_DIFF_MAX_CHARS = 50000
@@ -55,7 +53,11 @@ class TransitionStatus(Enum):
     FAILED = "failed"
     RETRYING = "retrying"
     MAX_RETRIES_EXCEEDED = "max_retries_exceeded"
-    MAX_RETRIGGERS_EXCEEDED = "max_retriggers_exceeded"
+
+
+class RetriggerLimitExceeded(Exception):
+    """Exception raised when retrigger limit is exceeded."""
+    pass
 
 
 @dataclass
@@ -66,10 +68,10 @@ class TransitionResult:
     transition_id: Optional[str] = None
     transition_name: Optional[str] = None
     attempts: int = 0
-    retrigger_count: int = 0
     total_time: float = 0.0
     error_message: Optional[str] = None
     final_status: Optional[str] = None
+    retrigger_count: int = 0
 
 
 @dataclass
@@ -92,245 +94,60 @@ class DiffReviewResult:
 
 
 @dataclass
-class RetriggerAttempt:
-    """Record of a single retrigger attempt."""
-    timestamp: datetime
-    operation: str
+class OperationState:
+    """Tracks state of an operation to prevent infinite retrigger loops."""
+    operation_id: str
     issue_key: str
-    status: str
-
-
-# ── Retrigger Tracker ─────────────────────────────────────────────────────────────────
-
-
-class RetriggerTracker:
-    """
-    Tracks retrigger attempts to prevent infinite loops.
+    operation_type: str
+    trigger_count: int = 0
+    first_triggered_at: datetime = field(default_factory=datetime.utcnow)
+    last_triggered_at: datetime = field(default_factory=datetime.utcnow)
+    error_history: List[str] = field(default_factory=list)
     
-    This class maintains a history of retrigger attempts per issue/operation
-    and enforces configurable limits to prevent infinite retrigger cycles.
-    """
-    
-    def __init__(
-        self,
-        max_retriggers: int = DEFAULT_MAX_RETRIGGERS,
-        window_seconds: int = DEFAULT_RETRIGGER_WINDOW,
-        cooldown_seconds: int = DEFAULT_COOLDOWN_PERIOD,
-    ):
+    def increment_trigger(self, error_message: Optional[str] = None) -> int:
         """
-        Initialize the retrigger tracker.
+        Increment trigger count and update timestamp.
         
         Args:
-            max_retriggers: Maximum retriggers allowed within the time window
-            window_seconds: Time window in seconds to track retriggers
-            cooldown_seconds: Cooldown period after hitting limit
+            error_message: Optional error message to record
+            
+        Returns:
+            Updated trigger count
         """
-        self.max_retriggers = max_retriggers
-        self.window_seconds = window_seconds
-        self.cooldown_seconds = cooldown_seconds
-        
-        # Track retrigger attempts: {(issue_key, operation): [RetriggerAttempt]}
-        self._attempts: Dict[Tuple[str, str], List[RetriggerAttempt]] = {}
-        
-        # Track when an issue/operation combo was put in cooldown
-        self._cooldown_until: Dict[Tuple[str, str], datetime] = {}
+        self.trigger_count += 1
+        self.last_triggered_at = datetime.utcnow()
+        if error_message:
+            self.error_history.append(error_message)
+        return self.trigger_count
     
-    def _get_key(self, issue_key: str, operation: str) -> Tuple[str, str]:
-        """Generate tracking key for issue/operation combination."""
-        return (issue_key, operation)
-    
-    def _cleanup_old_attempts(
-        self,
-        key: Tuple[str, str],
-        current_time: datetime,
-    ) -> None:
+    def is_limit_exceeded(self, max_count: int) -> bool:
         """
-        Remove attempts outside the tracking window.
+        Check if trigger count exceeds the limit.
         
         Args:
-            key: Tracking key
-            current_time: Current timestamp
+            max_count: Maximum allowed trigger count
+            
+        Returns:
+            True if limit exceeded
         """
-        if key not in self._attempts:
-            return
-        
-        cutoff_time = current_time - timedelta(seconds=self.window_seconds)
-        self._attempts[key] = [
-            attempt for attempt in self._attempts[key]
-            if attempt.timestamp > cutoff_time
-        ]
-        
-        # Clean up empty lists
-        if not self._attempts[key]:
-            del self._attempts[key]
+        return self.trigger_count >= max_count
     
-    def can_retrigger(
-        self,
-        issue_key: str,
-        operation: str,
-    ) -> Tuple[bool, Optional[str]]:
+    def get_summary(self) -> Dict[str, Any]:
         """
-        Check if a retrigger is allowed for the given issue/operation.
-        
-        Args:
-            issue_key: Jira issue key
-            operation: Operation name (e.g., "transition_to_in_progress")
+        Get summary of operation state.
         
         Returns:
-            Tuple of (can_retrigger: bool, reason: Optional[str])
-            If can_retrigger is False, reason contains explanation
+            Dictionary with operation state summary
         """
-        key = self._get_key(issue_key, operation)
-        current_time = datetime.now()
-        
-        # Check if in cooldown period
-        if key in self._cooldown_until:
-            cooldown_end = self._cooldown_until[key]
-            if current_time < cooldown_end:
-                remaining = int((cooldown_end - current_time).total_seconds())
-                return False, (
-                    f"Operation '{operation}' for {issue_key} is in cooldown. "
-                    f"Retry after {remaining} seconds."
-                )
-            else:
-                # Cooldown expired, remove it
-                del self._cooldown_until[key]
-        
-        # Clean up old attempts
-        self._cleanup_old_attempts(key, current_time)
-        
-        # Check retrigger count within window
-        if key in self._attempts:
-            recent_attempts = len(self._attempts[key])
-            if recent_attempts >= self.max_retriggers:
-                # Put into cooldown
-                self._cooldown_until[key] = current_time + timedelta(
-                    seconds=self.cooldown_seconds
-                )
-                return False, (
-                    f"Maximum retrigger limit ({self.max_retriggers}) exceeded for "
-                    f"operation '{operation}' on {issue_key} within {self.window_seconds}s window. "
-                    f"Entering cooldown period of {self.cooldown_seconds}s."
-                )
-        
-        return True, None
-    
-    def record_retrigger(
-        self,
-        issue_key: str,
-        operation: str,
-        status: str,
-    ) -> int:
-        """
-        Record a retrigger attempt.
-        
-        Args:
-            issue_key: Jira issue key
-            operation: Operation name
-            status: Status of the attempt
-        
-        Returns:
-            Current retrigger count within the window
-        """
-        key = self._get_key(issue_key, operation)
-        current_time = datetime.now()
-        
-        # Clean up old attempts first
-        self._cleanup_old_attempts(key, current_time)
-        
-        # Record new attempt
-        attempt = RetriggerAttempt(
-            timestamp=current_time,
-            operation=operation,
-            issue_key=issue_key,
-            status=status,
-        )
-        
-        if key not in self._attempts:
-            self._attempts[key] = []
-        
-        self._attempts[key].append(attempt)
-        
-        return len(self._attempts[key])
-    
-    def get_retrigger_count(
-        self,
-        issue_key: str,
-        operation: str,
-    ) -> int:
-        """
-        Get current retrigger count for an issue/operation.
-        
-        Args:
-            issue_key: Jira issue key
-            operation: Operation name
-        
-        Returns:
-            Number of retriggers within the tracking window
-        """
-        key = self._get_key(issue_key, operation)
-        current_time = datetime.now()
-        
-        # Clean up old attempts
-        self._cleanup_old_attempts(key, current_time)
-        
-        return len(self._attempts.get(key, []))
-    
-    def reset_retriggers(
-        self,
-        issue_key: str,
-        operation: Optional[str] = None,
-    ) -> None:
-        """
-        Reset retrigger tracking for an issue.
-        
-        Args:
-            issue_key: Jira issue key
-            operation: Optional specific operation. If None, resets all operations.
-        """
-        if operation:
-            key = self._get_key(issue_key, operation)
-            if key in self._attempts:
-                del self._attempts[key]
-            if key in self._cooldown_until:
-                del self._cooldown_until[key]
-        else:
-            # Reset all operations for this issue
-            keys_to_remove = [
-                key for key in self._attempts.keys()
-                if key[0] == issue_key
-            ]
-            for key in keys_to_remove:
-                del self._attempts[key]
-                if key in self._cooldown_until:
-                    del self._cooldown_until[key]
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """
-        Get statistics about retrigger tracking.
-        
-        Returns:
-            Dictionary with tracking statistics
-        """
-        current_time = datetime.now()
-        
-        # Clean up all old attempts
-        for key in list(self._attempts.keys()):
-            self._cleanup_old_attempts(key, current_time)
-        
-        # Count active cooldowns
-        active_cooldowns = sum(
-            1 for cooldown_end in self._cooldown_until.values()
-            if current_time < cooldown_end
-        )
-        
         return {
-            "tracked_operations": len(self._attempts),
-            "total_attempts": sum(len(attempts) for attempts in self._attempts.values()),
-            "active_cooldowns": active_cooldowns,
-            "max_retriggers": self.max_retriggers,
-            "window_seconds": self.window_seconds,
-            "cooldown_seconds": self.cooldown_seconds,
+            "operation_id": self.operation_id,
+            "issue_key": self.issue_key,
+            "operation_type": self.operation_type,
+            "trigger_count": self.trigger_count,
+            "first_triggered_at": self.first_triggered_at.isoformat(),
+            "last_triggered_at": self.last_triggered_at.isoformat(),
+            "error_count": len(self.error_history),
+            "recent_errors": self.error_history[-3:] if self.error_history else [],
         }
 
 
@@ -711,8 +528,7 @@ class ManagerAgent:
     retry logic and error handling. It also reviews PRs with intelligent
     diff truncation that prioritizes new files.
     
-    The agent now includes retrigger loop protection to prevent infinite
-    cycles when operations are repeatedly attempted.
+    Features retrigger loop protection to prevent infinite cycles.
     """
     
     def __init__(
@@ -720,75 +536,139 @@ class ManagerAgent:
         max_retries: int = DEFAULT_MAX_RETRIES,
         base_delay: float = DEFAULT_BASE_DELAY,
         diff_max_chars: int = DEFAULT_DIFF_MAX_CHARS,
-        max_retriggers: int = DEFAULT_MAX_RETRIGGERS,
-        retrigger_window: int = DEFAULT_RETRIGGER_WINDOW,
-        enable_retrigger_protection: bool = True,
+        max_retrigger_count: int = DEFAULT_MAX_RETRIGGER_COUNT,
     ):
         """
         Initialize the Manager Agent.
         
         Args:
-            max_retries: Maximum number of retry attempts per API call
+            max_retries: Maximum number of retry attempts for API calls
             base_delay: Base delay in seconds before first retry
             diff_max_chars: Maximum characters for diff reviews
-            max_retriggers: Maximum retriggers allowed within window
-            retrigger_window: Time window in seconds to track retriggers
-            enable_retrigger_protection: Whether to enable retrigger loop protection
+            max_retrigger_count: Maximum times an operation can be retriggered
         """
         self.client = JiraRetryClient(
             max_retries=max_retries,
             base_delay=base_delay,
         )
         self.diff_max_chars = diff_max_chars
-        self.enable_retrigger_protection = enable_retrigger_protection
+        self.max_retrigger_count = max_retrigger_count
         
-        # Initialize retrigger tracker
-        self.retrigger_tracker = RetriggerTracker(
-            max_retriggers=max_retriggers,
-            window_seconds=retrigger_window,
-        )
+        # Track operation states to prevent infinite retrigger loops
+        self._operation_states: Dict[str, OperationState] = {}
     
-    def _check_retrigger_allowed(
-        self,
-        issue_key: str,
-        operation: str,
-    ) -> Tuple[bool, Optional[str]]:
+    def _get_operation_id(self, operation_type: str, issue_key: str) -> str:
         """
-        Check if a retrigger is allowed for an operation.
+        Generate operation ID for tracking.
         
         Args:
+            operation_type: Type of operation (e.g., "start_work", "transition")
             issue_key: Jira issue key
-            operation: Operation name
-        
+            
         Returns:
-            Tuple of (allowed: bool, reason: Optional[str])
+            Operation ID string
         """
-        if not self.enable_retrigger_protection:
-            return True, None
-        
-        return self.retrigger_tracker.can_retrigger(issue_key, operation)
+        return f"{operation_type}:{issue_key}"
     
-    def _record_retrigger(
+    def _check_and_increment_retrigger(
         self,
+        operation_type: str,
         issue_key: str,
-        operation: str,
-        status: str,
+        error_message: Optional[str] = None,
     ) -> int:
         """
-        Record a retrigger attempt.
+        Check retrigger count and increment. Raises exception if limit exceeded.
         
         Args:
+            operation_type: Type of operation
             issue_key: Jira issue key
-            operation: Operation name
-            status: Operation status
+            error_message: Optional error message to record
+            
+        Returns:
+            Current retrigger count after increment
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
+        """
+        operation_id = self._get_operation_id(operation_type, issue_key)
+        
+        # Get or create operation state
+        if operation_id not in self._operation_states:
+            self._operation_states[operation_id] = OperationState(
+                operation_id=operation_id,
+                issue_key=issue_key,
+                operation_type=operation_type,
+            )
+        
+        state = self._operation_states[operation_id]
+        
+        # Check if limit already exceeded
+        if state.is_limit_exceeded(self.max_retrigger_count):
+            summary = state.get_summary()
+            raise RetriggerLimitExceeded(
+                f"Retrigger limit exceeded for {operation_type} on {issue_key}. "
+                f"Max: {self.max_retrigger_count}, Current: {state.trigger_count}. "
+                f"Summary: {summary}"
+            )
+        
+        # Increment and return new count
+        count = state.increment_trigger(error_message)
+        
+        if count >= self.max_retrigger_count:
+            print(
+                f"⚠ Warning: {operation_type} for {issue_key} has reached retrigger limit "
+                f"({count}/{self.max_retrigger_count}). This will be the final attempt."
+            )
+        
+        return count
+    
+    def _reset_retrigger_count(self, operation_type: str, issue_key: str) -> None:
+        """
+        Reset retrigger count for an operation (e.g., after success).
+        
+        Args:
+            operation_type: Type of operation
+            issue_key: Jira issue key
+        """
+        operation_id = self._get_operation_id(operation_type, issue_key)
+        if operation_id in self._operation_states:
+            del self._operation_states[operation_id]
+    
+    def get_operation_state(self, operation_type: str, issue_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Get current state of an operation.
+        
+        Args:
+            operation_type: Type of operation
+            issue_key: Jira issue key
+            
+        Returns:
+            Operation state summary or None if not tracked
+        """
+        operation_id = self._get_operation_id(operation_type, issue_key)
+        if operation_id in self._operation_states:
+            return self._operation_states[operation_id].get_summary()
+        return None
+    
+    def get_all_operation_states(self) -> List[Dict[str, Any]]:
+        """
+        Get all tracked operation states.
         
         Returns:
-            Current retrigger count
+            List of operation state summaries
         """
-        if not self.enable_retrigger_protection:
-            return 0
+        return [state.get_summary() for state in self._operation_states.values()]
+    
+    def clear_all_operation_states(self) -> int:
+        """
+        Clear all tracked operation states.
         
-        return self.retrigger_tracker.record_retrigger(issue_key, operation, status)
+        Returns:
+            Number of states cleared
+        """
+        count = len(self._operation_states)
+        self._operation_states.clear()
+        return count
     
     async def start_work(
         self,
@@ -806,24 +686,12 @@ class ManagerAgent:
         
         Returns:
             TransitionResult
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
-        operation = "start_work"
-        
-        # Check retrigger limit
-        can_retrigger, reason = self._check_retrigger_allowed(issue_key, operation)
-        if not can_retrigger:
-            print(f"🛑 Retrigger blocked: {reason}")
-            return TransitionResult(
-                status=TransitionStatus.MAX_RETRIGGERS_EXCEEDED,
-                issue_key=issue_key,
-                error_message=reason,
-                retrigger_count=self.retrigger_tracker.get_retrigger_count(
-                    issue_key, operation
-                ),
-            )
-        
-        # Record this retrigger
-        retrigger_count = self._record_retrigger(issue_key, operation, "attempting")
+        # Check and increment retrigger count
+        retrigger_count = self._check_and_increment_retrigger("start_work", issue_key)
         
         fields = {}
         if assignee:
@@ -837,6 +705,18 @@ class ManagerAgent:
         )
         
         result.retrigger_count = retrigger_count
+        
+        # Reset count on success
+        if result.status == TransitionStatus.SUCCESS:
+            self._reset_retrigger_count("start_work", issue_key)
+        else:
+            # Record error for tracking
+            self._check_and_increment_retrigger(
+                "start_work",
+                issue_key,
+                error_message=result.error_message,
+            )
+        
         return result
     
     async def complete_work(
@@ -853,24 +733,12 @@ class ManagerAgent:
         
         Returns:
             TransitionResult
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
-        operation = "complete_work"
-        
-        # Check retrigger limit
-        can_retrigger, reason = self._check_retrigger_allowed(issue_key, operation)
-        if not can_retrigger:
-            print(f"🛑 Retrigger blocked: {reason}")
-            return TransitionResult(
-                status=TransitionStatus.MAX_RETRIGGERS_EXCEEDED,
-                issue_key=issue_key,
-                error_message=reason,
-                retrigger_count=self.retrigger_tracker.get_retrigger_count(
-                    issue_key, operation
-                ),
-            )
-        
-        # Record this retrigger
-        retrigger_count = self._record_retrigger(issue_key, operation, "attempting")
+        # Check and increment retrigger count
+        retrigger_count = self._check_and_increment_retrigger("complete_work", issue_key)
         
         result = await self.client.transition_issue_by_name(
             issue_key=issue_key,
@@ -879,6 +747,17 @@ class ManagerAgent:
         )
         
         result.retrigger_count = retrigger_count
+        
+        # Reset count on success
+        if result.status == TransitionStatus.SUCCESS:
+            self._reset_retrigger_count("complete_work", issue_key)
+        else:
+            self._check_and_increment_retrigger(
+                "complete_work",
+                issue_key,
+                error_message=result.error_message,
+            )
+        
         return result
     
     async def move_to_code_review(
@@ -895,24 +774,12 @@ class ManagerAgent:
         
         Returns:
             TransitionResult
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
-        operation = "move_to_code_review"
-        
-        # Check retrigger limit
-        can_retrigger, reason = self._check_retrigger_allowed(issue_key, operation)
-        if not can_retrigger:
-            print(f"🛑 Retrigger blocked: {reason}")
-            return TransitionResult(
-                status=TransitionStatus.MAX_RETRIGGERS_EXCEEDED,
-                issue_key=issue_key,
-                error_message=reason,
-                retrigger_count=self.retrigger_tracker.get_retrigger_count(
-                    issue_key, operation
-                ),
-            )
-        
-        # Record this retrigger
-        retrigger_count = self._record_retrigger(issue_key, operation, "attempting")
+        # Check and increment retrigger count
+        retrigger_count = self._check_and_increment_retrigger("move_to_code_review", issue_key)
         
         result = await self.client.transition_issue_by_name(
             issue_key=issue_key,
@@ -921,6 +788,17 @@ class ManagerAgent:
         )
         
         result.retrigger_count = retrigger_count
+        
+        # Reset count on success
+        if result.status == TransitionStatus.SUCCESS:
+            self._reset_retrigger_count("move_to_code_review", issue_key)
+        else:
+            self._check_and_increment_retrigger(
+                "move_to_code_review",
+                issue_key,
+                error_message=result.error_message,
+            )
+        
         return result
     
     async def move_to_testing(
@@ -937,24 +815,12 @@ class ManagerAgent:
         
         Returns:
             TransitionResult
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
-        operation = "move_to_testing"
-        
-        # Check retrigger limit
-        can_retrigger, reason = self._check_retrigger_allowed(issue_key, operation)
-        if not can_retrigger:
-            print(f"🛑 Retrigger blocked: {reason}")
-            return TransitionResult(
-                status=TransitionStatus.MAX_RETRIGGERS_EXCEEDED,
-                issue_key=issue_key,
-                error_message=reason,
-                retrigger_count=self.retrigger_tracker.get_retrigger_count(
-                    issue_key, operation
-                ),
-            )
-        
-        # Record this retrigger
-        retrigger_count = self._record_retrigger(issue_key, operation, "attempting")
+        # Check and increment retrigger count
+        retrigger_count = self._check_and_increment_retrigger("move_to_testing", issue_key)
         
         # Try "Testing" first, fall back to "QA"
         result = await self.client.transition_issue_by_name(
@@ -971,6 +837,17 @@ class ManagerAgent:
             )
         
         result.retrigger_count = retrigger_count
+        
+        # Reset count on success
+        if result.status == TransitionStatus.SUCCESS:
+            self._reset_retrigger_count("move_to_testing", issue_key)
+        else:
+            self._check_and_increment_retrigger(
+                "move_to_testing",
+                issue_key,
+                error_message=result.error_message,
+            )
+        
         return result
     
     async def get_issue_status(self, issue_key: str) -> Optional[str]:
@@ -989,34 +866,6 @@ class ManagerAgent:
         except Exception as e:
             print(f"Error getting status for {issue_key}: {e}")
             return None
-    
-    def reset_retriggers(
-        self,
-        issue_key: str,
-        operation: Optional[str] = None,
-    ) -> None:
-        """
-        Reset retrigger tracking for an issue.
-        
-        This can be called manually to allow an issue to retry operations
-        after fixing underlying problems.
-        
-        Args:
-            issue_key: Jira issue key
-            operation: Optional specific operation. If None, resets all operations.
-        """
-        self.retrigger_tracker.reset_retriggers(issue_key, operation)
-        print(f"✓ Reset retrigger tracking for {issue_key}" +
-              (f" operation '{operation}'" if operation else " (all operations)"))
-    
-    def get_retrigger_stats(self) -> Dict[str, Any]:
-        """
-        Get retrigger tracker statistics.
-        
-        Returns:
-            Dictionary with retrigger tracking statistics
-        """
-        return self.retrigger_tracker.get_stats()
     
     def review_diff(
         self,
@@ -1120,7 +969,7 @@ class ManagerAgent:
         self,
         issue_key: str,
         diff_text: str,
-    ) -> Tuple[DiffReviewResult, TransitionResult]:
+    ) -> tuple[DiffReviewResult, TransitionResult]:
         """
         Review a PR diff and post review comments to Jira.
         
@@ -1130,6 +979,9 @@ class ManagerAgent:
         
         Returns:
             Tuple of (DiffReviewResult, TransitionResult)
+            
+        Raises:
+            RetriggerLimitExceeded: If retrigger limit is exceeded
         """
         # Review the diff
         review_result = self.review_diff(diff_text, generate_comments=True)
@@ -1137,7 +989,7 @@ class ManagerAgent:
         # Format comments for Jira
         jira_comment = self._format_review_for_jira(review_result)
         
-        # Post comment and transition to code review (with retrigger protection)
+        # Post comment and transition to code review
         transition_result = await self.move_to_code_review(
             issue_key=issue_key,
             comment=jira_comment,
@@ -1184,20 +1036,16 @@ def create_manager_agent(
     max_retries: int = DEFAULT_MAX_RETRIES,
     base_delay: float = DEFAULT_BASE_DELAY,
     diff_max_chars: int = DEFAULT_DIFF_MAX_CHARS,
-    max_retriggers: int = DEFAULT_MAX_RETRIGGERS,
-    retrigger_window: int = DEFAULT_RETRIGGER_WINDOW,
-    enable_retrigger_protection: bool = True,
+    max_retrigger_count: int = DEFAULT_MAX_RETRIGGER_COUNT,
 ) -> ManagerAgent:
     """
     Factory function to create a Manager Agent instance.
     
     Args:
-        max_retries: Maximum number of retry attempts per API call
+        max_retries: Maximum number of retry attempts for API calls
         base_delay: Base delay in seconds before first retry
         diff_max_chars: Maximum characters for diff reviews
-        max_retriggers: Maximum retriggers allowed within window
-        retrigger_window: Time window in seconds to track retriggers
-        enable_retrigger_protection: Whether to enable retrigger loop protection
+        max_retrigger_count: Maximum times an operation can be retriggered
     
     Returns:
         ManagerAgent instance
@@ -1206,7 +1054,5 @@ def create_manager_agent(
         max_retries=max_retries,
         base_delay=base_delay,
         diff_max_chars=diff_max_chars,
-        max_retriggers=max_retriggers,
-        retrigger_window=retrigger_window,
-        enable_retrigger_protection=enable_retrigger_protection,
+        max_retrigger_count=max_retrigger_count,
     )
