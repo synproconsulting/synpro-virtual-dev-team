@@ -244,6 +244,38 @@ The module includes comprehensive tests for:
   - SQLite: `sqlite:///path/to/database.db`
   - MySQL: `mysql://user:password@host:port/database`
 
+## Orchestrator CI Wait Configuration
+
+The Orchestrator waits for GitHub Actions CI workflows to complete after each ticket execution. As of **SDT1-64**, the timeout has been extended from 15 to 30 minutes to accommodate longer-running CI pipelines.
+
+### Configuration
+
+- `CI_WAIT_TIMEOUT_SECONDS`: Override the default CI wait timeout (default: 1800 seconds = 30 minutes)
+
+Example:
+```bash
+# Use custom timeout (e.g., 45 minutes)
+export CI_WAIT_TIMEOUT_SECONDS=2700
+
+# Run orchestrator
+python -m agents.orchestrator
+```
+
+### CI Wait Behavior
+
+When the Orchestrator executes a ticket:
+1. Ticket is assigned to the appropriate agent (Dev, QA, etc.)
+2. Agent completes the work and creates a pull request
+3. GitHub Actions CI workflow is triggered automatically
+4. **Orchestrator waits up to 30 minutes for CI to complete** (SDT1-64)
+5. If CI passes, ticket is marked as completed
+6. If CI fails or times out, ticket is marked as failed with error details
+
+### Timeout Change History
+
+- **v1.0** (original): 15-minute timeout (900 seconds)
+- **v1.1** (SDT1-64): 30-minute timeout (1800 seconds) - extended to accommodate complex integration tests and deployments
+
 ## Best Practices
 
 1. **Always use context managers or try/finally for sessions**:

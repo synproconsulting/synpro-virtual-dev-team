@@ -13,6 +13,7 @@ Key features:
 - Persists state after each ticket completion
 - Supports resume from last checkpoint
 - Handles failures gracefully with detailed error logging
+- Waits for CI completion with 30-minute timeout (SDT1-64)
 """
 
 import os
@@ -44,6 +45,7 @@ class Orchestrator:
         jira_project_key: str,
         db: Optional[Session] = None,
         verbose: bool = True,
+        ci_wait_enabled: bool = True,
     ):
         """Initialize orchestrator.
         
@@ -51,9 +53,11 @@ class Orchestrator:
             jira_project_key: Jira project key (e.g., 'SDT1')
             db: Database session. If None, creates a new session.
             verbose: Whether to print execution logs
+            ci_wait_enabled: Whether to wait for CI completion after ticket execution
         """
         self.jira_project_key = jira_project_key
         self.verbose = verbose
+        self.ci_wait_enabled = ci_wait_enabled
         self._db = db
         self._owns_session = db is None
         self.state_manager = StateManager(db=db)
@@ -110,8 +114,9 @@ class Orchestrator:
         In production, this would:
         1. Assign ticket to appropriate agent (Dev, QA, etc.)
         2. Execute the work
-        3. Wait for completion
-        4. Verify results
+        3. Create PR
+        4. Wait for CI completion with 30-minute timeout (SDT1-64)
+        5. Verify results
         
         Args:
             ticket_key: Jira ticket key (e.g., 'SDT1-42')
@@ -127,6 +132,43 @@ class Orchestrator:
         # TODO: Implement actual ticket execution
         # Placeholder that simulates execution
         time.sleep(0.1)  # Simulate work
+        
+        # If CI wait is enabled, wait for CI to complete
+        if self.ci_wait_enabled:
+            self.log(f"Waiting for CI completion on {ticket_key}")
+            
+            try:
+                # Import here to avoid circular dependencies
+                from tools.github_ci_wait import wait_for_ci_completion, get_ci_timeout_seconds
+                
+                # Extract branch name from ticket key
+                # Convention: feature/sdt1-42-description
+                branch_name = f"feature/{ticket_key.lower()}-*"
+                
+                # Get timeout from environment or use default (30 minutes)
+                timeout = get_ci_timeout_seconds()
+                
+                # Wait for CI (with 30-minute timeout per SDT1-64)
+                ci_result = wait_for_ci_completion(
+                    branch=branch_name,
+                    timeout_seconds=timeout,
+                    verbose=self.verbose,
+                )
+                
+                if not ci_result["success"]:
+                    if ci_result["timed_out"]:
+                        self.log(f"⏱  CI timeout reached for {ticket_key} after {ci_result['elapsed_seconds']:.1f}s")
+                        return False
+                    else:
+                        self.log(f"✗ CI failed for {ticket_key}: {ci_result['conclusion']}")
+                        self.log(f"   URL: {ci_result.get('html_url')}")
+                        return False
+                
+                self.log(f"✓ CI passed for {ticket_key} in {ci_result['elapsed_seconds']:.1f}s")
+                
+            except Exception as e:
+                self.log(f"Warning: Could not wait for CI: {e}")
+                # Continue anyway - CI wait is best-effort
         
         # Placeholder success
         return True
@@ -339,6 +381,7 @@ def start_sprint_execution(
     sprint_name: str,
     jira_project_key: str,
     verbose: bool = True,
+    ci_wait_enabled: bool = True,
 ) -> UUID:
     """Convenience function to start a sprint execution.
     
@@ -347,11 +390,12 @@ def start_sprint_execution(
         sprint_name: Sprint name
         jira_project_key: Jira project key
         verbose: Whether to print execution logs
+        ci_wait_enabled: Whether to wait for CI completion
         
     Returns:
         UUID: State ID for tracking execution
     """
-    with Orchestrator(jira_project_key, verbose=verbose) as orchestrator:
+    with Orchestrator(jira_project_key, verbose=verbose, ci_wait_enabled=ci_wait_enabled) as orchestrator:
         return orchestrator.start_sprint(sprint_id, sprint_name)
 
 
@@ -359,6 +403,7 @@ def resume_sprint_execution(
     state_id: UUID,
     jira_project_key: str,
     verbose: bool = True,
+    ci_wait_enabled: bool = True,
 ) -> None:
     """Convenience function to resume a sprint execution.
     
@@ -366,6 +411,7 @@ def resume_sprint_execution(
         state_id: UUID of the orchestrator state to resume
         jira_project_key: Jira project key
         verbose: Whether to print execution logs
+        ci_wait_enabled: Whether to wait for CI completion
     """
-    with Orchestrator(jira_project_key, verbose=verbose) as orchestrator:
+    with Orchestrator(jira_project_key, verbose=verbose, ci_wait_enabled=ci_wait_enabled) as orchestrator:
         orchestrator.resume_sprint(state_id)
