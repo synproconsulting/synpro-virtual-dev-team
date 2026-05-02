@@ -1,243 +1,362 @@
 """
-Railway deployment API router.
-
-Provides endpoints for fetching Railway deployment status and triggering deployments.
+railway_router.py
+=================
+FastAPI router for Railway deployment operations.
+Provides endpoints for managing Railway deployments via GraphQL API.
 """
 
+import os
 import logging
-from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from typing import Dict, List, Optional
+from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
-from railway_client import get_railway_client, RailwayClient
+from datetime import datetime
+
+from railway_api import get_railway_client, RailwayClient, RailwayAPIError
+from auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/railway", tags=["railway"])
 
 
+# ── Request/Response Models ───────────────────────────────────────────────────
+
+
 class DeploymentTriggerRequest(BaseModel):
-    """Request model for triggering a deployment."""
-    
+    """Request to trigger a deployment."""
     service_id: str = Field(..., description="Railway service ID")
     environment_id: str = Field(..., description="Railway environment ID")
 
 
-class DeploymentResponse(BaseModel):
-    """Response model for deployment information."""
-    
+class DeploymentStatusResponse(BaseModel):
+    """Response containing deployment status."""
     id: str
     status: str
-    service_name: Optional[str] = None
     created_at: str
     updated_at: Optional[str] = None
     static_url: Optional[str] = None
+    meta: Optional[Dict] = None
 
 
-@router.get("/projects")
-async def get_projects():
+class ServiceInfo(BaseModel):
+    """Service information."""
+    id: str
+    name: str
+    icon: Optional[str] = None
+    created_at: str
+
+
+class ProjectInfo(BaseModel):
+    """Project information."""
+    id: str
+    name: str
+    description: Optional[str] = None
+    created_at: str
+
+
+class EnvironmentInfo(BaseModel):
+    """Environment information."""
+    id: str
+    name: str
+    created_at: str
+
+
+# ── Helper Functions ──────────────────────────────────────────────────────────
+
+
+def _format_deployment(deployment: Dict) -> DeploymentStatusResponse:
+    """Format deployment data from Railway API to response model."""
+    return DeploymentStatusResponse(
+        id=deployment.get("id", ""),
+        status=deployment.get("status", "UNKNOWN"),
+        created_at=deployment.get("createdAt", ""),
+        updated_at=deployment.get("updatedAt"),
+        static_url=deployment.get("staticUrl"),
+        meta=deployment.get("meta")
+    )
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/projects", response_model=List[ProjectInfo])
+async def get_projects(current_user: Dict = Depends(get_current_user)):
     """
-    Get all Railway projects accessible to the configured API token.
+    Get all Railway projects accessible by the configured API token.
     
-    Returns:
-        List of projects with basic information.
+    Requires authentication.
     """
     try:
-        client = get_railway_client()
+        client = await get_railway_client()
         projects = await client.get_projects()
-        return {"projects": projects}
-    except ValueError as e:
-        logger.error(f"Railway client configuration error: {e}")
-        raise HTTPException(status_code=500, detail="Railway API not configured")
+        
+        return [
+            ProjectInfo(
+                id=p["id"],
+                name=p["name"],
+                description=p.get("description"),
+                created_at=p.get("createdAt", "")
+            )
+            for p in projects
+        ]
+    
+    except RailwayAPIError as e:
+        logger.error(f"Railway API error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Railway API error: {str(e)}"
+        )
     except Exception as e:
-        logger.error(f"Failed to fetch projects: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch projects: {str(e)}")
+        logger.error(f"Unexpected error fetching projects: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
 
 
-@router.get("/projects/{project_id}/services")
-async def get_project_services(project_id: str):
+@router.get("/projects/{project_id}/services", response_model=List[ServiceInfo])
+async def get_project_services(
+    project_id: str,
+    current_user: Dict = Depends(get_current_user)
+):
     """
-    Get all services in a Railway project.
+    Get all services for a specific Railway project.
     
     Args:
-        project_id: Railway project ID.
-    
-    Returns:
-        List of services in the project.
+        project_id: Railway project ID
+        
+    Requires authentication.
     """
     try:
-        client = get_railway_client()
+        client = await get_railway_client()
         services = await client.get_project_services(project_id)
-        return {"services": services}
-    except ValueError as e:
-        logger.error(f"Railway client configuration error: {e}")
-        raise HTTPException(status_code=500, detail="Railway API not configured")
+        
+        return [
+            ServiceInfo(
+                id=s["id"],
+                name=s["name"],
+                icon=s.get("icon"),
+                created_at=s.get("createdAt", "")
+            )
+            for s in services
+        ]
+    
+    except RailwayAPIError as e:
+        logger.error(f"Railway API error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Railway API error: {str(e)}"
+        )
     except Exception as e:
-        logger.error(f"Failed to fetch services: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch services: {str(e)}")
+        logger.error(f"Unexpected error fetching services: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
 
 
-@router.get("/services/{service_id}/deployments")
+@router.get("/projects/{project_id}/environments", response_model=List[EnvironmentInfo])
+async def get_project_environments(
+    project_id: str,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Get all environments for a specific Railway project.
+    
+    Args:
+        project_id: Railway project ID
+        
+    Requires authentication.
+    """
+    try:
+        client = await get_railway_client()
+        environments = await client.get_project_environments(project_id)
+        
+        return [
+            EnvironmentInfo(
+                id=e["id"],
+                name=e["name"],
+                created_at=e.get("createdAt", "")
+            )
+            for e in environments
+        ]
+    
+    except RailwayAPIError as e:
+        logger.error(f"Railway API error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Railway API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error fetching environments: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
+@router.get("/services/{service_id}/deployments", response_model=List[DeploymentStatusResponse])
 async def get_service_deployments(
     service_id: str,
-    environment_id: Optional[str] = Query(None, description="Filter by environment ID"),
-    limit: int = Query(10, ge=1, le=50, description="Maximum number of deployments to return")
+    limit: int = 10,
+    current_user: Dict = Depends(get_current_user)
 ):
     """
-    Get recent deployments for a service.
+    Get recent deployments for a specific service.
     
     Args:
-        service_id: Railway service ID.
-        environment_id: Optional environment ID to filter deployments.
-        limit: Maximum number of deployments to return (1-50).
-    
-    Returns:
-        List of recent deployments for the service.
+        service_id: Railway service ID
+        limit: Maximum number of deployments to return (default: 10)
+        
+    Requires authentication.
     """
     try:
-        client = get_railway_client()
-        deployments = await client.get_service_deployments(
-            service_id=service_id,
-            environment_id=environment_id,
-            limit=limit
-        )
-        return {"deployments": deployments}
-    except ValueError as e:
-        logger.error(f"Railway client configuration error: {e}")
-        raise HTTPException(status_code=500, detail="Railway API not configured")
-    except Exception as e:
-        logger.error(f"Failed to fetch deployments: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch deployments: {str(e)}")
-
-
-@router.get("/projects/{project_id}/environments/{environment_name}/deployments")
-async def get_environment_deployments(
-    project_id: str,
-    environment_name: str = "production"
-):
-    """
-    Get all deployments for all services in a specific environment.
+        client = await get_railway_client()
+        deployments = await client.get_service_deployments(service_id, limit)
+        
+        return [_format_deployment(d) for d in deployments]
     
-    Args:
-        project_id: Railway project ID.
-        environment_name: Name of the environment (e.g., 'production', 'staging', 'uat').
-    
-    Returns:
-        List of deployments in the environment with service information.
-    """
-    try:
-        client = get_railway_client()
-        deployments = await client.get_environment_deployments(
-            project_id=project_id,
-            environment_name=environment_name
-        )
-        return {
-            "environment": environment_name,
-            "deployments": deployments
-        }
-    except ValueError as e:
-        logger.error(f"Railway client configuration error: {e}")
-        raise HTTPException(status_code=500, detail="Railway API not configured")
-    except Exception as e:
-        logger.error(f"Failed to fetch environment deployments: {e}")
+    except RailwayAPIError as e:
+        logger.error(f"Railway API error: {e}")
         raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to fetch environment deployments: {str(e)}"
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Railway API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error fetching deployments: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
         )
 
 
-@router.get("/deployments/{deployment_id}/logs")
-async def get_deployment_logs(
-    deployment_id: str,
-    limit: int = Query(100, ge=1, le=500, description="Maximum number of log entries")
+@router.post("/deployments/trigger", response_model=DeploymentStatusResponse)
+async def trigger_deployment(
+    request: DeploymentTriggerRequest,
+    current_user: Dict = Depends(get_current_user)
 ):
     """
-    Get logs for a specific deployment.
+    Trigger a new deployment for a service in a specific environment.
     
     Args:
-        deployment_id: Railway deployment ID.
-        limit: Maximum number of log entries to return (1-500).
-    
-    Returns:
-        List of log entries for the deployment.
+        request: Deployment trigger request with service_id and environment_id
+        
+    Requires authentication.
     """
     try:
-        client = get_railway_client()
-        logs = await client.get_deployment_logs(
-            deployment_id=deployment_id,
-            limit=limit
-        )
-        return {"logs": logs}
-    except ValueError as e:
-        logger.error(f"Railway client configuration error: {e}")
-        raise HTTPException(status_code=500, detail="Railway API not configured")
-    except Exception as e:
-        logger.error(f"Failed to fetch deployment logs: {e}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to fetch deployment logs: {str(e)}"
-        )
-
-
-@router.post("/deployments/trigger")
-async def trigger_deployment(request: DeploymentTriggerRequest):
-    """
-    Trigger a new deployment for a service.
-    
-    Args:
-        request: Deployment trigger request with service and environment IDs.
-    
-    Returns:
-        Information about the triggered deployment.
-    """
-    try:
-        client = get_railway_client()
+        client = await get_railway_client()
         deployment = await client.trigger_deployment(
-            service_id=request.service_id,
-            environment_id=request.environment_id
+            request.service_id,
+            request.environment_id
         )
-        return {
-            "success": True,
-            "deployment": deployment,
-            "message": "Deployment triggered successfully"
-        }
-    except ValueError as e:
-        logger.error(f"Railway client configuration error: {e}")
-        raise HTTPException(status_code=500, detail="Railway API not configured")
-    except Exception as e:
-        logger.error(f"Failed to trigger deployment: {e}")
+        
+        logger.info(
+            f"User {current_user.get('email', 'unknown')} triggered deployment "
+            f"{deployment.get('id')} for service {request.service_id}"
+        )
+        
+        return _format_deployment(deployment)
+    
+    except RailwayAPIError as e:
+        logger.error(f"Railway API error: {e}")
         raise HTTPException(
-            status_code=500, 
-            detail=f"Failed to trigger deployment: {str(e)}"
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Railway API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error triggering deployment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
+@router.get("/deployments/{deployment_id}", response_model=DeploymentStatusResponse)
+async def get_deployment_status(
+    deployment_id: str,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Get the current status of a specific deployment.
+    
+    Args:
+        deployment_id: Railway deployment ID
+        
+    Requires authentication.
+    """
+    try:
+        client = await get_railway_client()
+        deployment = await client.get_deployment_status(deployment_id)
+        
+        return _format_deployment(deployment)
+    
+    except RailwayAPIError as e:
+        logger.error(f"Railway API error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Railway API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error fetching deployment status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+
+
+@router.get("/services/{service_id}/variables")
+async def get_service_variables(
+    service_id: str,
+    environment_id: str,
+    current_user: Dict = Depends(get_current_user)
+):
+    """
+    Get environment variables for a service in a specific environment.
+    
+    Args:
+        service_id: Railway service ID
+        environment_id: Railway environment ID
+        
+    Requires authentication.
+    
+    Note: Variable values may be redacted based on Railway's visibility settings.
+    """
+    try:
+        client = await get_railway_client()
+        variables = await client.get_service_variables(service_id, environment_id)
+        
+        return {"variables": variables}
+    
+    except RailwayAPIError as e:
+        logger.error(f"Railway API error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Railway API error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error fetching service variables: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
         )
 
 
 @router.get("/health")
-async def railway_health_check():
+async def railway_health():
     """
-    Check if Railway API is configured and accessible.
+    Health check endpoint for Railway integration.
+    Verifies that Railway API token is configured.
+    """
+    api_token = os.environ.get("RAILWAY_API_TOKEN")
     
-    Returns:
-        Health status of Railway integration.
-    """
-    try:
-        client = get_railway_client()
-        # Try to fetch projects as a health check
-        projects = await client.get_projects()
-        return {
-            "status": "healthy",
-            "configured": True,
-            "projects_count": len(projects)
-        }
-    except ValueError:
-        return {
-            "status": "unconfigured",
-            "configured": False,
-            "message": "RAILWAY_API_TOKEN not set"
-        }
-    except Exception as e:
-        logger.error(f"Railway health check failed: {e}")
+    if not api_token:
         return {
             "status": "unhealthy",
-            "configured": True,
-            "error": str(e)
+            "message": "RAILWAY_API_TOKEN not configured"
         }
+    
+    return {
+        "status": "healthy",
+        "message": "Railway API configured"
+    }
