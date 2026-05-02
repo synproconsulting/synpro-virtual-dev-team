@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import DashboardMain from "./components/DashboardMain";
 import SprintDashboard from "./components/SprintDashboard";
 import GitHubWorkflowMonitor from "./components/GitHubWorkflowMonitor";
@@ -16,8 +16,21 @@ const TABS = [
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("sprint");
-  const ActiveComponent = TABS.find(t => t.id === activeTab)?.component || SprintDashboard;
+  const [activeTab, setActiveTab] = useState("overview");
+  
+  // Listen for navigation events from child components
+  useEffect(() => {
+    const handleNavigate = (event) => {
+      if (event.detail && typeof event.detail === 'string') {
+        setActiveTab(event.detail);
+      }
+    };
+    
+    window.addEventListener('cc-navigate', handleNavigate);
+    return () => window.removeEventListener('cc-navigate', handleNavigate);
+  }, []);
+  
+  const ActiveComponent = TABS.find(t => t.id === activeTab)?.component || DashboardMain;
 
   return (
     <div className="cc-app">
