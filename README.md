@@ -244,6 +244,48 @@ The module includes comprehensive tests for:
   - SQLite: `sqlite:///path/to/database.db`
   - MySQL: `mysql://user:password@host:port/database`
 
+## Security & Operations
+
+### Token Rotation
+
+The PM Agent system includes comprehensive token rotation procedures and automation:
+
+- **Runbooks**: See [Token Rotation Runbook](docs/runbooks/TOKEN_ROTATION.md) for detailed procedures
+- **Quick Reference**: See [Quick Reference Guide](docs/runbooks/QUICK_REFERENCE.md) for common commands
+- **Scripts**: Automated rotation scripts in `scripts/` directory
+  - `rotate_token.py` - Main rotation automation
+  - `generate_secrets.py` - Secure secret generation
+  - `check_rotation_schedule.py` - Schedule tracking and notifications
+  - `health_check.py` - Post-rotation validation
+
+### Generate Secure Secrets
+
+```bash
+# Generate JWT secret
+./scripts/generate_secrets.py --type jwt
+
+# Generate database password
+./scripts/generate_secrets.py --type database
+
+# Generate all common secret types
+./scripts/generate_secrets.py --all
+```
+
+### Token Rotation
+
+```bash
+# Rotate JWT secret in production
+./scripts/rotate_token.py --env production --token-type jwt --execute --zero-downtime
+
+# Check rotation schedule
+./scripts/check_rotation_schedule.py --report
+
+# Verify service health
+./scripts/health_check.py --comprehensive --env production
+```
+
+See the [scripts README](scripts/README.md) for complete documentation.
+
 ## Best Practices
 
 1. **Always use context managers or try/finally for sessions**:
@@ -264,6 +306,10 @@ The module includes comprehensive tests for:
 
 5. **Use transactions**: Commit changes explicitly and handle rollbacks
 
+6. **Never commit secrets to version control**: Use environment variables or secret management systems
+
+7. **Rotate tokens regularly**: Follow the token rotation schedule (see runbooks)
+
 ## Contributing
 
 When contributing to this module:
@@ -274,6 +320,13 @@ When contributing to this module:
 4. Add tests for new functionality
 5. Keep functions under 30 lines where possible
 6. No hardcoded secrets or credentials
+7. Update documentation for new features
+
+## Documentation
+
+- [Token Rotation Runbook](docs/runbooks/TOKEN_ROTATION.md) - Comprehensive token rotation procedures
+- [Quick Reference Guide](docs/runbooks/QUICK_REFERENCE.md) - Quick commands and checklists
+- [Scripts Documentation](scripts/README.md) - Automation scripts guide
 
 ## License
 

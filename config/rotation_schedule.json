@@ -1,0 +1,48 @@
+{
+  "version": "1.0",
+  "last_updated": "2024-01-15T00:00:00",
+  "description": "Token rotation schedule tracking. Update with check_rotation_schedule.py script.",
+  "tokens": {
+    "jwt": {
+      "last_rotated": null,
+      "rotation_frequency_days": 90,
+      "next_rotation_due": null,
+      "rotation_history": [],
+      "description": "JWT secret key for authentication tokens"
+    },
+    "database": {
+      "last_rotated": null,
+      "rotation_frequency_days": 180,
+      "next_rotation_due": null,
+      "rotation_history": [],
+      "description": "Database connection credentials"
+    },
+    "railway": {
+      "last_rotated": null,
+      "rotation_frequency_days": 60,
+      "next_rotation_due": null,
+      "rotation_history": [],
+      "description": "Railway API token for deployment automation"
+    },
+    "smtp": {
+      "last_rotated": null,
+      "rotation_frequency_days": 180,
+      "next_rotation_due": null,
+      "rotation_history": [],
+      "description": "SMTP credentials for email sending"
+    },
+    "jira": {
+      "last_rotated": null,
+      "rotation_frequency_days": 90,
+      "next_rotation_due": null,
+      "rotation_history": [],
+      "description": "Jira API token for issue management"
+    }
+  },
+  "notification_settings": {
+    "notify_days_before": 7,
+    "notify_on_overdue": true,
+    "webhook_url": null,
+    "notification_email": null
+  }
+}

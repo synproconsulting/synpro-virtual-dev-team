@@ -1,394 +1,514 @@
 # Token Rotation Scripts
 
-This directory contains automated scripts for rotating API tokens and secrets used by the PM Agent system.
+This directory contains automated scripts for rotating tokens and secrets used by the PM Agent system.
 
 ## Overview
 
 Regular token rotation is a critical security practice. These scripts automate the process while maintaining audit trails and minimizing downtime.
 
+**Related Documentation:**
+- [Token Rotation Runbook](../docs/runbooks/TOKEN_ROTATION.md) - Comprehensive rotation procedures
+- [Quick Reference Guide](../docs/runbooks/QUICK_REFERENCE.md) - Quick commands and checklists
+
 ## Scripts
 
-### `rotate_tokens.py`
+### `rotate_token.py`
 
-Primary token rotation script with comprehensive features:
-- Automated rotation for multiple token types
-- Dry-run mode for testing
-- Audit logging
-- Health checks and validation
-- Rollback support
+**Primary token rotation script** with safety checks and rollback support.
 
-**Usage:**
-```bash
-# Dry run - test without making changes
-python rotate_tokens.py --environment staging --tokens all --dry-run
-
-# Rotate specific tokens
-python rotate_tokens.py --environment production --tokens jira,openai
-
-# Automated rotation (no prompts)
-python rotate_tokens.py --environment production --tokens jwt --force
-
-# With audit log
-python rotate_tokens.py --environment production --tokens all --audit-log /var/log/rotation.json
-```
-
-### `emergency_rotation.sh`
-
-Emergency rotation script for compromised credentials:
-- Fast rotation without extensive testing
-- Manual verification steps
-- Audit logging
-- Immediate token revocation
+**Features:**
+- Automated rotation for JWT, database, Railway, SMTP, and Jira tokens
+- Dry-run mode for safe testing
+- Zero-downtime rolling restarts
+- Automatic backup creation
+- Health validation
+- Rollback capability
 
 **Usage:**
 ```bash
-# Emergency rotation
-./emergency_rotation.sh production jira
-./emergency_rotation.sh staging openai
+# Dry run (recommended first step)
+./scripts/rotate_token.py --env production --token-type jwt --dry-run
+
+# Execute rotation with validation
+./scripts/rotate_token.py --env production --token-type jwt --execute --validate
+
+# Zero-downtime rotation
+./scripts/rotate_token.py --env production --token-type jwt --execute --zero-downtime
+
+# Emergency rotation (skips some checks)
+./scripts/rotate_token.py --env production --token-type jwt --emergency
+
+# Rollback to previous token
+./scripts/rotate_token.py --env production --token-type jwt --rollback
+
+# Check prerequisites only
+./scripts/rotate_token.py --env production --token-type jwt --check-prerequisites
 ```
 
-### `verify_rotation.sh`
+**Token Types Supported:**
+- `jwt` - JWT secret key (invalidates user sessions)
+- `database` - Database credentials (requires database setup)
+- `railway` - Railway API token (must be generated manually)
+- `smtp` - SMTP password (must be generated manually)
+- `jira` - Jira API token (must be generated manually)
 
-Post-rotation verification script:
-- Tests all API endpoints
-- Verifies token functionality
-- Checks deployment status
-- Generates health report
+### `generate_secrets.py`
+
+**Generate cryptographically secure secrets** for various purposes.
+
+**Features:**
+- Multiple secret types
+- Configurable length
+- Entropy calculation
+- Usage hints and examples
 
 **Usage:**
 ```bash
-./verify_rotation.sh production
-./verify_rotation.sh staging
+# Generate JWT secret
+./scripts/generate_secrets.py --type jwt
+
+# Generate database password
+./scripts/generate_secrets.py --type database
+
+# Generate API token with custom length
+./scripts/generate_secrets.py --type api --length 64
+
+# Generate all common secret types
+./scripts/generate_secrets.py --all
+
+# Generate multiple secrets
+./scripts/generate_secrets.py --type api --count 5
+
+# Without usage hints (for scripting)
+./scripts/generate_secrets.py --type jwt --no-hints
 ```
 
-## Supported Token Types
+**Secret Types:**
+- `jwt` - JWT secret key (base64, 512 bits default)
+- `database` - Database password (mixed case + symbols, 32 chars)
+- `api` - API token (URL-safe base64, 48 bytes)
+- `symmetric` - Symmetric encryption key (hex, 32 bytes for AES-256)
+- `otp` - OTP/TOTP secret (base32 for authenticator apps)
+- `csrf` - CSRF token (URL-safe, 32 bytes)
+- `random` - Random string (custom charset)
 
-| Token Type | Description | Rotation Impact |
-|------------|-------------|-----------------|
-| `jira` | Jira API Token | Low - seamless rotation |
-| `openai` | OpenAI API Key | Low - seamless rotation |
-| `github` | GitHub PAT | Low - seamless rotation |
-| `jwt` | JWT Secret Key | High - invalidates user sessions |
-| `database` | Database Password | Medium - requires coordination |
+### `check_rotation_schedule.py`
 
-## Prerequisites
+**Track and monitor rotation schedules**, send notifications for upcoming rotations.
 
-### Required Tools
+**Features:**
+- Track last rotation dates
+- Calculate next due dates
+- Identify overdue rotations
+- Send notifications (console, webhook)
+- Generate status reports
 
-- Python 3.11+
-- AWS CLI (configured with credentials)
-- kubectl (configured for cluster access)
-- bash 4.0+
-
-### Python Dependencies
-
+**Usage:**
 ```bash
-pip install -r requirements.txt
+# Generate rotation status report
+./scripts/check_rotation_schedule.py --report
+
+# Check and notify for upcoming rotations
+./scripts/check_rotation_schedule.py --notify
+
+# Send notifications to Slack webhook
+./scripts/check_rotation_schedule.py --notify --webhook https://hooks.slack.com/...
+
+# Update rotation date for JWT token (today)
+./scripts/check_rotation_schedule.py --update jwt
+
+# Update with specific date
+./scripts/check_rotation_schedule.py --update database --rotated-date 2024-01-15
+
+# Check upcoming rotations (next 14 days)
+./scripts/check_rotation_schedule.py --notify --days-ahead 14
 ```
 
-Required packages:
-- boto3 (AWS SDK)
-- requests (HTTP client)
+**Cron Setup:**
+```bash
+# Add to crontab for monthly check (1st of month, 9 AM)
+0 9 1 * * /path/to/scripts/check_rotation_schedule.py --notify --webhook $SLACK_WEBHOOK
+```
 
-### AWS Permissions
+### `health_check.py`
 
-Required IAM permissions:
-- `secretsmanager:GetSecretValue`
-- `secretsmanager:UpdateSecret`
-- `ssm:GetParameter` (if using SSM)
-- `ssm:PutParameter` (if using SSM)
+**Comprehensive health checks** for services after token rotation.
 
-### Kubernetes Permissions
+**Features:**
+- Health endpoint checks
+- Database connectivity tests
+- Authentication endpoint validation
+- Response time monitoring
+- Wait-for-healthy capability
 
-Required RBAC permissions:
-- `deployments.apps/get`
-- `deployments.apps/patch`
-- `pods/get`
-- `pods/list`
+**Usage:**
+```bash
+# Quick health check
+./scripts/health_check.py --env production
 
-## Environment Variables
+# Comprehensive checks
+./scripts/health_check.py --comprehensive --env production
 
-### For Automated Rotation
+# Wait for service to become healthy (after rotation)
+./scripts/health_check.py --wait --timeout 300 --env production
 
-Set these when using `--force` mode:
+# Database connectivity test
+./scripts/health_check.py --db-test --env production
+
+# Check staging environment
+./scripts/health_check.py --env staging --comprehensive
+```
+
+## Installation
+
+### Prerequisites
+
+1. **Python 3.11+**
+   ```bash
+   python --version  # Should be 3.11 or higher
+   ```
+
+2. **Railway CLI** (for production rotations)
+   ```bash
+   npm install -g @railway/cli
+   railway login
+   ```
+
+3. **PostgreSQL Client** (for database rotations)
+   ```bash
+   # macOS
+   brew install postgresql
+   
+   # Ubuntu/Debian
+   sudo apt-get install postgresql-client
+   ```
+
+4. **Python Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Setup
+
+1. **Create required directories:**
+   ```bash
+   mkdir -p logs backups/secrets config
+   ```
+
+2. **Initialize rotation schedule:**
+   ```bash
+   ./scripts/check_rotation_schedule.py --report
+   ```
+
+3. **Set up notifications (optional):**
+   ```bash
+   # Add to .env
+   echo "ROTATION_NOTIFICATION_WEBHOOK=https://hooks.slack.com/..." >> .env
+   ```
+
+4. **Make scripts executable:**
+   ```bash
+   chmod +x scripts/*.py
+   ```
+
+## Token Rotation Quick Start
+
+### First-Time Setup
+
+1. **Check current status:**
+   ```bash
+   ./scripts/check_rotation_schedule.py --report
+   ```
+
+2. **Test in staging first:**
+   ```bash
+   ./scripts/rotate_token.py --env staging --token-type jwt --execute --validate
+   ```
+
+3. **Update schedule after rotation:**
+   ```bash
+   ./scripts/check_rotation_schedule.py --update jwt
+   ```
+
+### Production Rotation
+
+Follow this workflow for all production rotations:
+
+1. **Dry run:**
+   ```bash
+   ./scripts/rotate_token.py --env production --token-type jwt --dry-run
+   ```
+
+2. **Execute with validation:**
+   ```bash
+   ./scripts/rotate_token.py --env production --token-type jwt --execute --zero-downtime --validate
+   ```
+
+3. **Monitor health:**
+   ```bash
+   ./scripts/health_check.py --comprehensive --env production
+   ```
+
+4. **Update schedule:**
+   ```bash
+   ./scripts/check_rotation_schedule.py --update jwt
+   ```
+
+## Default Rotation Frequencies
+
+| Token Type | Frequency | Impact Level |
+|------------|-----------|--------------|
+| JWT Secret | 90 days | High - Invalidates user sessions |
+| Database | 180 days | Medium - Brief service interruption |
+| Railway API | 60 days | Low - No user impact |
+| SMTP | 180 days | Low - Email sending only |
+| Jira API | 90 days | Low - Background operations |
+
+## Directory Structure
+
+```
+scripts/
+├── README.md                      # This file
+├── rotate_token.py                # Main rotation script
+├── generate_secrets.py            # Secret generation utility
+├── check_rotation_schedule.py     # Schedule tracking
+├── health_check.py                # Health validation
+└── tests/                         # Test suite (when added)
+
+logs/                              # Rotation logs (created automatically)
+├── rotation-20240115-120000.log
+└── ...
+
+backups/secrets/                   # Token backups (created automatically)
+├── jwt_production_20240115_120000.json
+└── ...
+
+config/
+└── rotation_schedule.json         # Rotation schedule tracking
+```
+
+## Security Best Practices
+
+### 1. Token Storage
+
+- ✅ **DO**: Store in environment variables or secret management systems
+- ✅ **DO**: Use Railway variables for production secrets
+- ❌ **DON'T**: Commit secrets to git
+- ❌ **DON'T**: Store in configuration files
+
+### 2. Access Control
+
+- Limit who can run production rotations
+- Use MFA for Railway account
+- Audit all rotation activities
+- Review backup files regularly
+
+### 3. Rotation Workflow
+
+- Always test in staging first
+- Use dry-run mode before execution
+- Monitor services for 30 minutes after rotation
+- Keep backups for 90 days minimum
+
+### 4. Emergency Procedures
+
+- Use `--emergency` flag for compromised tokens
+- Document reason in incident log
+- Notify security team
+- Review audit logs for unauthorized access
+
+## Troubleshooting
+
+### Issue: "Railway CLI not found"
 
 ```bash
-# For Jira rotation
-export NEW_JIRA_TOKEN="your-new-token"
-export JIRA_EMAIL="your-email@example.com"
-export JIRA_DOMAIN="yourcompany.atlassian.net"
+# Install Railway CLI
+npm install -g @railway/cli
 
-# For OpenAI rotation
-export NEW_OPENAI_KEY="sk-..."
+# Verify installation
+railway --version
 
-# For GitHub rotation
-export NEW_GITHUB_TOKEN="ghp_..."
+# Login
+railway login
+```
+
+### Issue: "psql: command not found"
+
+```bash
+# macOS
+brew install postgresql
+
+# Ubuntu/Debian
+sudo apt-get install postgresql-client
+
+# Verify
+psql --version
+```
+
+### Issue: "Permission denied" when running scripts
+
+```bash
+# Make scripts executable
+chmod +x scripts/*.py
+
+# Or run with python explicitly
+python scripts/rotate_token.py --help
+```
+
+### Issue: Services fail to start after rotation
+
+```bash
+# Check environment variables were updated
+railway variables --env production | grep <TOKEN_NAME>
+
+# Check service logs
+railway logs --env production --tail 100
+
+# Rollback if needed
+./scripts/rotate_token.py --env production --token-type <type> --rollback
+```
+
+### Issue: Database connection errors after rotation
+
+```bash
+# Test new database credentials
+psql "<new-database-url>" -c "SELECT 1;"
+
+# Check connection pool
+psql "<new-database-url>" -c "SELECT * FROM pg_stat_activity;"
+
+# Verify user permissions
+psql "<new-database-url>" -c "\\du"
+```
+
+### Issue: "No backup available for rollback"
+
+```bash
+# List available backups
+ls -la backups/secrets/<token-type>_<env>_*.json
+
+# The rollback command will automatically find the most recent backup
+# Or manually specify a backup file (requires code modification)
+```
+
+## Monitoring and Alerting
+
+### Post-Rotation Monitoring
+
+Monitor these metrics for 30 minutes after rotation:
+
+1. **Service Health**
+   ```bash
+   watch -n 10 './scripts/health_check.py --env production'
+   ```
+
+2. **Error Logs**
+   ```bash
+   railway logs --env production | grep -i error
+   ```
+
+3. **Response Times**
+   ```bash
+   curl -w "@curl-format.txt" -o /dev/null -s https://api.yourapp.com/health
+   ```
+
+### Setting Up Alerts
+
+Add to monitoring system:
+- Authentication failures > 10/minute
+- Service health check failures
+- Database connection pool exhaustion
+- Response time > 2 seconds
+
+## Compliance and Auditing
+
+### Audit Trail
+
+All rotations are logged to:
+1. `logs/rotation-*.log` - Detailed operation logs
+2. `backups/secrets/*.json` - Token backups with timestamps
+3. `config/rotation_schedule.json` - Rotation history
+4. Railway audit logs (automatic)
+
+### Required Documentation
+
+For each rotation, maintain:
+- Date and time
+- Environment
+- Token type rotated
+- Operator name
+- Reason (scheduled/emergency)
+- Any issues encountered
+- Verification results
+
+### Compliance Reports
+
+```bash
+# Generate rotation status report
+./scripts/check_rotation_schedule.py --report
+
+# Check for overdue rotations
+./scripts/check_rotation_schedule.py --report | grep "overdue"
+
+# List all rotations in last 90 days
+grep "rotation completed" logs/rotation-*.log | tail -20
 ```
 
 ## Testing
 
-Run the test suite:
+### Unit Tests (To Be Implemented)
 
 ```bash
-# All tests
+# Run all tests
 pytest scripts/tests/
 
 # With coverage
 pytest --cov=scripts scripts/tests/
 
-# Specific test file
+# Specific test
 pytest scripts/tests/test_token_rotation.py -v
 ```
 
-## Best Practices
+### Manual Testing Checklist
 
-### 1. Always Use Dry-Run First
+Before using scripts in production:
 
-```bash
-# Test the rotation before executing
-python rotate_tokens.py --environment production --tokens all --dry-run
-```
-
-### 2. Schedule Regular Rotations
-
-Add to crontab for quarterly rotation:
-```bash
-# First Sunday of each quarter at 2 AM
-0 2 1 1,4,7,10 * /opt/pm-agent/scripts/rotate_tokens.py --environment production --tokens all --force
-```
-
-### 3. Maintain Audit Logs
-
-```bash
-# Always save audit logs
-python rotate_tokens.py \
-  --environment production \
-  --tokens all \
-  --audit-log /var/log/pm-agent/rotation-$(date +%Y%m%d).json
-```
-
-### 4. Verify After Rotation
-
-```bash
-# Run verification script
-./verify_rotation.sh production
-```
-
-### 5. Document Emergency Rotations
-
-```bash
-# Document why emergency rotation was needed
-cat >> /var/log/pm-agent/emergency-rotation-log.txt << EOF
-Date: $(date)
-Token: jira
-Reason: Suspected credential exposure in logs
-Rotated by: $(whoami)
-Incident: INC-12345
-EOF
-```
-
-## Rotation Schedule
-
-| Environment | Token Types | Frequency | Day |
-|-------------|-------------|-----------|-----|
-| Production | All | Quarterly | First Sunday |
-| Staging | All | Monthly | First Sunday |
-
-## Troubleshooting
-
-### Issue: Script fails with AWS credentials error
-
-**Solution:**
-```bash
-# Verify AWS credentials
-aws sts get-caller-identity
-
-# Refresh credentials
-aws sso login
-```
-
-### Issue: Kubernetes connection timeout
-
-**Solution:**
-```bash
-# Verify kubectl context
-kubectl config current-context
-
-# Test connectivity
-kubectl cluster-info
-```
-
-### Issue: Token validation fails
-
-**Solution:**
-```bash
-# Manually test the new token
-curl -H "Authorization: Bearer ${NEW_TOKEN}" https://api.example.com/test
-
-# Check token scopes/permissions in the provider platform
-```
-
-### Issue: Deployment rollout stuck
-
-**Solution:**
-```bash
-# Check pod status
-kubectl get pods -n production
-
-# Check logs
-kubectl logs -f deployment/pm-agent-backend -n production
-
-# If needed, rollback
-kubectl rollout undo deployment/pm-agent-backend -n production
-```
-
-## Security Considerations
-
-### Token Storage
-
-- Never commit tokens to git
-- Use AWS Secrets Manager or equivalent
-- Encrypt tokens at rest
-- Limit access to rotation scripts
-
-### Access Control
-
-- Limit who can run rotation scripts
-- Use IAM roles with minimum required permissions
-- Enable MFA for production rotations
-- Log all rotation activities
-
-### Audit Trail
-
-All rotations are logged to:
-- AWS CloudTrail (automatic)
-- Local audit logs (`logs/` directory)
-- Kubernetes audit logs
-- Application logs
-
-Query audit trail:
-```bash
-# AWS CloudTrail
-aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=ResourceType,AttributeValue=AWS::SecretsManager::Secret \
-  --max-results 50
-
-# Local logs
-cat /var/log/pm-agent/rotation-*.json | jq '.results'
-```
-
-## Rollback Procedures
-
-### Quick Rollback
-
-If rotation causes issues:
-
-```bash
-# Get previous secret version
-aws secretsmanager get-secret-value \
-  --secret-id pm-agent/production/jira-token \
-  --version-stage AWSPREVIOUS
-
-# Update to previous version
-aws secretsmanager update-secret \
-  --secret-id pm-agent/production/jira-token \
-  --secret-string "$(aws secretsmanager get-secret-value \
-    --secret-id pm-agent/production/jira-token \
-    --version-stage AWSPREVIOUS \
-    --query 'SecretString' \
-    --output text)"
-
-# Restart deployment
-kubectl rollout restart deployment/pm-agent-backend -n production
-```
-
-### Per-Token Rollback
-
-Use the backup files created during rotation:
-
-```bash
-# List backups
-ls -la logs/backup-*.enc
-
-# Restore from backup
-cat logs/backup-production-jira-token-20240101-120000.enc | \
-  aws secretsmanager update-secret \
-    --secret-id pm-agent/production/jira-token \
-    --secret-string file:///dev/stdin
-```
-
-## Monitoring
-
-### Post-Rotation Monitoring
-
-Monitor these metrics for 24 hours after rotation:
-
-1. **Error Rates**
-   ```bash
-   kubectl logs deployment/pm-agent-backend -n production | grep ERROR | wc -l
-   ```
-
-2. **API Response Times**
-   ```bash
-   curl -w "@curl-format.txt" -o /dev/null -s https://api.yourdomain.com/health
-   ```
-
-3. **Authentication Failures**
-   ```bash
-   kubectl logs deployment/pm-agent-backend -n production | grep -i "auth" | grep -i "fail"
-   ```
-
-4. **Active Connections**
-   ```bash
-   kubectl get pods -n production -o wide
-   kubectl top pods -n production
-   ```
-
-## Compliance
-
-### SOC 2 Requirements
-
-- Rotate tokens every 90 days
-- Maintain audit logs for 1 year
-- Implement dual-person control for production
-- Document all rotations
-
-### Audit Documentation
-
-Each rotation should document:
-- Date and time
-- Environment
-- Tokens rotated
-- Who performed rotation
-- Reason (scheduled/emergency)
-- Any issues encountered
-- Verification results
-
-## Related Documentation
-
-- [Token Rotation Runbook](../docs/runbooks/token-rotation.md) - Detailed procedures
-- [Security Best Practices](../docs/security.md) - Security guidelines
-- [Incident Response](../docs/incident-response.md) - Emergency procedures
-
-## Support
-
-For issues or questions:
-- On-call engineer: Check PagerDuty
-- Security team: security@yourcompany.com
-- DevOps team: devops@yourcompany.com
+- [ ] Test dry-run mode in staging
+- [ ] Test actual rotation in staging
+- [ ] Verify rollback works in staging
+- [ ] Test health checks
+- [ ] Verify backup creation
+- [ ] Test schedule tracking
+- [ ] Test notification system
 
 ## Contributing
 
 When contributing to these scripts:
 
-1. Test in staging first
-2. Add unit tests for new functionality
-3. Update this README
-4. Document breaking changes
-5. Follow Python best practices
-6. Add type hints
-7. Include error handling
+1. **Test thoroughly in staging**
+2. **Add error handling** for all external calls
+3. **Include type hints** on all functions
+4. **Add docstrings** for public functions
+5. **Update README** with new features
+6. **Follow existing code style**
+7. **Consider security implications**
+
+## Support
+
+For issues or questions:
+
+- **Documentation**: See [Token Rotation Runbook](../docs/runbooks/TOKEN_ROTATION.md)
+- **Quick Reference**: See [Quick Reference Guide](../docs/runbooks/QUICK_REFERENCE.md)
+- **Security Team**: security@yourcompany.com
+- **DevOps Team**: devops@yourcompany.com
+- **On-Call**: Check PagerDuty
 
 ## License
 
 Internal use only - PM Agent system
+
+---
+
+**Last Updated**: 2024-01-XX  
+**Version**: 1.0  
+**Ticket**: SDT1-70

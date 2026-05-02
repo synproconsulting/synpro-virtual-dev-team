@@ -2,621 +2,837 @@
 
 ## Overview
 
-This runbook provides step-by-step procedures for rotating authentication tokens and API keys used across the SDT1 platform. Regular token rotation is a critical security practice that limits the exposure window for compromised credentials.
+This runbook provides step-by-step procedures for rotating sensitive tokens and secrets used in the PM Agent system. Regular token rotation is a critical security practice that limits the impact of potential credential compromise.
 
 ## Table of Contents
 
-1. [Token Inventory](#token-inventory)
-2. [Rotation Schedule](#rotation-schedule)
-3. [Pre-Rotation Checklist](#pre-rotation-checklist)
-4. [Rotation Procedures](#rotation-procedures)
-5. [Post-Rotation Verification](#post-rotation-verification)
-6. [Rollback Procedures](#rollback-procedures)
-7. [Troubleshooting](#troubleshooting)
+1. [JWT Secret Rotation](#jwt-secret-rotation)
+2. [Database Credentials Rotation](#database-credentials-rotation)
+3. [Railway API Token Rotation](#railway-api-token-rotation)
+4. [SMTP Credentials Rotation](#smtp-credentials-rotation)
+5. [Jira API Token Rotation](#jira-api-token-rotation)
+6. [Emergency Rotation Procedures](#emergency-rotation-procedures)
+7. [Rotation Schedule](#rotation-schedule)
+8. [Verification & Testing](#verification--testing)
+9. [Rollback Procedures](#rollback-procedures)
 
 ---
 
-## Token Inventory
+## JWT Secret Rotation
 
-### Critical Tokens
+### When to Rotate
+- **Scheduled**: Every 90 days
+- **Emergency**: Immediately if compromised or suspected compromise
+- **After**: Security incidents, employee departures with system access
 
-| Token/Key | Service | Used By | Storage Location | Rotation Frequency |
-|-----------|---------|---------|------------------|-------------------|
-| `JIRA_API_TOKEN` | Jira Cloud | UAT Backend, Agents | Environment vars | 90 days |
-| `OPENAI_API_KEY` | OpenAI | Agents, UAT Backend | Environment vars | 90 days |
-| `GITHUB_TOKEN` | GitHub API | Agents, UAT Backend | Environment vars | 90 days |
-| `JWT_SECRET_KEY` | JWT Auth | UAT Backend | Environment vars | 180 days |
-| `DATABASE_PASSWORD` | PostgreSQL | UAT Backend | Environment vars | 90 days |
-| `REDIS_PASSWORD` | Redis | UAT Backend | Environment vars | 90 days |
+### Impact Assessment
+- **User Impact**: All active user sessions will be invalidated
+- **Downtime**: None (zero-downtime rotation possible)
+- **Rollback Window**: 24 hours recommended
 
-### Service Account Tokens
+### Prerequisites
+- [ ] Access to production environment variables
+- [ ] Access to staging environment for testing
+- [ ] Communication plan for user notification
+- [ ] Backup of current JWT_SECRET value
 
-- **Jira Service Account**: Used for automation, ticket creation, and updates
-- **GitHub Service Account**: Used for repository operations and PR management
-- **OpenAI Service Account**: Used for LLM operations
+### Procedure
+
+#### Phase 1: Preparation (T-24h)
+
+1. **Generate New JWT Secret**
+   ```bash
+   cd scripts
+   python generate_secrets.py --type jwt
+   ```
+   
+   Or manually:
+   ```bash
+   python -c "from uat.backend.config import generate_jwt_secret; print(generate_jwt_secret())"
+   ```
+
+2. **Store New Secret Securely**
+   - Save to password manager (1Password, LastPass, etc.)
+   - Mark with rotation date and purpose
+   - Share with authorized team members only
+
+3. **Test in Staging**
+   ```bash
+   # Update staging environment
+   export JWT_SECRET="<new-secret>"
+   
+   # Restart staging services
+   ./scripts/rotate_token.py --env staging --token-type jwt --validate
+   ```
+
+4. **Notify Users**
+   - Send email notification 24h before rotation
+   - Inform users they'll need to re-login
+   - Provide exact rotation time window
+
+#### Phase 2: Rotation (T=0)
+
+1. **Update Production Environment Variable**
+   
+   **Railway/Kubernetes:**
+   ```bash
+   # Using Railway CLI
+   railway variables set JWT_SECRET="<new-secret>" -e production
+   
+   # Or using kubectl
+   kubectl create secret generic jwt-secret \
+     --from-literal=JWT_SECRET="<new-secret>" \
+     --dry-run=client -o yaml | kubectl apply -f -
+   ```
+
+2. **Perform Zero-Downtime Rotation**
+   ```bash
+   # Deploy with new secret (rolling restart)
+   ./scripts/rotate_token.py --env production --token-type jwt --execute --zero-downtime
+   ```
+
+3. **Monitor Service Health**
+   ```bash
+   # Check service status
+   ./scripts/health_check.py --service backend --timeout 300
+   
+   # Monitor logs for errors
+   railway logs -e production --tail 100
+   ```
+
+4. **Verify Token Generation**
+   ```bash
+   # Test token issuance
+   curl -X POST https://api.yourapp.com/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username":"test@example.com","password":"test123"}'
+   
+   # Verify token with new secret
+   ./scripts/verify_jwt.py --token "<jwt-token>" --env production
+   ```
+
+#### Phase 3: Validation (T+30min)
+
+1. **User Session Testing**
+   - [ ] New logins work correctly
+   - [ ] Old tokens are rejected with 401 Unauthorized
+   - [ ] Token refresh endpoint works
+   - [ ] Protected endpoints validate new tokens
+
+2. **Monitor Error Rates**
+   ```bash
+   # Check error logs
+   grep "JWT" /var/log/backend/*.log | grep -i "error\|invalid"
+   
+   # Or via logging service
+   railway logs -e production | grep "JWT.*error"
+   ```
+
+3. **Database Verification**
+   ```bash
+   # Check for authentication errors in DB logs
+   psql $DATABASE_URL -c "SELECT COUNT(*) FROM auth_logs WHERE error_type = 'jwt_invalid' AND created_at > NOW() - INTERVAL '1 hour';"
+   ```
+
+#### Phase 4: Cleanup (T+24h)
+
+1. **Archive Old Secret**
+   ```bash
+   # Move old secret to secure archive
+   ./scripts/archive_secret.py --type jwt --secret "<old-secret>" --rotation-date "$(date -I)"
+   ```
+
+2. **Update Documentation**
+   - [ ] Record rotation date in security log
+   - [ ] Update last rotation date in this runbook
+   - [ ] Schedule next rotation (90 days)
+
+3. **Remove Old Secret from Active Storage**
+   - Remove from Railway variables history (if possible)
+   - Mark as revoked in password manager
+   - Update team documentation
+
+### Validation Checklist
+
+After rotation, verify:
+- [ ] New users can register and receive valid tokens
+- [ ] Existing users can log in with new tokens
+- [ ] API endpoints accept new tokens
+- [ ] Old tokens are properly rejected
+- [ ] Token expiry times are correct
+- [ ] No JWT-related errors in logs
+- [ ] Session management works correctly
+
+### Rollback Procedure
+
+If issues occur within the rollback window:
+
+1. **Immediate Rollback**
+   ```bash
+   # Restore old JWT secret
+   railway variables set JWT_SECRET="<old-secret>" -e production
+   
+   # Or using script
+   ./scripts/rotate_token.py --env production --token-type jwt --rollback
+   ```
+
+2. **Restart Services**
+   ```bash
+   railway up -e production --restart
+   ```
+
+3. **Verify Rollback**
+   - Test with recently issued tokens
+   - Check user login functionality
+   - Monitor error logs
+
+4. **Post-Mortem**
+   - Document what went wrong
+   - Update runbook with lessons learned
+   - Plan retry with fixes
+
+---
+
+## Database Credentials Rotation
+
+### When to Rotate
+- **Scheduled**: Every 180 days
+- **Emergency**: Immediately if compromised
+- **After**: Staff changes, security audits
+
+### Impact Assessment
+- **User Impact**: Potential 2-5 minute service interruption
+- **Downtime**: Brief connection loss during credential switchover
+- **Rollback Window**: 1 hour
+
+### Prerequisites
+- [ ] Database admin access
+- [ ] Access to all services using the database
+- [ ] Backup of current database
+- [ ] Maintenance window scheduled
+
+### Procedure
+
+#### Phase 1: Preparation
+
+1. **Create New Database User/Password**
+   ```sql
+   -- Connect to database as admin
+   psql $DATABASE_URL
+   
+   -- Create new user with same privileges
+   CREATE USER pm_agent_new WITH PASSWORD '<new-secure-password>';
+   
+   -- Grant same permissions as old user
+   GRANT CONNECT ON DATABASE pm_agent_db TO pm_agent_new;
+   GRANT USAGE ON SCHEMA public TO pm_agent_new;
+   GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pm_agent_new;
+   GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO pm_agent_new;
+   
+   -- Grant default privileges for future tables
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO pm_agent_new;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO pm_agent_new;
+   ```
+
+2. **Test New Credentials in Staging**
+   ```bash
+   # Build new connection string
+   NEW_DB_URL="postgresql://pm_agent_new:<new-password>@host:5432/pm_agent_db"
+   
+   # Test connection
+   psql "$NEW_DB_URL" -c "SELECT 1;"
+   
+   # Run application tests with new credentials
+   export DATABASE_URL="$NEW_DB_URL"
+   pytest uat/backend/tests/
+   ```
+
+3. **Generate Secret Rotation Script**
+   ```bash
+   ./scripts/rotate_token.py --env production --token-type database --dry-run
+   ```
+
+#### Phase 2: Rotation
+
+1. **Enable Maintenance Mode (Optional)**
+   ```bash
+   # Put service in read-only mode
+   railway variables set MAINTENANCE_MODE="true" -e production
+   ```
+
+2. **Update DATABASE_URL Environment Variable**
+   ```bash
+   # Update all services that use the database
+   railway variables set DATABASE_URL="$NEW_DB_URL" -e production
+   ```
+
+3. **Rolling Restart Services**
+   ```bash
+   # Restart backend services one by one
+   kubectl rollout restart deployment/pm-agent-backend
+   kubectl rollout status deployment/pm-agent-backend --timeout=300s
+   ```
+
+4. **Disable Maintenance Mode**
+   ```bash
+   railway variables unset MAINTENANCE_MODE -e production
+   ```
+
+#### Phase 3: Validation
+
+1. **Test Database Connectivity**
+   ```bash
+   # Test read operations
+   curl https://api.yourapp.com/health/db
+   
+   # Test write operations (create a test record)
+   ./scripts/db_health_check.py --env production --test-writes
+   ```
+
+2. **Monitor Connection Pool**
+   ```sql
+   -- Check active connections
+   SELECT 
+     usename,
+     application_name,
+     client_addr,
+     state,
+     COUNT(*) 
+   FROM pg_stat_activity 
+   WHERE datname = 'pm_agent_db'
+   GROUP BY usename, application_name, client_addr, state;
+   ```
+
+3. **Verify No Old Connections**
+   ```sql
+   -- Should return 0 rows
+   SELECT COUNT(*) FROM pg_stat_activity 
+   WHERE usename = 'pm_agent_old' AND datname = 'pm_agent_db';
+   ```
+
+#### Phase 4: Cleanup (T+1h)
+
+1. **Revoke Old User Access**
+   ```sql
+   -- Remove all privileges from old user
+   REVOKE ALL PRIVILEGES ON DATABASE pm_agent_db FROM pm_agent_old;
+   REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM pm_agent_old;
+   REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM pm_agent_old;
+   
+   -- Optionally drop the old user (after verifying new user works)
+   -- DROP USER pm_agent_old;  -- Wait 24h before executing this
+   ```
+
+2. **Archive Old Credentials**
+   ```bash
+   ./scripts/archive_secret.py --type database --secret "$OLD_DB_PASSWORD"
+   ```
+
+### Rollback Procedure
+
+```bash
+# Restore old DATABASE_URL
+railway variables set DATABASE_URL="<old-database-url>" -e production
+
+# Restart services
+railway up -e production --restart
+
+# Verify old credentials work
+./scripts/db_health_check.py --env production
+```
+
+---
+
+## Railway API Token Rotation
+
+### When to Rotate
+- **Scheduled**: Every 60 days
+- **Emergency**: Immediately if exposed in logs, code, or public repositories
+- **After**: CI/CD compromise, unauthorized access
+
+### Impact Assessment
+- **User Impact**: None (internal token only)
+- **Downtime**: None
+- **Affected Services**: Deployment automation, orchestrator agents
+
+### Prerequisites
+- [ ] Railway account access
+- [ ] Access to CI/CD environment variables
+- [ ] List of all services using Railway token
+
+### Procedure
+
+1. **Generate New Railway Token**
+   - Go to https://railway.app/account/tokens
+   - Click "Create Token"
+   - Name: `PM-Agent-Production-<date>`
+   - Scope: Select only required projects
+   - Copy token immediately (shown only once)
+
+2. **Update Environment Variables**
+   ```bash
+   # Update in CI/CD (GitHub Actions)
+   gh secret set RAILWAY_API_TOKEN --body "<new-token>"
+   
+   # Update in local development environments
+   # Notify team to update their .env files
+   ```
+
+3. **Update Application Configuration**
+   ```bash
+   # If Railway token is used at runtime (not just deployment)
+   railway variables set RAILWAY_API_TOKEN="<new-token>" -e production
+   ```
+
+4. **Test Automation**
+   ```bash
+   # Test deployment script
+   ./scripts/deploy.py --env staging --dry-run
+   
+   # Test orchestrator agent if it uses Railway API
+   pytest agents/tests/test_railway_integration.py
+   ```
+
+5. **Revoke Old Token**
+   - Go to https://railway.app/account/tokens
+   - Find old token
+   - Click "Revoke"
+   - Confirm revocation
+
+6. **Monitor for Errors**
+   ```bash
+   # Check for 401 Unauthorized errors in logs
+   railway logs -e production | grep "401\|unauthorized"
+   ```
+
+### Validation
+- [ ] Automated deployments work
+- [ ] No 401 errors in Railway API calls
+- [ ] Old token is revoked and non-functional
+
+---
+
+## SMTP Credentials Rotation
+
+### When to Rotate
+- **Scheduled**: Every 180 days
+- **Emergency**: If email bounce rate increases unexpectedly
+- **After**: Email provider compromise, phishing campaigns
+
+### Prerequisites
+- [ ] Email provider admin access (Gmail, SendGrid, etc.)
+- [ ] Access to update SMTP configuration
+- [ ] Test email recipient addresses
+
+### Procedure
+
+1. **Generate New SMTP Credentials**
+   
+   **Gmail App Password:**
+   - Go to https://myaccount.google.com/apppasswords
+   - Select app: "Mail"
+   - Select device: "Other" → "PM Agent Backend"
+   - Click "Generate"
+   - Copy 16-character password
+   
+   **SendGrid:**
+   - Go to Settings → API Keys
+   - Click "Create API Key"
+   - Name: `pm-agent-smtp-<date>`
+   - Permissions: "Mail Send" only
+   - Copy API key
+
+2. **Update Environment Variables**
+   ```bash
+   railway variables set SMTP_PASSWORD="<new-password>" -e production
+   railway variables set SMTP_USERNAME="<username>" -e production  # if changed
+   ```
+
+3. **Test Email Sending**
+   ```bash
+   # Send test email
+   ./scripts/test_smtp.py --env production --recipient "test@yourcompany.com"
+   ```
+
+4. **Verify Email Delivery**
+   - Check test email inbox
+   - Verify DKIM/SPF signatures
+   - Check spam score
+
+5. **Revoke Old Credentials**
+   - Delete old app password or API key from provider
+
+6. **Monitor Email Metrics**
+   ```bash
+   # Check email logs for failures
+   grep "smtp" /var/log/backend/*.log | grep -i "error\|fail"
+   ```
+
+### Validation
+- [ ] Password reset emails are delivered
+- [ ] Welcome emails are delivered
+- [ ] No emails in spam folder
+- [ ] Bounce rate is normal (<2%)
+- [ ] No SMTP authentication errors in logs
+
+---
+
+## Jira API Token Rotation
+
+### When to Rotate
+- **Scheduled**: Every 90 days
+- **Emergency**: If token appears in logs or unauthorized Jira activity detected
+- **After**: Team member with Jira access leaves
+
+### Prerequisites
+- [ ] Jira admin or service account access
+- [ ] Access to services that use Jira API
+- [ ] List of Jira projects used by PM Agent
+
+### Procedure
+
+1. **Generate New Jira API Token**
+   - Go to https://id.atlassian.com/manage-profile/security/api-tokens
+   - Click "Create API token"
+   - Label: `PM-Agent-Production-<YYYY-MM-DD>`
+   - Copy token (shown only once)
+
+2. **Update Environment Variables**
+   ```bash
+   # Update Jira token
+   railway variables set JIRA_API_TOKEN="<new-token>" -e production
+   
+   # If using email/token combo
+   railway variables set JIRA_EMAIL="<jira-service-account-email>" -e production
+   ```
+
+3. **Test Jira Integration**
+   ```bash
+   # Test Jira API access
+   ./scripts/test_jira_connection.py --env production
+   
+   # Test PM Agent Jira operations
+   pytest agents/tests/test_pm_agent.py -k jira
+   ```
+
+4. **Revoke Old Token**
+   - Go to https://id.atlassian.com/manage-profile/security/api-tokens
+   - Find old token (by label)
+   - Click "Revoke"
+   - Confirm
+
+5. **Monitor Jira API Usage**
+   ```bash
+   # Check for API errors
+   railway logs -e production | grep -i "jira.*error\|jira.*401"
+   ```
+
+### Validation
+- [ ] PM Agent can read Jira issues
+- [ ] PM Agent can create/update issues
+- [ ] No 401/403 errors in Jira API calls
+- [ ] Jira webhooks still work (if configured)
+- [ ] Custom fields (execution_order, story_points) are accessible
+
+---
+
+## Emergency Rotation Procedures
+
+### Indicators for Emergency Rotation
+
+Execute emergency rotation immediately if:
+- Token appears in public repository
+- Token appears in application logs
+- Suspicious activity detected using the token
+- Security breach or unauthorized access
+- Token accidentally shared via insecure channel (Slack, email)
+
+### Emergency Response Steps
+
+1. **Immediate Actions (0-15 minutes)**
+   ```bash
+   # Revoke compromised token immediately
+   ./scripts/rotate_token.py --env production --token-type <type> --emergency
+   
+   # Enable additional monitoring
+   ./scripts/enable_security_monitoring.py --mode enhanced
+   ```
+
+2. **Impact Assessment (15-30 minutes)**
+   - Review audit logs for unauthorized access
+   - Identify affected systems and data
+   - Determine scope of potential compromise
+   
+   ```bash
+   # Check recent API calls with compromised token
+   ./scripts/audit_token_usage.py --token-id <id> --hours 72
+   ```
+
+3. **Communication (30-60 minutes)**
+   - Notify security team
+   - Notify affected users if data was accessed
+   - File incident report
+
+4. **Full Rotation (1-4 hours)**
+   - Follow standard rotation procedures for affected token
+   - Rotate any related tokens as a precaution
+   - Update all systems using the token
+
+5. **Post-Incident (24-48 hours)**
+   - Complete incident report
+   - Implement preventive measures
+   - Update security policies
+   - Train team on lessons learned
+
+### Emergency Contact Information
+
+```
+Security Team Lead: security@yourcompany.com
+On-Call Engineer: oncall@yourcompany.com
+Incident Hotline: +1-XXX-XXX-XXXX
+```
 
 ---
 
 ## Rotation Schedule
 
-### Regular Rotations
+### Recommended Rotation Frequencies
 
-- **90-day rotation**: API tokens (Jira, OpenAI, GitHub)
-- **180-day rotation**: JWT secret keys
-- **30-day rotation**: Development/staging tokens
-- **Immediate rotation**: Any suspected compromise
+| Token/Secret Type | Rotation Frequency | Last Rotated | Next Rotation |
+|-------------------|-------------------|--------------|---------------|
+| JWT Secret | 90 days | YYYY-MM-DD | YYYY-MM-DD |
+| Database Password | 180 days | YYYY-MM-DD | YYYY-MM-DD |
+| Railway API Token | 60 days | YYYY-MM-DD | YYYY-MM-DD |
+| SMTP Credentials | 180 days | YYYY-MM-DD | YYYY-MM-DD |
+| Jira API Token | 90 days | YYYY-MM-DD | YYYY-MM-DD |
 
-### Notification Timeline
+### Automation
 
-- **T-14 days**: Initial notification to team
-- **T-7 days**: Reminder and coordination meeting
-- **T-2 days**: Final confirmation
-- **T-0**: Rotation execution
-- **T+1 day**: Post-rotation review
+Set up automated reminders:
+
+```bash
+# Add to crontab for monthly rotation check
+0 9 1 * * /path/to/scripts/check_rotation_schedule.py --notify
+```
+
+Or use calendar reminders:
+- Create recurring calendar events
+- Set reminders 7 days before rotation due
+- Include runbook link in calendar event
 
 ---
 
-## Pre-Rotation Checklist
+## Verification & Testing
 
-### Planning Phase (T-7 days)
+### Pre-Rotation Testing Checklist
 
-- [ ] Identify all services using the token to be rotated
-- [ ] Review recent logs for unusual activity
-- [ ] Schedule maintenance window (if required)
-- [ ] Notify team members and stakeholders
-- [ ] Prepare rollback plan
-- [ ] Test token rotation in staging environment
+Before rotating any token in production:
 
-### Preparation Phase (T-1 day)
+- [ ] Test new token in staging environment
+- [ ] Verify all services can access resources with new token
+- [ ] Run automated test suite with new token
+- [ ] Test rollback procedure in staging
+- [ ] Verify monitoring and alerting works
 
-- [ ] Generate new token/credential
-- [ ] Verify new token works in isolated test
-- [ ] Document current token (last 4 chars only for verification)
-- [ ] Backup current environment configuration
-- [ ] Ensure monitoring and alerting are active
-- [ ] Have incident response team on standby
+### Post-Rotation Validation
 
-### Tools & Access Required
-
-- [ ] Access to token generation service (Jira/GitHub/OpenAI dashboard)
-- [ ] Access to deployment environment (Kubernetes/Docker)
-- [ ] Access to secrets manager or environment configuration
-- [ ] Admin access to relevant services
-- [ ] Communication channels (Slack, email) ready
-
----
-
-## Rotation Procedures
-
-### 1. Jira API Token Rotation
-
-#### Generate New Token
-
-1. Log in to Atlassian account: https://id.atlassian.com/manage-profile/security/api-tokens
-2. Click "Create API token"
-3. Name: `SDT1-Platform-YYYY-MM-DD`
-4. Copy token immediately (it won't be shown again)
-5. Store temporarily in password manager
-
-#### Update Deployment
-
-**For Kubernetes:**
+After rotating any token:
 
 ```bash
-# Backup current secret
-kubectl get secret sdt1-secrets -n production -o yaml > backup-secrets-$(date +%Y%m%d).yaml
+# Run comprehensive health check
+./scripts/health_check.py --comprehensive --env production
 
-# Update the secret
-kubectl create secret generic sdt1-secrets \
-  --from-literal=JIRA_API_TOKEN='<new-token>' \
-  --dry-run=client -o yaml | kubectl apply -f -
+# Run smoke tests
+pytest uat/backend/tests/smoke/ -v
 
-# Verify secret updated
-kubectl get secret sdt1-secrets -n production -o jsonpath='{.data.JIRA_API_TOKEN}' | base64 -d | tail -c 4
+# Check service metrics
+./scripts/check_metrics.py --window 1h --compare-baseline
 ```
 
-**For Docker Compose:**
+### Monitoring During Rotation
 
 ```bash
-# Backup current .env
-cp .env .env.backup.$(date +%Y%m%d)
+# Start real-time monitoring
+./scripts/monitor_rotation.py --token-type <type> --duration 30m
 
-# Update token in .env
-sed -i.bak "s/JIRA_API_TOKEN=.*/JIRA_API_TOKEN='<new-token>'/" .env
-
-# Restart services
-docker-compose restart uat-backend pm-agent dev-agent
+# Monitor key metrics:
+# - Error rate
+# - Response time
+# - Active connections
+# - Authentication failures
 ```
-
-**Using the rotation script:**
-
-```bash
-cd scripts
-python3 rotate_token.py --service jira --token '<new-token>' --environment production
-```
-
-#### Restart Services
-
-```bash
-# Kubernetes
-kubectl rollout restart deployment/uat-backend -n production
-kubectl rollout restart deployment/pm-agent -n production
-kubectl rollout restart deployment/dev-agent -n production
-
-# Verify rollout
-kubectl rollout status deployment/uat-backend -n production
-```
-
-#### Verify New Token
-
-```bash
-# Test Jira API with new token
-curl -u <email>:<new-token> \
-  -H "Accept: application/json" \
-  https://<your-domain>.atlassian.net/rest/api/3/myself
-```
-
-#### Revoke Old Token
-
-1. Return to Atlassian API tokens page
-2. Find old token (by creation date)
-3. Click "Revoke"
-4. Confirm revocation
-
----
-
-### 2. OpenAI API Key Rotation
-
-#### Generate New Key
-
-1. Log in to OpenAI: https://platform.openai.com/api-keys
-2. Click "Create new secret key"
-3. Name: `SDT1-Platform-YYYY-MM-DD`
-4. Copy key immediately
-5. Store temporarily in password manager
-
-#### Update Deployment
-
-```bash
-# Backup current secret
-kubectl get secret sdt1-secrets -n production -o yaml > backup-secrets-$(date +%Y%m%d).yaml
-
-# Update the secret
-kubectl create secret generic sdt1-secrets \
-  --from-literal=OPENAI_API_KEY='<new-key>' \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Restart services
-kubectl rollout restart deployment/pm-agent -n production
-kubectl rollout restart deployment/dev-agent -n production
-kubectl rollout restart deployment/uat-backend -n production
-```
-
-**Using the rotation script:**
-
-```bash
-python3 scripts/rotate_token.py --service openai --token '<new-key>' --environment production
-```
-
-#### Verify New Key
-
-```bash
-# Test OpenAI API
-curl https://api.openai.com/v1/models \
-  -H "Authorization: Bearer <new-key>" \
-  -H "Content-Type: application/json"
-```
-
-#### Revoke Old Key
-
-1. Return to OpenAI API keys page
-2. Find old key (by creation date)
-3. Click "Revoke"
-4. Confirm revocation
-
----
-
-### 3. GitHub Token Rotation
-
-#### Generate New Token
-
-1. Log in to GitHub: https://github.com/settings/tokens
-2. Click "Generate new token" → "Generate new token (classic)"
-3. Name: `SDT1-Platform-YYYY-MM-DD`
-4. Set expiration: 90 days
-5. Select scopes:
-   - `repo` (Full control of private repositories)
-   - `workflow` (Update GitHub Action workflows)
-   - `read:org` (Read org and team membership)
-6. Click "Generate token"
-7. Copy token immediately
-
-#### Update Deployment
-
-```bash
-# Update Kubernetes secret
-kubectl create secret generic sdt1-secrets \
-  --from-literal=GITHUB_TOKEN='<new-token>' \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Restart services
-kubectl rollout restart deployment/dev-agent -n production
-kubectl rollout restart deployment/uat-backend -n production
-```
-
-**Using the rotation script:**
-
-```bash
-python3 scripts/rotate_token.py --service github --token '<new-token>' --environment production
-```
-
-#### Verify New Token
-
-```bash
-# Test GitHub API
-curl -H "Authorization: Bearer <new-token>" \
-  https://api.github.com/user
-```
-
-#### Revoke Old Token
-
-1. Return to GitHub tokens page
-2. Find old token (by name/date)
-3. Click "Delete"
-4. Confirm deletion
-
----
-
-### 4. JWT Secret Key Rotation
-
-**⚠️ CRITICAL**: JWT secret rotation requires zero-downtime strategy to avoid invalidating active user sessions.
-
-#### Generate New Secret
-
-```bash
-# Generate strong random secret
-python3 -c "import secrets; print(secrets.token_urlsafe(64))"
-```
-
-#### Zero-Downtime Rotation Strategy
-
-This uses a dual-key approach where both old and new keys are valid during transition:
-
-```bash
-# Phase 1: Add new key as secondary (services accept both old and new)
-kubectl create secret generic sdt1-secrets \
-  --from-literal=JWT_SECRET_KEY='<old-key>' \
-  --from-literal=JWT_SECRET_KEY_NEW='<new-key>' \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Restart services (they now accept both keys)
-kubectl rollout restart deployment/uat-backend -n production
-
-# Wait 5 minutes, verify no auth errors in logs
-kubectl logs -f deployment/uat-backend -n production | grep -i "jwt\|auth"
-
-# Phase 2: Switch to new key as primary, old as secondary
-kubectl create secret generic sdt1-secrets \
-  --from-literal=JWT_SECRET_KEY='<new-key>' \
-  --from-literal=JWT_SECRET_KEY_OLD='<old-key>' \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Restart services (they now issue with new, accept both)
-kubectl rollout restart deployment/uat-backend -n production
-
-# Phase 3: Remove old key after all tokens expired (wait JWT_EXPIRATION time)
-# Wait 24 hours or your JWT expiration time
-kubectl create secret generic sdt1-secrets \
-  --from-literal=JWT_SECRET_KEY='<new-key>' \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Final restart
-kubectl rollout restart deployment/uat-backend -n production
-```
-
-**Using the rotation script:**
-
-```bash
-python3 scripts/rotate_token.py --service jwt --token '<new-key>' --environment production --zero-downtime
-```
-
----
-
-### 5. Database Password Rotation
-
-**⚠️ CRITICAL**: Requires careful coordination to avoid service disruption.
-
-#### Prerequisites
-
-- [ ] Maintenance window scheduled
-- [ ] Database backup completed
-- [ ] Rollback plan ready
-
-#### Rotation Steps
-
-```bash
-# 1. Generate new password
-NEW_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-
-# 2. Connect to database and create new password
-psql -h <db-host> -U postgres -c "ALTER USER sdt1_user WITH PASSWORD '$NEW_PASSWORD';"
-
-# 3. Update Kubernetes secret
-kubectl create secret generic sdt1-secrets \
-  --from-literal=DATABASE_PASSWORD="$NEW_PASSWORD" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# 4. Restart services with new password
-kubectl rollout restart deployment/uat-backend -n production
-
-# 5. Verify connectivity
-kubectl exec -it deployment/uat-backend -n production -- \
-  python3 -c "from database import test_connection; test_connection()"
-```
-
----
-
-## Post-Rotation Verification
-
-### Immediate Verification (T+0)
-
-#### 1. Service Health Checks
-
-```bash
-# Check all deployments are running
-kubectl get deployments -n production
-
-# Check pod status
-kubectl get pods -n production
-
-# Check recent logs for errors
-kubectl logs -l app=uat-backend --tail=100 -n production | grep -i error
-kubectl logs -l app=pm-agent --tail=100 -n production | grep -i error
-kubectl logs -l app=dev-agent --tail=100 -n production | grep -i error
-```
-
-#### 2. Functional Tests
-
-```bash
-# Run automated test suite
-cd scripts
-python3 verify_token_rotation.py --environment production
-
-# Test key endpoints
-curl -X POST https://api.sdt1.com/health
-curl -X GET https://api.sdt1.com/api/tickets/active
-```
-
-#### 3. Monitor for Authentication Errors
-
-```bash
-# Watch logs in real-time for auth errors
-kubectl logs -f deployment/uat-backend -n production | grep -E "401|403|Unauthorized|Forbidden"
-
-# Check error rates in monitoring dashboard
-# (Link to your Grafana/CloudWatch/Datadog dashboard)
-```
-
-### Extended Verification (T+1 hour)
-
-- [ ] Verify agent task execution
-- [ ] Check Jira ticket creation/updates
-- [ ] Verify GitHub PR creation
-- [ ] Test OpenAI API calls
-- [ ] Review monitoring dashboards for anomalies
-
-### Documentation (T+1 day)
-
-- [ ] Update token rotation log
-- [ ] Document any issues encountered
-- [ ] Update this runbook with improvements
-- [ ] Schedule next rotation
 
 ---
 
 ## Rollback Procedures
 
-### When to Rollback
+### General Rollback Steps
 
-- Authentication failures exceeding 5% of requests
-- Service unavailability
-- Unable to access critical external APIs
-- Data integrity issues
+1. **Detect Issue**
+   - Monitor error rates during rotation
+   - Set alert thresholds for automatic detection
 
-### Rollback Steps
+2. **Decide to Rollback**
+   - Error rate > 5% increase
+   - Critical functionality broken
+   - Data integrity concerns
 
-#### 1. Immediate Rollback (Restore Old Token)
+3. **Execute Rollback**
+   ```bash
+   # Use rollback script
+   ./scripts/rotate_token.py --token-type <type> --rollback
+   
+   # Or manual rollback
+   railway variables set <TOKEN_NAME>="<old-value>" -e production
+   railway up -e production --restart
+   ```
 
-```bash
-# Restore from backup
-kubectl apply -f backup-secrets-$(date +%Y%m%d).yaml
+4. **Verify Rollback Success**
+   ```bash
+   # Check error rates return to normal
+   ./scripts/check_metrics.py --window 15m
+   
+   # Test critical functionality
+   ./scripts/smoke_test.py --env production
+   ```
 
-# Restart services
-kubectl rollout restart deployment/uat-backend -n production
-kubectl rollout restart deployment/pm-agent -n production
-kubectl rollout restart deployment/dev-agent -n production
+5. **Post-Mortem**
+   - Document what went wrong
+   - Identify root cause
+   - Update runbook
+   - Plan retry with fixes
 
-# Verify services are healthy
-kubectl get pods -n production
-```
+### Rollback Window Guidelines
 
-#### 2. Verify Rollback
-
-```bash
-# Check services are running with old token
-python3 scripts/verify_token_rotation.py --environment production
-
-# Monitor logs for errors
-kubectl logs -f deployment/uat-backend -n production
-```
-
-#### 3. Incident Documentation
-
-- Document what went wrong
-- Capture error logs
-- Schedule post-mortem
-- Update runbook with lessons learned
+| Token Type | Max Rollback Window |
+|-----------|-------------------|
+| JWT Secret | 24 hours |
+| Database Password | 1 hour |
+| Railway API Token | 7 days |
+| SMTP Credentials | 7 days |
+| Jira API Token | 7 days |
 
 ---
 
 ## Troubleshooting
 
-### Issue: "401 Unauthorized" Errors After Rotation
+### Common Issues
 
-**Symptoms**: Services unable to authenticate with external API
+#### Issue: Services can't connect after rotation
 
-**Diagnosis**:
+**Symptoms:** 401 Unauthorized, connection refused errors
+
+**Solution:**
 ```bash
-# Check if secret was updated
-kubectl get secret sdt1-secrets -n production -o jsonpath='{.data.JIRA_API_TOKEN}' | base64 -d | tail -c 4
+# Verify environment variable was updated
+railway variables --env production | grep <TOKEN_NAME>
 
-# Check pod environment variables
-kubectl exec -it deployment/uat-backend -n production -- env | grep TOKEN
+# Check service has restarted and picked up new variable
+kubectl get pods -o wide
+kubectl logs <pod-name> | tail -50
+
+# Force restart if needed
+railway up -e production --restart
 ```
 
-**Resolution**:
-1. Verify token was generated correctly from source (Jira/GitHub/OpenAI)
-2. Verify token was updated in secret store
-3. Verify pods were restarted and picked up new secret
-4. Test token manually with curl
-5. If token is invalid, generate a new one and repeat rotation
+#### Issue: Old tokens still work after rotation
 
-### Issue: Services Not Picking Up New Token
+**Symptoms:** Old credentials not properly revoked
 
-**Symptoms**: Services still using old token after restart
-
-**Diagnosis**:
+**Solution:**
 ```bash
-# Check pod restart time
-kubectl get pods -n production -o wide
+# Verify old token was revoked at source
+# For JWT: Old tokens will remain valid until they expire
+# For API tokens: Check provider dashboard
 
-# Check if secret mounted correctly
-kubectl exec -it deployment/uat-backend -n production -- \
-  cat /var/run/secrets/app/JIRA_API_TOKEN | tail -c 4
+# Force immediate revocation (JWT)
+# Add old JWT secret to revocation list
+./scripts/revoke_jwt_secrets.py --secret "<old-secret>"
 ```
 
-**Resolution**:
-1. Force pod restart: `kubectl delete pod -l app=uat-backend -n production`
-2. Verify secret mount configuration in deployment
-3. Check for secret caching issues
+#### Issue: Token rotation script fails
 
-### Issue: JWT Token Validation Failures
+**Symptoms:** Script exits with error, partial rotation
 
-**Symptoms**: Users getting logged out, "Invalid token" errors
-
-**Diagnosis**:
+**Solution:**
 ```bash
-# Check JWT secret configuration
-kubectl logs deployment/uat-backend -n production | grep "JWT"
+# Check script logs
+cat logs/rotation-<timestamp>.log
 
-# Verify both old and new keys during transition
+# Verify prerequisites
+./scripts/rotate_token.py --token-type <type> --check-prerequisites
+
+# Manual rotation if automation fails
+# Follow manual procedure in this runbook
 ```
-
-**Resolution**:
-1. If in Phase 1/2 of JWT rotation, ensure both keys are configured
-2. Verify JWT_SECRET_KEY_OLD is set during transition period
-3. Extend transition period if needed
-4. Ask affected users to re-login
-
-### Issue: Database Connection Failures
-
-**Symptoms**: "Connection refused" or "Authentication failed" errors
-
-**Diagnosis**:
-```bash
-# Test database connection
-kubectl exec -it deployment/uat-backend -n production -- \
-  psql -h <db-host> -U sdt1_user -d sdt1_db -c "SELECT 1;"
-```
-
-**Resolution**:
-1. Verify password was changed in database
-2. Verify password was updated in Kubernetes secret
-3. Verify pods restarted after secret update
-4. Check database user permissions
-5. If all else fails, rollback to old password
-
-### Issue: Rate Limiting After Rotation
-
-**Symptoms**: "429 Too Many Requests" errors
-
-**Diagnosis**:
-```bash
-# Check API usage/rate limits
-curl -H "Authorization: Bearer <token>" \
-  https://api.openai.com/v1/usage
-```
-
-**Resolution**:
-1. New tokens may have different rate limits
-2. Wait for rate limit window to reset
-3. Implement exponential backoff
-4. Contact provider support if limits are too restrictive
 
 ---
 
-## Token Rotation Log
+## Appendix
 
-Document all token rotations:
+### A. Token Generation Commands
 
-| Date | Token Type | Rotated By | Reason | Issues | Notes |
-|------|------------|------------|--------|---------|-------|
-| YYYY-MM-DD | JIRA_API_TOKEN | Name | Scheduled 90-day | None | Smooth rotation |
-| YYYY-MM-DD | OPENAI_API_KEY | Name | Security incident | Brief downtime | Updated runbook |
+```bash
+# JWT Secret (64 bytes, base64)
+python -c "from uat.backend.config import generate_jwt_secret; print(generate_jwt_secret())"
 
----
+# Or using secrets module
+python -c "import secrets; print(secrets.token_urlsafe(64))"
 
-## Automation
+# Database Password (32 characters, alphanumeric + symbols)
+python -c "import secrets, string; chars = string.ascii_letters + string.digits + '!@#$%^&*'; print(''.join(secrets.choice(chars) for _ in range(32)))"
 
-### Automated Rotation (Future Enhancement)
+# Generic secure random string
+openssl rand -base64 48
+```
 
-Consider implementing automated token rotation using:
+### B. Security Best Practices
 
-- **AWS Secrets Manager** with automatic rotation
-- **HashiCorp Vault** with dynamic secrets
-- **Kubernetes External Secrets Operator**
+1. **Never commit secrets to version control**
+   - Use `.env` files (in `.gitignore`)
+   - Use environment variables
+   - Use secret management services (Vault, AWS Secrets Manager)
 
-### Rotation Reminders
+2. **Use unique tokens for each environment**
+   - Development tokens != Staging tokens != Production tokens
+   - Separate tokens for separate purposes
 
-Set up calendar reminders:
-- 90 days for API tokens
-- 180 days for JWT secrets
-- 30 days for development tokens
+3. **Implement least privilege**
+   - Grant only necessary permissions
+   - Use service-specific tokens when possible
 
-### Monitoring & Alerts
+4. **Monitor token usage**
+   - Log all token authentications
+   - Alert on unusual patterns
+   - Regular audit reviews
 
-Configure alerts for:
-- Token expiration warnings (14 days before)
-- Authentication failure rate spikes
-- Service health check failures
+5. **Secure token storage**
+   - Encrypt tokens at rest
+   - Use secure password managers
+   - Never share tokens via insecure channels
 
----
+### C. Related Documentation
 
-## Contact Information
+- [Security Policies](./SECURITY.md)
+- [Incident Response Plan](./INCIDENT_RESPONSE.md)
+- [Access Control Procedures](./ACCESS_CONTROL.md)
+- [Backup and Recovery](./BACKUP_RECOVERY.md)
 
-### On-Call Rotation
+### D. Change Log
 
-- Primary: [On-call schedule link]
-- Secondary: [Backup contact]
-- Escalation: [Management contact]
-
-### Service Providers Support
-
-- **Jira/Atlassian**: https://support.atlassian.com
-- **OpenAI**: https://help.openai.com
-- **GitHub**: https://support.github.com
-
----
-
-## References
-
-- [NIST Password Guidelines](https://pages.nist.gov/800-63-3/)
-- [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
-- Internal: [Security Policies Document]
-- Internal: [Incident Response Playbook]
+| Date | Version | Changes | Author |
+|------|---------|---------|--------|
+| 2024-01-XX | 1.0 | Initial runbook creation | Team |
 
 ---
 
-**Last Updated**: 2024-01-XX  
-**Next Review**: YYYY-MM-DD  
-**Document Owner**: Security Team
+## Questions or Issues?
+
+If you encounter problems not covered in this runbook:
+
+1. Check the [Troubleshooting](#troubleshooting) section
+2. Review recent rotation logs: `logs/rotation-*.log`
+3. Contact the security team: security@yourcompany.com
+4. For emergencies: Call the incident hotline
+
+**Remember:** When in doubt, prioritize security over convenience. It's better to rotate a token unnecessarily than to leave a compromised token active.
