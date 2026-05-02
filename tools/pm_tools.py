@@ -9,7 +9,7 @@ from crewai.tools import BaseTool  # crewai >= 1.0
 from pydantic import BaseModel, Field
 from typing import Optional
 from tools import jira_client as jira
-from tools.validation import validate_execution_order, validate_story_creation
+from tools.pm_validation import validate_story_creation, get_validator
 
 
 # ── Input schemas ──────────────────────────────────────────────────────────────
@@ -30,6 +30,15 @@ class CreateStoryInput(BaseModel):
     story_points:    Optional[int] = Field(None)
     priority:        str           = Field("Medium")
     execution_order: Optional[int] = Field(None, description="Execution order for dependency sequencing, stored in customfield_10071. Required on every story.")
+
+
+class ValidateStoryInput(BaseModel):
+    summary:         str           = Field(...)
+    description:     str           = Field("")
+    epic_key:        Optional[str] = Field(None)
+    story_points:    Optional[int] = Field(None)
+    priority:        str           = Field("Medium")
+    execution_order: Optional[int] = Field(None)
 
 
 class UpdateIssueInput(BaseModel):
@@ -121,11 +130,98 @@ class CreateEpicTool(BaseTool):
         return f"Epic created: {key} — {summary}"
 
 
+class ValidateStoryTool(BaseTool):
+    name:        str = "validate_story"
+    description: str = (
+        "Validate a story BEFORE creating it. Checks for missing execution_order, "
+        "missing epic links, story points, and other best practices. "
+        "ALWAYS call this before create_story to ensure the story meets requirements. "
+        "This validation is critical - stories without execution_order cannot be executed by the Orchestrator."
+    )
+    args_schema: type = ValidateStoryInput
+
+    def _run(self, summary: str, description: str = "",
+             epic_key: Optional[str] = None,
+             story_points: Optional[int] = None,
+             priority: str = "Medium",
+             execution_order: Optional[int] = None) -> str:
+        return validate_story_creation(
+            summary=summary,
+            description=description,
+            epic_key=epic_key,
+            story_points=story_points,
+            priority=priority,
+            execution_order=execution_order,
+        )
+
+
+class ValidateBacklogTool(BaseTool):
+    name:        str = "validate_backlog"
+    description: str = (
+        "Validate the entire backlog for common issues: missing execution_order, "
+        "missing epic links, missing estimates, etc. Use this to audit backlog health "
+        "and identify stories that need attention before sprint planning."
+    )
+    args_schema: type = NoInput
+
+    def _run(self, **_) -> str:
+        validator = get_validator()
+        validator.clear_warnings()
+        
+        # Get all backlog issues
+        issues = jira.list_backlog()
+        
+        if not issues:
+            return "Backlog is empty - nothing to validate."
+        
+        # Run validation
+        results = validator.validate_backlog_health(issues)
+        stats = results["statistics"]
+        
+        # Format output
+        lines = ["📋 Backlog Validation Report", "=" * 50, ""]
+        lines.append(f"Total Stories: {stats['total_stories']}")
+        lines.append("")
+        
+        # Critical issues
+        if stats["missing_execution_order"] > 0:
+            lines.append(f"❌ CRITICAL: {stats['missing_execution_order']} stories missing execution_order")
+            lines.append("   → These stories CANNOT be executed by the Orchestrator!")
+            lines.append(f"   → Affected tickets: {', '.join(results['issues_missing_execution_order'])}")
+            lines.append("")
+        
+        # Warnings
+        if stats["missing_epic"] > 0:
+            lines.append(f"⚠️  {stats['missing_epic']} stories not linked to an Epic")
+        
+        if stats["missing_points"] > 0:
+            lines.append(f"⚠️  {stats['missing_points']} stories missing story points")
+        
+        if stats["over_estimated"] > 0:
+            lines.append(f"⚠️  {stats['over_estimated']} stories with > 8 story points (consider splitting)")
+        
+        if stats["missing_description"] > 0:
+            lines.append(f"ℹ️  {stats['missing_description']} stories with short/missing descriptions")
+        
+        # Summary
+        lines.append("")
+        if validator.has_errors():
+            lines.append("❌ Backlog has CRITICAL issues that must be fixed before sprint planning!")
+        elif validator.get_warnings():
+            lines.append("⚠️  Backlog has warnings - consider addressing before sprint planning.")
+        else:
+            lines.append("✅ Backlog looks healthy!")
+        
+        return "\n".join(lines)
+
+
 class CreateStoryTool(BaseTool):
     name:        str = "create_story"
     description: str = (
         "Create a new Story in Jira. Optionally link to an Epic with epic_key. "
-        "⚠️  IMPORTANT: Always set execution_order — stories without it will not be processed by the Orchestrator. "
+        "⚠️ IMPORTANT: You MUST set execution_order on every story! Without it, "
+        "the Orchestrator cannot execute the story in the sprint. "
+        "Consider calling validate_story first to check for issues. "
         "Returns the new story key."
     )
     args_schema: type = CreateStoryInput
@@ -136,22 +232,32 @@ class CreateStoryTool(BaseTool):
              priority: str = "Medium",
              execution_order: Optional[int] = None) -> str:
         
-        # Validate before creating
-        warnings = validate_story_creation(summary, epic_key, execution_order)
+        # Run validation and collect warnings
+        validation_result = validate_story_creation(
+            summary=summary,
+            description=description,
+            epic_key=epic_key,
+            story_points=story_points,
+            priority=priority,
+            execution_order=execution_order,
+        )
         
         # Create the story
         result = jira.create_story(summary, description, epic_key, story_points, priority, execution_order)
         key = result.get("key", "unknown")
         
-        # Build response with warnings
-        order_str = f" (execution order: {execution_order})" if execution_order else ""
-        response_parts = [f"Story created: {key} — {summary}{order_str}"]
+        # Format response with validation warnings
+        output_lines = [f"Story created: {key} — {summary}"]
         
-        # Add validation warnings to the response so the agent is informed
-        if warnings:
-            response_parts.append("\n\n" + "\n".join(warnings))
+        if execution_order is not None:
+            output_lines.append(f"  Execution order: {execution_order}")
         
-        return "".join(response_parts)
+        # Add validation warnings to the response
+        if "FAILED" in validation_result or "WARNINGS" in validation_result:
+            output_lines.append("")
+            output_lines.append(validation_result)
+        
+        return "\n".join(output_lines)
 
 
 class UpdateIssueTool(BaseTool):
@@ -352,6 +458,8 @@ class ListFixVersionsTool(BaseTool):
 BACKLOG_TOOLS = [
     ListBacklogTool(),
     ListAllIssuesTool(),
+    ValidateStoryTool(),
+    ValidateBacklogTool(),
     CreateEpicTool(),
     CreateStoryTool(),
     UpdateIssueTool(),

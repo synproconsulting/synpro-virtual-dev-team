@@ -57,6 +57,11 @@ Your responsibilities:
    - Use create_or_get_fix_version to deterministically create or retrieve version IDs.
    - Group related stories into the same version for coordinated releases.
    - The same version name always returns the same ID, ensuring consistency across sprints.
+10. VALIDATION — Use validation tools to ensure quality:
+   - Call validate_story BEFORE creating stories to check for issues.
+   - Use validate_backlog to audit the entire backlog health.
+   - Fix any CRITICAL validation errors immediately (especially missing execution_order).
+   - Address warnings to maintain high backlog quality.
 
 Rules:
 - Never invent issue keys; always retrieve them from Jira first.
@@ -67,6 +72,8 @@ Rules:
 - Set execution_order based on dependencies: blockers get lower numbers, blocked stories get higher numbers.
 - Document blocking relationships explicitly with issue links so dependencies are visible in Jira.
 - Use fix versions consistently — same name = same version ID.
+- ALWAYS validate stories before creation to catch missing execution_order early.
+- Stories without execution_order CANNOT be executed by the Orchestrator — treat this as a critical error.
 """
 
 
@@ -76,7 +83,8 @@ def build_pm_agent(verbose: bool = True, tools: list = None) -> Agent:
         goal=(
             "Maintain a healthy, well-groomed Jira backlog; decompose feature "
             "requests into Epics and Stories; establish dependencies with issue links; "
-            "plan and populate sprints so the development team can begin work immediately."
+            "plan and populate sprints so the development team can begin work immediately. "
+            "Ensure every story has execution_order set for Orchestrator sequencing."
         ),
         backstory=PM_AGENT_BACKSTORY,
         tools=tools if tools is not None else BACKLOG_TOOLS,

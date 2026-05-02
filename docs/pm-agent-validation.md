@@ -2,207 +2,335 @@
 
 ## Overview
 
-The PM Agent now includes built-in validation to ensure data quality when creating Jira stories. This validation helps prevent common issues that could block the Orchestrator and downstream automation.
+The PM Agent validation system ensures that all Jira stories created by the PM Agent meet quality standards and contain the required fields for proper execution by the Orchestrator.
 
-## Validation Rules
+## Critical Requirement: execution_order
 
-### Critical: execution_order
+**Every story MUST have `execution_order` set.**
 
-**Rule**: Every story MUST have an `execution_order` value set.
+The `execution_order` field (Jira custom field `customfield_10071`) is critical for the Orchestrator to:
+- Sequence tickets in the correct dependency order
+- Execute stories in the proper sequence
+- Prevent dependency conflicts during sprint execution
 
-**Why**: The Orchestrator uses `execution_order` (stored in `customfield_10071`) to sequence ticket execution. Stories without this field will not be picked up by the automated workflow, blocking sprint progress.
+**Stories without `execution_order` cannot be executed by the Orchestrator and will block the sprint.**
 
-**Severity**: ⚠️ WARNING
+## Validation Tools
 
-**Example Warning**:
-```
-⚠️  WARNING: execution_order not set (SDT1-123). 
-This story will not be sequenced correctly by the Orchestrator. 
-Set execution_order based on dependencies: blockers get lower numbers, 
-blocked stories get higher numbers.
-```
+The PM Agent has access to two validation tools:
 
-### Informational: Epic Linkage
+### 1. `validate_story`
 
-**Rule**: Stories should be linked to an Epic for better organization.
+Validates a story's parameters **before** creation.
 
-**Why**: Grouping related stories under Epics improves backlog organization and makes it easier to track feature progress.
-
-**Severity**: ℹ️ INFO
-
-**Example Info**:
-```
-ℹ️  INFO: Story not linked to an Epic. 
-Consider grouping related stories under an Epic for better organization.
-```
-
-### Informational: Summary Length
-
-**Rule**: Story summaries should be under 100 characters.
-
-**Why**: Long summaries are harder to read in Jira list views and boards.
-
-**Severity**: ℹ️ INFO
-
-**Example Info**:
-```
-ℹ️  INFO: Summary is 120 characters (recommended: <100). 
-Consider shortening for better readability in Jira views.
-```
-
-## How It Works
-
-### CreateStoryTool
-
-When the PM Agent calls `create_story`, validation runs automatically before the story is created:
-
+**Usage:**
 ```python
-tool = CreateStoryTool()
-result = tool._run(
-    summary="Implement user authentication",
+validate_story(
+    summary="Implement user login",
     description="As a user, I want to...",
     epic_key="SDT1-1",
-    story_points=5,
+    story_points=3,
     priority="High",
-    execution_order=None,  # ⚠️  Missing!
+    execution_order=1
 )
 ```
 
-**Response**:
-```
-Story created: SDT1-42 — Implement user authentication
+**Checks:**
+- ❌ **CRITICAL**: Missing `execution_order` (ERROR)
+- ❌ **CRITICAL**: Invalid `execution_order` (< 1) (ERROR)
+- ⚠️ Missing epic link (WARNING)
+- ⚠️ Missing story points (WARNING)
+- ⚠️ Story points > 8 (WARNING - consider splitting)
+- ⚠️ Summary > 100 characters (WARNING)
+- ⚠️ Description too short (< 20 chars) (WARNING)
 
-⚠️  WARNING: execution_order not set. 
-This story will not be sequenced correctly by the Orchestrator. 
-Set execution_order based on dependencies: blockers get lower numbers, 
-blocked stories get higher numbers.
+**Returns:**
+- `✅ Validation passed` - No issues found
+- `⚠️ VALIDATION WARNINGS` - Non-critical issues found
+- `❌ VALIDATION FAILED` - Critical errors found
+
+### 2. `validate_backlog`
+
+Audits the entire backlog for quality issues.
+
+**Usage:**
+```python
+validate_backlog()
 ```
 
-The story is still created in Jira, but the warning is returned to the agent so it can take corrective action.
+**Output Example:**
+```
+📋 Backlog Validation Report
+==================================================
+
+Total Stories: 15
+
+❌ CRITICAL: 3 stories missing execution_order
+   → These stories CANNOT be executed by the Orchestrator!
+   → Affected tickets: SDT1-42, SDT1-43, SDT1-44
+
+⚠️  5 stories not linked to an Epic
+⚠️  2 stories missing story points
+⚠️  1 stories with > 8 story points (consider splitting)
+ℹ️  3 stories with short/missing descriptions
+
+❌ Backlog has CRITICAL issues that must be fixed before sprint planning!
+```
+
+## Validation Severity Levels
+
+### ERROR (❌)
+**Critical issues that must be fixed immediately.**
+
+- Missing `execution_order` - Story cannot be executed
+- Invalid `execution_order` (< 1) - Invalid value
+
+Stories with ERROR-level issues will block sprint execution.
+
+### WARNING (⚠️)
+**Best practice violations that should be addressed.**
+
+- Missing epic link - Affects organization and tracking
+- Missing story points - Affects sprint planning capacity
+- Story points > 8 - Story may be too complex
+- Long summary (> 100 chars) - Readability concern
+
+Warnings should be addressed to maintain backlog quality, but won't block execution.
+
+### INFO (ℹ️)
+**Minor issues for improvement.**
+
+- Short/missing description - May lack context
+- Other quality concerns
 
 ## Best Practices
 
-### Setting execution_order
+### 1. Always Validate Before Creating
 
-1. **Analyze dependencies first**: Use `list_issue_links` to understand existing dependencies
-2. **Blockers get low numbers**: Stories that others depend on should have execution_order 1, 2, 3, etc.
-3. **Blocked stories get high numbers**: Stories that can't start until others are done get higher numbers
-4. **Sequential within epics**: Related stories in the same epic should have sequential numbers
+```python
+# ✅ Good: Validate first
+validate_story(
+    summary="Add user profile page",
+    description="...",
+    epic_key="SDT1-1",
+    story_points=3,
+    execution_order=5
+)
 
-**Example**:
+create_story(
+    summary="Add user profile page",
+    description="...",
+    epic_key="SDT1-1",
+    story_points=3,
+    execution_order=5
+)
 ```
-Epic: User Management (SDT1-1)
-├── Story: Database schema (SDT1-10) → execution_order: 1
-├── Story: API endpoints (SDT1-11) → execution_order: 2
-└── Story: UI components (SDT1-12) → execution_order: 3
+
+```python
+# ❌ Bad: Create without validation
+create_story(
+    summary="Add user profile page",
+    description="...",
+    execution_order=None  # Will fail later!
+)
 ```
 
-### When to Override Validation
+### 2. Audit Backlog Before Sprint Planning
 
-Validation warnings are informational — they don't prevent story creation. Override them when:
+```python
+# Run before starting a new sprint
+validate_backlog()
 
-- **Rapid prototyping**: During initial backlog grooming, you may want to create stories quickly and add execution_order later
-- **Non-development stories**: Administrative stories (e.g., "Schedule team meeting") may not need execution_order
-- **Backlog refinement**: Stories being prepared for future sprints may not need execution_order until sprint planning
+# Fix any critical issues
+# Then proceed with sprint planning
+```
 
-However, **before adding stories to an active sprint**, always ensure execution_order is set.
+### 3. Set execution_order Based on Dependencies
+
+```python
+# Story 1: Foundation work (no dependencies)
+create_story(
+    summary="Set up database schema",
+    execution_order=1,  # Executed first
+    ...
+)
+
+# Story 2: Depends on Story 1
+create_story(
+    summary="Implement data access layer",
+    execution_order=2,  # Executed after Story 1
+    ...
+)
+
+# Story 3: Independent work
+create_story(
+    summary="Design UI mockups",
+    execution_order=3,  # Can run in parallel with Story 2
+    ...
+)
+```
+
+### 4. Use Issue Links to Document Dependencies
+
+```python
+# Create blocker relationship
+create_blocker_link(
+    blocker_issue_key="SDT1-1",  # This must be done first
+    blocked_issue_key="SDT1-2"    # This is blocked by SDT1-1
+)
+
+# execution_order should reflect this:
+# SDT1-1: execution_order=1
+# SDT1-2: execution_order=2
+```
+
+## Integration with Orchestrator
+
+The Orchestrator uses `execution_order` to sequence ticket execution:
+
+1. **Fetch Sprint Tickets**: Get all stories in the sprint
+2. **Sort by execution_order**: Stories sorted ascending (1, 2, 3, ...)
+3. **Execute in Sequence**: Process each ticket in order
+4. **Handle Failures**: Log and continue to next ticket
+
+Without `execution_order`, the Orchestrator cannot determine the correct execution sequence, leading to:
+- Dependency conflicts
+- Failed ticket execution
+- Blocked sprints
+
+## API Reference
+
+### PMValidator Class
+
+```python
+from tools.pm_validation import PMValidator
+
+validator = PMValidator()
+
+# Validate story creation
+valid = validator.validate_story_creation(
+    summary="...",
+    description="...",
+    epic_key="...",
+    story_points=3,
+    execution_order=1
+)
+
+# Validate backlog
+results = validator.validate_backlog_health(issues)
+
+# Get warnings
+warnings = validator.get_warnings()
+
+# Check for errors
+has_errors = validator.has_errors()
+
+# Format warnings
+output = validator.format_warnings()
+
+# Clear warnings
+validator.clear_warnings()
+```
+
+### Convenience Functions
+
+```python
+from tools.pm_validation import validate_story_creation, get_validator
+
+# Quick validation
+result = validate_story_creation(
+    summary="...",
+    execution_order=1,
+    ...
+)
+
+# Get global validator
+validator = get_validator()
+```
 
 ## Testing
 
-Validation is covered by comprehensive unit and integration tests:
+Run tests with pytest:
 
 ```bash
-# Run validation unit tests
-pytest tools/tests/test_validation.py
-
-# Run integration tests
-pytest tools/tests/test_pm_tools_validation.py
+pytest tools/test_pm_validation.py -v
 ```
 
-## Implementation Details
+Tests cover:
+- Validation logic for all check types
+- Error and warning detection
+- Backlog health auditing
+- Edge cases (empty descriptions, invalid values, etc.)
 
-### Architecture
+## Migration Guide
 
-- **Validation Module**: `tools/validation.py` — Core validation logic
-- **Integration**: `tools/pm_tools.py` — CreateStoryTool calls validation before creating stories
-- **Tests**: `tools/tests/test_validation.py` and `tools/tests/test_pm_tools_validation.py`
+If you have existing stories without `execution_order`:
 
-### Custom Fields
-
-- `customfield_10071` — execution_order (integer)
-- `customfield_10016` — story_points (integer)
-
-### Extending Validation
-
-To add new validation rules:
-
-1. Add the validation function to `tools/validation.py`:
+1. **Identify affected stories:**
    ```python
-   def validate_new_field(field_value: Any) -> str:
-       """Validate a new field."""
-       if not is_valid(field_value):
-           return "⚠️  WARNING: Invalid value..."
-       return ""
+   validate_backlog()
    ```
 
-2. Update `validate_story_creation` to include the new check:
+2. **Analyze dependencies:**
    ```python
-   def validate_story_creation(...) -> list[str]:
-       warnings = []
-       
-       # Existing validations...
-       
-       # New validation
-       new_warning = validate_new_field(new_field)
-       if new_warning:
-           warnings.append(new_warning)
-       
-       return warnings
+   list_issue_links(issue_key="SDT1-42")
    ```
 
-3. Add tests to `tools/tests/test_validation.py`
+3. **Set execution_order:**
+   ```python
+   # Use update_issue to add execution_order
+   # Note: This requires updating jira_client.update_issue to support execution_order
+   ```
 
-## Related Documentation
-
-- [PM Agent Documentation](../agents/pm_agent.py) — PM Agent responsibilities and backstory
-- [Orchestrator Documentation](../docs/orchestrator.md) — How execution_order drives ticket sequencing
-- [Jira Custom Fields](../docs/jira-custom-fields.md) — Complete list of custom fields
+4. **Verify:**
+   ```python
+   validate_backlog()
+   ```
 
 ## Troubleshooting
 
-### "Stories not being picked up by Orchestrator"
+### "Missing execution_order" Error
 
-**Symptom**: Stories in sprint but not getting executed
+**Problem:** Story created without `execution_order`
 
-**Solution**: Check execution_order field:
-```python
-from tools import jira_client
-issues = jira_client.list_all_issues()
-for issue in issues:
-    print(jira_client.format_issue(issue))
-```
+**Solution:**
+1. Determine the correct execution sequence
+2. Consider dependencies (use `list_issue_links`)
+3. Set `execution_order` when creating the story
+4. Or update existing story with correct value
 
-Look for stories showing `Order: None` and update them:
-```python
-from tools import jira_client
-jira_client.update_issue("SDT1-123", story_points=5)
-# Note: update_issue doesn't currently support execution_order,
-# use Jira UI or add the parameter to the function
-```
+### "Cannot execute story" in Orchestrator
 
-### "Too many validation warnings"
+**Problem:** Orchestrator skips or fails on story
 
-**Symptom**: Agent responses are cluttered with warnings
+**Solution:**
+1. Check if story has `execution_order` set
+2. Run `validate_backlog()` to find missing values
+3. Update story with correct `execution_order`
+4. Resume sprint execution
 
-**Solution**: 
-1. Improve PM Agent prompts to always set execution_order
-2. Filter informational (ℹ️ INFO) messages if they're not actionable
-3. Adjust validation thresholds (e.g., change summary length limit from 100 to 120 characters)
+### Validation Warnings on Good Stories
 
-## Changelog
+**Problem:** Valid stories showing warnings
 
-### v1.0.0 (SDT1-65)
-- Initial implementation of execution_order validation
-- Added informational validation for epic linkage and summary length
-- Comprehensive test coverage for validation logic
-- Integration with CreateStoryTool
+**Solution:**
+- Review warning message for specific issue
+- Warnings are recommendations, not blockers
+- Address warnings to improve backlog quality
+- Critical: Only ERROR-level issues block execution
+
+## Future Enhancements
+
+Potential improvements to validation:
+
+1. **Dependency Cycle Detection**: Warn about circular dependencies
+2. **Execution Order Gaps**: Detect gaps in execution sequence
+3. **Sprint Capacity Validation**: Warn when sprint exceeds team velocity
+4. **Custom Validation Rules**: Allow project-specific validation rules
+5. **Automated Fixes**: Suggest or auto-apply fixes for common issues
+
+## References
+
+- [PM Agent Documentation](../agents/pm_agent.py)
+- [Orchestrator Documentation](../agents/orchestrator.py)
+- [Jira Custom Fields](../tools/jira_client.py)
