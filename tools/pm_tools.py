@@ -9,6 +9,7 @@ from crewai.tools import BaseTool  # crewai >= 1.0
 from pydantic import BaseModel, Field
 from typing import Optional
 from tools import jira_client as jira
+from tools.validation import validate_execution_order, validate_story_creation
 
 
 # ── Input schemas ──────────────────────────────────────────────────────────────
@@ -124,6 +125,7 @@ class CreateStoryTool(BaseTool):
     name:        str = "create_story"
     description: str = (
         "Create a new Story in Jira. Optionally link to an Epic with epic_key. "
+        "⚠️  IMPORTANT: Always set execution_order — stories without it will not be processed by the Orchestrator. "
         "Returns the new story key."
     )
     args_schema: type = CreateStoryInput
@@ -133,10 +135,23 @@ class CreateStoryTool(BaseTool):
              story_points: Optional[int] = None,
              priority: str = "Medium",
              execution_order: Optional[int] = None) -> str:
+        
+        # Validate before creating
+        warnings = validate_story_creation(summary, epic_key, execution_order)
+        
+        # Create the story
         result = jira.create_story(summary, description, epic_key, story_points, priority, execution_order)
         key = result.get("key", "unknown")
+        
+        # Build response with warnings
         order_str = f" (execution order: {execution_order})" if execution_order else ""
-        return f"Story created: {key} — {summary}{order_str}"
+        response_parts = [f"Story created: {key} — {summary}{order_str}"]
+        
+        # Add validation warnings to the response so the agent is informed
+        if warnings:
+            response_parts.append("\n\n" + "\n".join(warnings))
+        
+        return "".join(response_parts)
 
 
 class UpdateIssueTool(BaseTool):
