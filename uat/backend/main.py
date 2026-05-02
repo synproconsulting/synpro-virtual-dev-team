@@ -21,7 +21,7 @@ from middleware    import RequestLoggingMiddleware
 from rate_limiter  import get_limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from config import get_cors_config, CORSConfigError
-from jwt_utils import get_jwt_manager, JWTConfigError
+from security_config import get_jwt_config, SecurityConfigError
 
 # ── Logging setup ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("WARNING: DATABASE_URL not set - running without database")
     
-    # Validate CORS configuration on startup
+    # Validate CORS configuration on startup (SDT1-56)
     try:
         cors_config = get_cors_config()
         logger.info("✓ CORS configuration validated successfully")
@@ -54,13 +54,14 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ CORS configuration error: {e}")
         raise
     
-    # Validate JWT configuration on startup (SDT1-63)
+    # Validate JWT/security configuration on startup (SDT1-63)
     try:
-        jwt_manager = get_jwt_manager()
-        logger.info("✓ JWT configuration validated successfully")
-    except JWTConfigError as e:
-        logger.error(f"❌ JWT configuration error: {e}")
-        logger.error("Generate a secure secret with: python -c 'import secrets; print(secrets.token_urlsafe(32))'")
+        jwt_config = get_jwt_config()
+        logger.info("✓ JWT security configuration validated successfully")
+        logger.info(f"  - Algorithm: {jwt_config['algorithm']}")
+        logger.info(f"  - Token expiry: {jwt_config['expiry_hours']} hours")
+    except SecurityConfigError as e:
+        logger.error(f"❌ Security configuration error: {e}")
         raise
     
     yield

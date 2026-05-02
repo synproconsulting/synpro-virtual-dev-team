@@ -1,7 +1,4 @@
-"""Authentication router - extracted from main.py (SDT1-47 refactor).
-
-Updated for SDT1-63: Hardened JWT secret key handling.
-"""
+"""Authentication router - extracted from main.py (SDT1-47 refactor)."""
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
@@ -17,7 +14,7 @@ import jwt
 import logging
 
 from email_service import send_password_reset_email
-from jwt_config import get_jwt_config, JWTConfigError
+from security_config import get_jwt_config
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +22,11 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-# Initialize JWT config (validates on startup)
-try:
-    jwt_config = get_jwt_config()
-except JWTConfigError as e:
-    logger.error(f"❌ JWT configuration error: {e}")
-    raise
+# Use hardened JWT configuration (SDT1-63)
+_jwt_config = get_jwt_config()
+JWT_SECRET   = _jwt_config["secret"]
+JWT_EXPIRY   = _jwt_config["expiry_hours"]
+JWT_ALGORITHM = _jwt_config["algorithm"]
 
 
 # ── Database ────────────────────────────────────────────────────────────────────────
@@ -49,103 +45,33 @@ def get_db():
 # ── Helpers ─────────────────────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
-    """
-    Hash a password using PBKDF2-HMAC-SHA256.
-    
-    Args:
-        password: Plain text password
-        
-    Returns:
-        Salted hash in format "salt_hex:key_hex"
-    """
     salt = os.urandom(32)
     key  = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
     return salt.hex() + ":" + key.hex()
 
 
 def verify_password(password: str, stored: str) -> bool:
-    """
-    Verify a password against a stored hash.
-    
-    Args:
-        password: Plain text password to verify
-        stored: Stored hash in format "salt_hex:key_hex"
-        
-    Returns:
-        True if password matches, False otherwise
-    """
     try:
         salt_hex, key_hex = stored.split(":")
         salt = bytes.fromhex(salt_hex)
         key  = bytes.fromhex(key_hex)
         new  = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000)
         return hmac.compare_digest(key, new)
-    except Exception as e:
-        logger.warning(f"Password verification failed: {e}")
+    except Exception:
         return False
 
 
 def create_jwt(user_id: str, email: str) -> str:
-    """
-    Create a JWT token for a user.
-    
-    Uses hardened JWT configuration with validated secret keys.
-    
-    Args:
-        user_id: User ID
-        email: User email
-        
-    Returns:
-        Encoded JWT token
-        
-    Raises:
-        HTTPException: If token creation fails
-    """
-    try:
-        return jwt_config.create_token(user_id, email)
-    except JWTConfigError as e:
-        logger.error(f"Failed to create JWT token for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Authentication error")
-
-
-def decode_jwt(token: str) -> dict:
-    """
-    Decode and validate a JWT token.
-    
-    Supports key rotation - validates with current and old secrets.
-    
-    Args:
-        token: JWT token string
-        
-    Returns:
-        Decoded token payload
-        
-    Raises:
-        HTTPException: If token is invalid or expired
-    """
-    try:
-        return jwt_config.decode_token(token)
-    except jwt.ExpiredSignatureError:
-        logger.debug("Token expired")
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError as e:
-        logger.warning(f"Invalid token: {e}")
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception as e:
-        logger.error(f"Token validation error: {e}")
-        raise HTTPException(status_code=401, detail="Authentication error")
+    payload = {
+        "sub":   user_id,
+        "email": email,
+        "iat":   datetime.now(timezone.utc),
+        "exp":   datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
 def validate_password(password: str) -> list[str]:
-    """
-    Validate password complexity requirements.
-    
-    Args:
-        password: Password to validate
-        
-    Returns:
-        List of validation error messages (empty if valid)
-    """
     errors = []
     if len(password) < 8:
         errors.append("Minimum 8 characters")
@@ -202,11 +128,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=TokenResponse)
 def register(req: RegisterRequest, db=Depends(get_db)):
-    """
-    Register a new user account.
-    
-    Validates password complexity and creates a JWT token.
-    """
     errors = validate_password(req.password)
     if errors:
         raise HTTPException(status_code=400,
@@ -228,9 +149,7 @@ def register(req: RegisterRequest, db=Depends(get_db)):
     )
     db.commit()
 
-    logger.info(f"User registered: {user_id} ({req.email.lower()})")
     token = create_jwt(user_id, req.email.lower())
-    
     return TokenResponse(
         access_token=token,
         user=UserResponse(id=user_id, email=req.email.lower(),
@@ -241,11 +160,6 @@ def register(req: RegisterRequest, db=Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(req: LoginRequest, db=Depends(get_db)):
-    """
-    Authenticate a user and return a JWT token.
-    
-    Validates credentials and creates a new JWT token.
-    """
     cur = db.cursor()
     cur.execute(
         "SELECT id, email, username, password_hash, created_at FROM users WHERE email = %s",
@@ -254,12 +168,9 @@ def login(req: LoginRequest, db=Depends(get_db)):
     user = cur.fetchone()
 
     if not user or not verify_password(req.password, user["password_hash"]):
-        logger.warning(f"Failed login attempt for email: {req.email.lower()}")
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    logger.info(f"User logged in: {user['id']} ({user['email']})")
     token = create_jwt(str(user["id"]), user["email"])
-    
     return TokenResponse(
         access_token=token,
         user=UserResponse(id=str(user["id"]), email=user["email"],
@@ -358,16 +269,16 @@ def get_current_user(
     authorization: str | None = Header(None),
     db=Depends(get_db),
 ):
-    """
-    Get current authenticated user information.
-    
-    Validates JWT token and returns user data.
-    """
+    # C-3 fix: Header(None) reads from the Authorization HTTP header, not a query param
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-    
     token = authorization[7:]
-    payload = decode_jwt(token)
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     cur = db.cursor()
     cur.execute(
@@ -376,7 +287,6 @@ def get_current_user(
     )
     user = cur.fetchone()
     if not user:
-        logger.warning(f"Token valid but user not found: {payload['sub']}")
         raise HTTPException(status_code=404, detail="User not found")
 
     return UserResponse(id=str(user["id"]), email=user["email"],
