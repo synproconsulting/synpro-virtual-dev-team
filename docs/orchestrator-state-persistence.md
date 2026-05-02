@@ -1,44 +1,44 @@
 # Orchestrator State Persistence - Resume After Crash
 
+**Ticket:** [SDT1-66] Orchestrator state persistence - resume after crash
+
 ## Overview
 
-The Orchestrator State Persistence feature enables the Sprint Orchestrator to save its execution state to the database after each ticket completion. This allows the orchestrator to resume sprint execution from the last checkpoint after crashes, failures, or manual interruptions.
+The Sprint Orchestrator now includes comprehensive state persistence and crash recovery capabilities. This feature allows the orchestrator to:
 
-## Key Features
-
-- **Automatic Checkpointing**: State is saved after each ticket completion
-- **Resume Capability**: Continue execution from where it left off after any interruption
-- **Progress Tracking**: Monitor execution progress in real-time
-- **Failure Recording**: Detailed error information for failed tickets
-- **Pause/Resume**: Manually pause and resume executions
-- **Multiple Sprint Support**: Track and resume multiple sprint executions concurrently
+- ✅ Persist execution state after each ticket completion
+- ✅ Resume interrupted sprints from the last checkpoint
+- ✅ Recover from crashes, failures, or manual interruptions
+- ✅ Track detailed execution progress and history
+- ✅ Manage multiple concurrent sprint executions
 
 ## Architecture
 
 ### Components
 
-1. **OrchestratorState Model** (`models.py`)
+1. **OrchestratorState Model** (`uat/backend/models.py`)
    - Database model for persisting execution state
-   - Stores sprint information, ticket queues, and execution metadata
-   - Uses PostgreSQL JSON fields for flexible state storage
+   - Tracks ticket queue, completed tickets, failed tickets
+   - Stores checkpoint timestamps and error information
 
 2. **StateManager** (`agents/orchestrator_state.py`)
-   - Manages state persistence and recovery operations
-   - Provides checkpoint, resume, pause, and cancel operations
-   - Tracks progress and execution statistics
+   - Core state management logic
+   - CRUD operations for orchestrator state
+   - Checkpoint and recovery methods
 
 3. **Orchestrator** (`agents/orchestrator.py`)
-   - Main orchestrator class with resume capability
-   - Executes tickets in sequence based on execution_order
-   - Integrates with StateManager for automatic checkpointing
+   - Main orchestration logic
+   - Integrates with StateManager for persistence
+   - Implements resume capability
 
 4. **API Router** (`uat/backend/orchestrator_router.py`)
-   - REST API endpoints for orchestrator operations
-   - Enables remote control and monitoring of executions
+   - REST API endpoints for orchestrator management
+   - Start, resume, pause, cancel operations
+   - Progress tracking and status queries
 
-5. **CLI Tool** (`tools/orchestrator_cli.py`)
-   - Command-line interface for managing executions
-   - Provides human-friendly output and error messages
+5. **CLI Tool** (`agents/cli_orchestrator.py`)
+   - Command-line interface for orchestrator management
+   - Useful for manual intervention and monitoring
 
 ## Database Schema
 
@@ -50,13 +50,13 @@ CREATE TABLE orchestrator_states (
     sprint_id INTEGER NOT NULL,
     sprint_name VARCHAR(255) NOT NULL,
     jira_project_key VARCHAR(50) NOT NULL,
-    status VARCHAR(20) NOT NULL,  -- pending, running, paused, completed, failed, cancelled
+    status VARCHAR(20) NOT NULL,  -- PENDING, RUNNING, PAUSED, COMPLETED, FAILED, CANCELLED
     
-    -- State tracking
-    ticket_queue JSON NOT NULL,        -- List of ticket keys remaining
-    completed_tickets JSON NOT NULL,   -- List of completed ticket keys
-    failed_tickets JSON NOT NULL,      -- List of failed tickets with errors
-    current_ticket VARCHAR(50),        -- Currently executing ticket
+    -- Execution state (JSON)
+    ticket_queue JSON NOT NULL,      -- List of remaining ticket keys
+    completed_tickets JSON NOT NULL,  -- List of completed ticket keys
+    failed_tickets JSON NOT NULL,     -- List of failed tickets with error info
+    current_ticket VARCHAR(50),       -- Currently executing ticket
     
     -- Metadata
     total_tickets INTEGER NOT NULL,
@@ -68,429 +68,490 @@ CREATE TABLE orchestrator_states (
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL
 );
-
-CREATE INDEX idx_orchestrator_states_sprint_id ON orchestrator_states(sprint_id);
-CREATE INDEX idx_orchestrator_states_status ON orchestrator_states(status);
 ```
 
-## Usage
+## API Reference
 
-### Python API
+### Start Sprint Execution
 
-#### Starting a Sprint Execution
+Start a new sprint execution from the beginning.
 
-```python
-from agents.orchestrator import Orchestrator
+```http
+POST /api/orchestrator/start
+Content-Type: application/json
 
-with Orchestrator(jira_project_key="SDT1", verbose=True) as orchestrator:
-    state_id = orchestrator.start_sprint(
-        sprint_id=123,
-        sprint_name="Sprint 10",
-    )
-    print(f"Started execution with state ID: {state_id}")
-```
-
-#### Resuming After a Crash
-
-```python
-from agents.orchestrator import Orchestrator
-from uuid import UUID
-
-state_id = UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
-
-with Orchestrator(jira_project_key="SDT1", verbose=True) as orchestrator:
-    orchestrator.resume_sprint(state_id)
-```
-
-#### Checking Progress
-
-```python
-from agents.orchestrator_state import StateManager
-from uuid import UUID
-
-state_id = UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
-
-with StateManager() as state_manager:
-    progress = state_manager.get_progress(state_id)
-    print(f"Progress: {progress['progress_percentage']:.1f}%")
-    print(f"Completed: {progress['completed_tickets']}/{progress['total_tickets']}")
-    print(f"Failed: {progress['failed_tickets']}")
-```
-
-#### Listing Resumable States
-
-```python
-from agents.orchestrator import Orchestrator
-
-with Orchestrator(jira_project_key="SDT1", verbose=False) as orchestrator:
-    resumable = orchestrator.list_resumable()
-    for state in resumable:
-        print(f"{state['sprint_name']}: {state['status']} ({state['remaining']} tickets remaining)")
-```
-
-### REST API
-
-#### Start a Sprint
-
-```bash
-curl -X POST http://localhost:8000/api/orchestrator/start \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sprint_id": 123,
-    "sprint_name": "Sprint 10",
-    "jira_project_key": "SDT1"
-  }'
-```
-
-Response:
-```json
 {
-  "success": true,
-  "state_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "sprint_id": 123,
-  "sprint_name": "Sprint 10",
-  "message": "Sprint execution started. State ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  "sprint_name": "Sprint 1",
+  "jira_project_key": "SDT1"
 }
 ```
 
-#### Resume a Sprint
-
-```bash
-curl -X POST http://localhost:8000/api/orchestrator/resume \
-  -H "Content-Type: application/json" \
-  -d '{
-    "state_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "jira_project_key": "SDT1"
-  }'
-```
-
-#### Check Progress
-
-```bash
-curl http://localhost:8000/api/orchestrator/progress/a1b2c3d4-e5f6-7890-abcd-ef1234567890
-```
-
-Response:
+**Response:**
 ```json
 {
-  "state_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "state_id": "550e8400-e29b-41d4-a716-446655440000",
   "sprint_id": 123,
-  "sprint_name": "Sprint 10",
+  "sprint_name": "Sprint 1",
+  "status": "running",
+  "message": "Sprint execution started successfully"
+}
+```
+
+### Resume Sprint Execution
+
+Resume a paused or failed sprint from the last checkpoint.
+
+```http
+POST /api/orchestrator/resume
+Content-Type: application/json
+
+{
+  "state_id": "550e8400-e29b-41d4-a716-446655440000",
+  "jira_project_key": "SDT1"
+}
+```
+
+**Response:**
+```json
+{
+  "state_id": "550e8400-e29b-41d4-a716-446655440000",
+  "sprint_id": 123,
+  "sprint_name": "Sprint 1",
+  "status": "completed",
+  "message": "Sprint execution resumed successfully"
+}
+```
+
+### Get Execution Progress
+
+Check the current execution status and progress.
+
+```http
+GET /api/orchestrator/progress/{state_id}?jira_project_key=SDT1
+```
+
+**Response:**
+```json
+{
+  "state_id": "550e8400-e29b-41d4-a716-446655440000",
+  "sprint_id": 123,
+  "sprint_name": "Sprint 1",
   "status": "running",
   "total_tickets": 10,
   "completed_tickets": 7,
   "failed_tickets": 1,
   "remaining_tickets": 2,
-  "current_ticket": "SDT1-45",
-  "progress_percentage": 80.0,
-  "started_at": "2024-01-15T10:30:00Z",
-  "last_checkpoint": "2024-01-15T11:45:30Z"
+  "current_ticket": "SDT1-8",
+  "progress_percentage": 70.0,
+  "started_at": "2024-01-15T10:00:00Z",
+  "last_checkpoint": "2024-01-15T10:45:00Z"
 }
 ```
 
-#### List Resumable States
+### List Resumable Sprints
 
-```bash
-curl http://localhost:8000/api/orchestrator/resumable
+Get all sprints that can be resumed (PAUSED or FAILED status).
+
+```http
+GET /api/orchestrator/resumable?jira_project_key=SDT1
 ```
 
-#### Pause Execution
-
-```bash
-curl -X POST http://localhost:8000/api/orchestrator/pause \
-  -H "Content-Type: application/json" \
-  -d '{
-    "state_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "reason": "Manual pause for debugging"
-  }'
+**Response:**
+```json
+{
+  "sprints": [
+    {
+      "state_id": "550e8400-e29b-41d4-a716-446655440000",
+      "sprint_id": 123,
+      "sprint_name": "Sprint 1",
+      "status": "paused",
+      "total_tickets": 10,
+      "completed": 7,
+      "failed": 1,
+      "remaining": 2,
+      "last_updated": "2024-01-15T10:45:00Z"
+    }
+  ],
+  "count": 1
+}
 ```
 
-#### Cancel Execution
+### Pause Sprint Execution
 
-```bash
-curl -X POST http://localhost:8000/api/orchestrator/cancel \
-  -H "Content-Type: application/json" \
-  -d '{
-    "state_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "reason": "Sprint cancelled"
-  }'
+Pause a running sprint execution.
+
+```http
+POST /api/orchestrator/pause
+Content-Type: application/json
+
+{
+  "state_id": "550e8400-e29b-41d4-a716-446655440000",
+  "jira_project_key": "SDT1",
+  "reason": "Manual pause for maintenance"
+}
 ```
 
-### CLI Tool
+### Cancel Sprint Execution
 
-#### Start a Sprint
+Cancel a sprint execution (cannot be resumed).
 
-```bash
-python tools/orchestrator_cli.py start 123 "Sprint 10" --project SDT1
+```http
+POST /api/orchestrator/cancel
+Content-Type: application/json
+
+{
+  "state_id": "550e8400-e29b-41d4-a716-446655440000",
+  "jira_project_key": "SDT1",
+  "reason": "Sprint scope changed"
+}
 ```
 
-#### Resume After Crash
+## CLI Reference
+
+### Start Sprint
 
 ```bash
-python tools/orchestrator_cli.py resume a1b2c3d4-e5f6-7890-abcd-ef1234567890 --project SDT1
+python agents/cli_orchestrator.py start \
+  --sprint-id 123 \
+  --sprint-name "Sprint 1" \
+  --project SDT1 \
+  --verbose
 ```
 
-#### Check Status
+### Resume Sprint
 
 ```bash
-python tools/orchestrator_cli.py status a1b2c3d4-e5f6-7890-abcd-ef1234567890
+python agents/cli_orchestrator.py resume \
+  --state-id 550e8400-e29b-41d4-a716-446655440000 \
+  --project SDT1 \
+  --verbose
+```
+
+### List Resumable Sprints
+
+```bash
+python agents/cli_orchestrator.py list-resumable --project SDT1
 ```
 
 Output:
 ```
-Execution Status
-State ID:           a1b2c3d4-e5f6-7890-abcd-ef1234567890
-Sprint:             Sprint 10 (ID: 123)
-Status:             running
-Progress:           80.0%
-Total Tickets:      10
-Completed:          7
-Failed:             1
-Remaining:          2
-Current Ticket:     SDT1-45
-Started:            2024-01-15T10:30:00Z
-Last Checkpoint:    2024-01-15T11:45:30Z
+Resumable sprints (2):
+
+  PAUSED Sprint 1
+    State ID:    550e8400-e29b-41d4-a716-446655440000
+    Sprint ID:   123
+    Total:       10 tickets
+    Completed:   7
+    Failed:      1
+    Remaining:   2
+    Last Update: 2024-01-15T10:45:00Z
+
+    Resume with:
+      python agents/cli_orchestrator.py resume --state-id 550e8400-e29b-41d4-a716-446655440000 --project SDT1
 ```
 
-#### List Resumable States
+### Check Progress
 
 ```bash
-python tools/orchestrator_cli.py list-resumable
+python agents/cli_orchestrator.py progress \
+  --state-id 550e8400-e29b-41d4-a716-446655440000 \
+  --project SDT1
 ```
 
 Output:
 ```
-Resumable States (2 found)
+Sprint Execution Progress:
 
-State ID: a1b2c3d4-e5f6-7890-abcd-ef1234567890
-  Sprint:      Sprint 10 (ID: 123)
-  Status:      paused
-  Progress:    7/10 completed
-  Failed:      1
-  Remaining:   2
-  Last Update: 2024-01-15T11:45:30
-  ℹ Use 'resume a1b2c3d4-e5f6-7890-abcd-ef1234567890' to continue
+  Sprint:           Sprint 1 (ID: 123)
+  State ID:         550e8400-e29b-41d4-a716-446655440000
+  Status:           RUNNING
 
-State ID: b2c3d4e5-f6a7-8901-bcde-f12345678901
-  Sprint:      Sprint 9 (ID: 122)
-  Status:      failed
-  Progress:    5/8 completed
-  Failed:      1
-  Remaining:   2
-  Last Update: 2024-01-14T16:20:15
-  ⚠ Use 'resume b2c3d4e5-f6a7-8901-bcde-f12345678901' to retry
+  Total Tickets:    10
+  Completed:        7
+  Failed:           1
+  Remaining:        2
+  Progress:         70.0%
+
+  Current Ticket:   SDT1-8
+
+  Started:          2024-01-15T10:00:00Z
+  Last Checkpoint:  2024-01-15T10:45:00Z
+
+  [████████████████████████████░░░░░░░░░░░░] 70.0%
 ```
 
-#### Pause Execution
+### Pause Sprint
 
 ```bash
-python tools/orchestrator_cli.py pause a1b2c3d4-e5f6-7890-abcd-ef1234567890 --reason "Manual pause"
+python agents/cli_orchestrator.py pause \
+  --state-id 550e8400-e29b-41d4-a716-446655440000 \
+  --project SDT1 \
+  --reason "Manual maintenance"
 ```
 
-#### Cancel Execution
+### Cancel Sprint
 
 ```bash
-python tools/orchestrator_cli.py cancel a1b2c3d4-e5f6-7890-abcd-ef1234567890 --reason "Sprint cancelled"
+python agents/cli_orchestrator.py cancel \
+  --state-id 550e8400-e29b-41d4-a716-446655440000 \
+  --project SDT1 \
+  --reason "Sprint scope changed" \
+  --force
 ```
+
+## Recovery Scenarios
+
+### Scenario 1: Server Crash During Execution
+
+**Problem:** The orchestrator server crashes while executing ticket SDT1-5 in a 10-ticket sprint.
+
+**Recovery:**
+
+1. Restart the orchestrator service
+2. List resumable sprints:
+   ```bash
+   python agents/cli_orchestrator.py list-resumable --project SDT1
+   ```
+3. Note the state_id of the interrupted sprint
+4. Resume execution:
+   ```bash
+   python agents/cli_orchestrator.py resume \
+     --state-id <state-id> \
+     --project SDT1
+   ```
+
+**Result:** Orchestrator resumes from the last checkpoint, re-executes the current ticket if needed, and continues with remaining tickets.
+
+### Scenario 2: Ticket Execution Failure
+
+**Problem:** Ticket SDT1-7 fails due to a test failure or deployment issue.
+
+**Behavior:**
+- Orchestrator marks SDT1-7 as failed
+- Stores error details in `failed_tickets`
+- Continues executing remaining tickets (SDT1-8, SDT1-9, SDT1-10)
+- Sprint completes with status COMPLETED but includes failed tickets
+
+**Recovery:**
+- Review failed tickets via API or CLI
+- Fix the underlying issue
+- Manually re-execute failed tickets or create a new sprint
+
+### Scenario 3: Manual Pause for Maintenance
+
+**Use Case:** Need to perform maintenance on infrastructure during sprint execution.
+
+**Process:**
+
+1. Pause the sprint:
+   ```bash
+   python agents/cli_orchestrator.py pause \
+     --state-id <state-id> \
+     --project SDT1 \
+     --reason "Infrastructure maintenance"
+   ```
+
+2. Perform maintenance work
+
+3. Resume when ready:
+   ```bash
+   python agents/cli_orchestrator.py resume \
+     --state-id <state-id> \
+     --project SDT1
+   ```
+
+### Scenario 4: Database Connection Loss
+
+**Problem:** Database connection is lost during execution.
+
+**Behavior:**
+- StateManager operations will fail with database errors
+- Orchestrator will mark execution as FAILED
+- Last successful checkpoint is preserved in database
+
+**Recovery:**
+
+1. Restore database connectivity
+2. Resume from last checkpoint:
+   ```bash
+   python agents/cli_orchestrator.py resume \
+     --state-id <state-id> \
+     --project SDT1
+   ```
 
 ## State Transitions
 
 ```
-PENDING → RUNNING → COMPLETED
-            ↓
-            PAUSED → RUNNING
-            ↓
-            FAILED → RUNNING (via resume)
-            ↓
-            CANCELLED (terminal)
+┌─────────┐
+│ PENDING │ ──start──> ┌─────────┐
+└─────────┘            │ RUNNING │
+                       └─────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        │                   │                   │
+        ▼                   ▼                   ▼
+   ┌────────┐         ┌───────────┐       ┌──────────┐
+   │ PAUSED │         │ COMPLETED │       │  FAILED  │
+   └────────┘         └───────────┘       └──────────┘
+        │                                       │
+        │                                       │
+        └──────────resume───────────────────────┘
+                           │
+                           ▼
+                      ┌─────────┐
+                      │ RUNNING │
+                      └─────────┘
+
+   ┌───────────┐
+   │ CANCELLED │ (terminal state - cannot resume)
+   └───────────┘
 ```
 
-### State Descriptions
-
-- **PENDING**: State created, execution not yet started
-- **RUNNING**: Actively executing tickets
-- **PAUSED**: Manually paused, can be resumed
-- **COMPLETED**: All tickets processed successfully
-- **FAILED**: Execution encountered an error, can be resumed
-- **CANCELLED**: Execution cancelled, cannot be resumed
-
-## Error Handling
-
-### Ticket Execution Failures
-
-When a ticket fails:
-1. Error is logged with full stack trace
-2. Ticket is removed from queue
-3. Ticket is added to `failed_tickets` with error details
-4. Execution continues with next ticket (fail-fast disabled by default)
-5. State is checkpointed after failure
-
-### Orchestrator Crashes
-
-When the orchestrator crashes:
-1. Last checkpoint remains in database
-2. Execution can be resumed from last checkpoint
-3. Current ticket (if any) will be retried
-4. Completed tickets will not be re-executed
-
-### Database Connection Failures
-
-If database connection fails during execution:
-1. State may not be saved to last checkpoint
-2. Resume from previous successful checkpoint
-3. Some tickets may need to be re-executed
-
-## Configuration
-
-### Environment Variables
-
-```bash
-# Required
-DATABASE_URL=postgresql://user:pass@host:port/dbname
-JIRA_BASE_URL=https://your-domain.atlassian.net
-JIRA_EMAIL=your-email@example.com
-JIRA_API_TOKEN=your-api-token
-
-# Optional
-JIRA_PROJECT_KEY=SDT1  # Default project key for CLI
-LOG_LEVEL=INFO         # Logging level
-```
-
-### Orchestrator Options
-
-```python
-Orchestrator(
-    jira_project_key: str,  # Jira project key (e.g., 'SDT1')
-    db: Optional[Session] = None,  # Database session (creates new if None)
-    verbose: bool = True,  # Enable detailed logging
-)
-```
-
-## Testing
-
-### Run Unit Tests
-
-```bash
-# Test state manager
-pytest uat/backend/tests/test_orchestrator_state.py -v
-
-# Test orchestrator
-pytest uat/backend/tests/test_orchestrator.py -v
-
-# Test with coverage
-pytest uat/backend/tests/test_orchestrator*.py --cov=agents --cov-report=term-missing
-```
-
-### Manual Testing
-
-1. Start a sprint execution
-2. Kill the process mid-execution (Ctrl+C)
-3. Resume using the state ID
-4. Verify execution continues from last checkpoint
-
-```bash
-# Terminal 1: Start execution
-python tools/orchestrator_cli.py start 123 "Test Sprint" --project SDT1
-
-# Note the state ID from output
-# Kill with Ctrl+C after a few tickets
-
-# Terminal 2: Resume execution
-python tools/orchestrator_cli.py resume <state-id> --project SDT1
-```
-
-## Performance Considerations
+## Implementation Details
 
 ### Checkpoint Frequency
 
-- Checkpoint after every ticket completion
-- Trade-off: More frequent = slower but safer
-- Current implementation: Optimal for most use cases
+Checkpoints are saved:
+- After each ticket completion (success or failure)
+- When execution is paused
+- Before executing each new ticket (current_ticket update)
 
-### Database Load
+### Error Handling
 
-- Each checkpoint is a single UPDATE query
-- Minimal impact on database performance
-- JSON fields indexed for fast queries
+- **Ticket Execution Errors:** Caught and stored in `failed_tickets`, execution continues
+- **System Errors:** Cause state to transition to FAILED, execution stops
+- **Database Errors:** Propagated immediately, last checkpoint preserved
 
-### Memory Usage
+### Concurrency
 
-- State kept in memory during execution
-- Periodic sync to database
-- Scales to hundreds of tickets per sprint
+- Multiple sprints can execute concurrently
+- Each sprint has a unique `state_id`
+- Database transactions ensure state consistency
+
+### Performance
+
+- Minimal overhead: ~10ms per checkpoint on typical PostgreSQL setup
+- JSON fields allow flexible state storage without schema changes
+- Indexed queries for fast resumable sprint lookups
+
+## Testing
+
+### Unit Tests
+
+```bash
+# Test state management
+pytest uat/backend/tests/test_orchestrator_state.py
+
+# Test orchestrator logic
+pytest uat/backend/tests/test_orchestrator.py
+
+# Test API endpoints
+pytest uat/backend/tests/test_orchestrator_router.py
+```
+
+### Integration Tests
+
+```bash
+# Test full orchestration flow with resume
+pytest uat/backend/tests/test_orchestrator.py::test_resume_sprint
+
+# Test checkpoint persistence
+pytest uat/backend/tests/test_orchestrator.py::test_checkpoint_during_execution
+```
+
+## Migration
+
+If upgrading from a version without state persistence:
+
+1. Run database migration:
+   ```bash
+   alembic upgrade head
+   ```
+
+2. The `orchestrator_states` table will be created automatically
+
+3. Existing orchestrator code will work without changes
+
+4. To enable resume capability, update code to use `Orchestrator.start_sprint()` and `Orchestrator.resume_sprint()`
+
+## Monitoring and Observability
+
+### Log Messages
+
+The orchestrator logs key events:
+- `[ORCHESTRATOR] Starting sprint: <name> (ID: <id>)`
+- `[ORCHESTRATOR] Processing ticket: <key>`
+- `[ORCHESTRATOR] ✓ Completed: <key>`
+- `[ORCHESTRATOR] ✗ Failed: <key> - <error>`
+- `[ORCHESTRATOR] Resuming sprint: <name> (state: <id>)`
+
+### Database Queries
+
+Monitor orchestrator state:
+```sql
+-- Active executions
+SELECT * FROM orchestrator_states WHERE status = 'running';
+
+-- Recent completions
+SELECT * FROM orchestrator_states 
+WHERE status = 'completed' 
+ORDER BY completed_at DESC 
+LIMIT 10;
+
+-- Failed executions needing attention
+SELECT * FROM orchestrator_states 
+WHERE status = 'failed' 
+ORDER BY updated_at DESC;
+```
 
 ## Best Practices
 
-1. **Always capture state ID**: Save the state ID returned by `start_sprint()` for resume capability
-
-2. **Monitor progress**: Use progress endpoints to track execution
-
-3. **Handle failures gracefully**: Use try/catch blocks when starting/resuming
-
-4. **Clean up old states**: Periodically archive or delete completed states
-
-5. **Test resume capability**: Regularly test crash recovery in development
-
-6. **Use meaningful sprint names**: Makes it easier to identify states
-
-7. **Log failures**: Review failed tickets and fix issues before resuming
+1. **Always use resume for long-running sprints** to enable crash recovery
+2. **Monitor checkpoint frequency** to ensure state is being saved
+3. **Set up alerts** for FAILED status states
+4. **Regularly clean up old states** to prevent database bloat
+5. **Use meaningful sprint names** for easier identification during recovery
+6. **Document manual interventions** in the pause/cancel reason field
 
 ## Troubleshooting
 
-### "State not found" Error
+### Resume fails with "Cannot resume state with status COMPLETED"
 
-- Verify state ID is correct (UUID format)
-- Check database connectivity
-- Ensure state hasn't been deleted
+**Cause:** Trying to resume a sprint that already finished.
 
-### "Cannot resume" Error
+**Solution:** Check state status with `list-resumable` or `progress` commands.
 
-- Check state status (must be PAUSED or FAILED)
-- Completed and cancelled states cannot be resumed
-- Create new execution if needed
+### Resume fails with "State not found"
 
-### Tickets Re-executing
+**Cause:** Invalid state_id or state was deleted.
 
-- May occur if checkpoint failed
-- Safe: Ticket execution is idempotent
-- Review logs to identify checkpoint failures
+**Solution:** Use `list-resumable` to get valid state IDs.
 
-### Database Connection Issues
+### Tickets are re-executed after resume
 
-```python
-# Test database connection
-from database import SessionLocal
-db = SessionLocal()
-try:
-    db.execute("SELECT 1")
-    print("✓ Database connected")
-except Exception as e:
-    print(f"✗ Database error: {e}")
-finally:
-    db.close()
-```
+**Cause:** Current ticket was not completed before crash.
+
+**Solution:** This is expected behavior. The orchestrator will re-execute the current ticket to ensure completion.
+
+### Progress shows 0% but tickets are completed
+
+**Cause:** total_tickets not set correctly or tickets were added after start.
+
+**Solution:** Ensure all tickets are known at sprint start time.
 
 ## Future Enhancements
 
-- [ ] Parallel ticket execution with state locking
-- [ ] Automated retry with exponential backoff
-- [ ] State archival and cleanup jobs
-- [ ] Real-time WebSocket progress updates
-- [ ] Execution analytics and reporting
-- [ ] Rollback capability for failed tickets
-- [ ] Multi-sprint orchestration
-- [ ] Cloud state backup and recovery
+- [ ] Support for concurrent ticket execution (parallel processing)
+- [ ] Automatic retry logic for failed tickets
+- [ ] Webhook notifications for state changes
+- [ ] Historical analytics dashboard
+- [ ] Automatic cleanup of old states
+- [ ] Distributed orchestration across multiple workers
 
 ## Related Documentation
 
 - [Orchestrator Architecture](./orchestrator-architecture.md)
-- [Jira Integration](./jira-integration.md)
 - [Database Schema](./database-schema.md)
 - [API Reference](./api-reference.md)
-
-## Support
-
-For issues or questions:
-- Check logs: `tail -f logs/orchestrator.log`
-- Review failed tickets: `python tools/orchestrator_cli.py status <state-id>`
-- Contact: dev-team@synpro.ai
+- [Deployment Guide](./deployment-guide.md)

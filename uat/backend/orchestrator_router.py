@@ -1,66 +1,109 @@
 """
 uat/backend/orchestrator_router.py
-───────────────────────────────────
-FastAPI router for orchestrator state persistence and sprint execution.
+═══════════════════════════════════
+FastAPI router for orchestrator management endpoints.
 
-Provides REST endpoints for:
-- Starting sprint executions
-- Resuming from crashes/failures
-- Checking execution status
-- Pausing/cancelling executions
-- Listing resumable states
+Provides REST API endpoints for:
+- Starting sprint execution
+- Resuming interrupted execution
+- Listing resumable sprints
+- Checking execution progress
+- Pausing/cancelling execution
 """
 
-import os
-import sys
-from typing import Dict, List, Optional
+from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../"))
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from agents.orchestrator import Orchestrator
-from agents.orchestrator_state import StateManager
 from database import get_db
+from models import OrchestratorStatus
+from agents.orchestrator import Orchestrator
 
 
-# ── Request / Response models ─────────────────────────────────────────────────
+router = APIRouter(prefix="/api/orchestrator", tags=["orchestrator"])
+
+
+# ── Request/Response Models ───────────────────────────────────────────────────────────
+
 
 class StartSprintRequest(BaseModel):
     """Request to start a sprint execution."""
-    sprint_id: int = Field(..., description="Jira sprint ID", example=123)
-    sprint_name: str = Field(..., description="Sprint name", example="Sprint 10")
-    jira_project_key: str = Field(..., description="Jira project key", example="SDT1")
+    
+    sprint_id: int = Field(..., description="Jira sprint ID")
+    sprint_name: str = Field(..., description="Sprint name")
+    jira_project_key: str = Field(..., description="Jira project key (e.g., 'SDT1')")
 
 
 class StartSprintResponse(BaseModel):
-    """Response after starting a sprint execution."""
-    success: bool
-    state_id: str
+    """Response from starting a sprint execution."""
+    
+    state_id: str = Field(..., description="UUID of the orchestrator state")
     sprint_id: int
     sprint_name: str
+    status: str
     message: str
 
 
 class ResumeSprintRequest(BaseModel):
     """Request to resume a sprint execution."""
-    state_id: str = Field(..., description="UUID of orchestrator state to resume")
-    jira_project_key: str = Field(..., description="Jira project key", example="SDT1")
+    
+    state_id: str = Field(..., description="UUID of the orchestrator state to resume")
+    jira_project_key: str = Field(..., description="Jira project key")
 
 
 class ResumeSprintResponse(BaseModel):
-    """Response after resuming a sprint execution."""
-    success: bool
+    """Response from resuming a sprint execution."""
+    
     state_id: str
+    sprint_id: int
+    sprint_name: str
+    status: str
     message: str
 
 
-class ExecutionProgressResponse(BaseModel):
-    """Progress information for a sprint execution."""
+class PauseSprintRequest(BaseModel):
+    """Request to pause a sprint execution."""
+    
+    state_id: str = Field(..., description="UUID of the orchestrator state")
+    jira_project_key: str = Field(..., description="Jira project key")
+    reason: Optional[str] = Field(None, description="Reason for pausing")
+
+
+class PauseSprintResponse(BaseModel):
+    """Response from pausing a sprint execution."""
+    
+    state_id: str
+    status: str
+    message: str
+
+
+class CancelSprintRequest(BaseModel):
+    """Request to cancel a sprint execution."""
+    
+    state_id: str = Field(..., description="UUID of the orchestrator state")
+    jira_project_key: str = Field(..., description="Jira project key")
+    reason: Optional[str] = Field(None, description="Reason for cancellation")
+
+
+class CancelSprintResponse(BaseModel):
+    """Response from cancelling a sprint execution."""
+    
+    state_id: str
+    status: str
+    message: str
+
+
+class ProgressResponse(BaseModel):
+    """Execution progress information."""
+    
     state_id: str
     sprint_id: int
     sprint_name: str
@@ -75,8 +118,9 @@ class ExecutionProgressResponse(BaseModel):
     last_checkpoint: Optional[str]
 
 
-class ResumableStateResponse(BaseModel):
-    """Information about a resumable orchestrator state."""
+class ResumableSprintInfo(BaseModel):
+    """Information about a resumable sprint."""
+    
     state_id: str
     sprint_id: int
     sprint_name: str
@@ -88,236 +132,286 @@ class ResumableStateResponse(BaseModel):
     last_updated: str
 
 
-class PauseExecutionRequest(BaseModel):
-    """Request to pause an execution."""
-    state_id: str = Field(..., description="UUID of orchestrator state to pause")
-    reason: Optional[str] = Field(None, description="Optional reason for pausing")
+class ListResumableResponse(BaseModel):
+    """Response with list of resumable sprints."""
+    
+    sprints: List[ResumableSprintInfo]
+    count: int
 
 
-class CancelExecutionRequest(BaseModel):
-    """Request to cancel an execution."""
-    state_id: str = Field(..., description="UUID of orchestrator state to cancel")
-    reason: Optional[str] = Field(None, description="Optional reason for cancellation")
+# ── Endpoints ─────────────────────────────────────────────────────────────────────────
 
 
-class OperationResponse(BaseModel):
-    """Generic operation response."""
-    success: bool
-    message: str
-    state_id: str
-
-
-# ── Router ────────────────────────────────────────────────────────────────────
-
-router = APIRouter(prefix="/api/orchestrator", tags=["orchestrator"])
-
-
-@router.post("/start", response_model=StartSprintResponse)
+@router.post("/start", response_model=StartSprintResponse, status_code=status.HTTP_202_ACCEPTED)
 def start_sprint(
     request: StartSprintRequest,
     db: Session = Depends(get_db),
 ) -> StartSprintResponse:
     """Start executing a sprint from the beginning.
     
-    Creates a new orchestrator state and begins executing tickets in the sprint
-    according to their execution_order (customfield_10071).
+    This endpoint initiates orchestrator execution for a sprint. The execution
+    runs asynchronously, and the state_id can be used to track progress.
     
-    The execution runs asynchronously and can be monitored via the /progress endpoint.
-    If execution is interrupted, it can be resumed via the /resume endpoint.
+    Args:
+        request: Sprint start request with sprint details
+        db: Database session
+        
+    Returns:
+        StartSprintResponse with state_id and execution details
+        
+    Raises:
+        HTTPException: If sprint start fails
     """
     try:
-        orchestrator = Orchestrator(
-            jira_project_key=request.jira_project_key,
-            db=db,
-            verbose=True,
-        )
-        
-        state_id = orchestrator.start_sprint(
-            sprint_id=request.sprint_id,
-            sprint_name=request.sprint_name,
-        )
-        
-        return StartSprintResponse(
-            success=True,
-            state_id=str(state_id),
-            sprint_id=request.sprint_id,
-            sprint_name=request.sprint_name,
-            message=f"Sprint execution started. State ID: {state_id}",
-        )
-        
+        with Orchestrator(request.jira_project_key, db=db, verbose=True) as orch:
+            state_id = orch.start_sprint(
+                sprint_id=request.sprint_id,
+                sprint_name=request.sprint_name,
+            )
+            
+            return StartSprintResponse(
+                state_id=str(state_id),
+                sprint_id=request.sprint_id,
+                sprint_name=request.sprint_name,
+                status=OrchestratorStatus.RUNNING.value,
+                message=f"Sprint execution started successfully",
+            )
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to start sprint execution: {str(e)}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start sprint: {str(e)}",
         )
 
 
-@router.post("/resume", response_model=ResumeSprintResponse)
+@router.post("/resume", response_model=ResumeSprintResponse, status_code=status.HTTP_202_ACCEPTED)
 def resume_sprint(
     request: ResumeSprintRequest,
     db: Session = Depends(get_db),
 ) -> ResumeSprintResponse:
-    """Resume a sprint execution from the last checkpoint.
+    """Resume executing a sprint from the last checkpoint.
     
-    Can resume PAUSED or FAILED executions. The orchestrator will continue
-    from where it left off, processing remaining tickets in the queue.
+    This endpoint resumes orchestrator execution for a paused or failed sprint.
+    Only sprints with PAUSED or FAILED status can be resumed.
+    
+    Args:
+        request: Resume request with state_id
+        db: Database session
+        
+    Returns:
+        ResumeSprintResponse with execution details
+        
+    Raises:
+        HTTPException: If state not found or cannot be resumed
     """
     try:
         state_id = UUID(request.state_id)
-        
-        orchestrator = Orchestrator(
-            jira_project_key=request.jira_project_key,
-            db=db,
-            verbose=True,
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid state_id format",
         )
-        
-        orchestrator.resume_sprint(state_id)
-        
-        return ResumeSprintResponse(
-            success=True,
-            state_id=request.state_id,
-            message=f"Sprint execution resumed successfully",
-        )
-        
+    
+    try:
+        with Orchestrator(request.jira_project_key, db=db, verbose=True) as orch:
+            # Get state info before resuming
+            state = orch.state_manager.get_state(state_id)
+            if not state:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"State {request.state_id} not found",
+                )
+            
+            # Resume execution
+            orch.resume_sprint(state_id)
+            
+            # Get updated state
+            updated_state = orch.state_manager.get_state(state_id)
+            
+            return ResumeSprintResponse(
+                state_id=str(state_id),
+                sprint_id=updated_state.sprint_id,
+                sprint_name=updated_state.sprint_name,
+                status=updated_state.status.value,
+                message=f"Sprint execution resumed successfully",
+            )
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to resume sprint execution: {str(e)}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to resume sprint: {str(e)}",
         )
 
 
-@router.get("/progress/{state_id}", response_model=ExecutionProgressResponse)
-def get_progress(
-    state_id: str,
+@router.post("/pause", response_model=PauseSprintResponse)
+def pause_sprint(
+    request: PauseSprintRequest,
     db: Session = Depends(get_db),
-) -> ExecutionProgressResponse:
-    """Get execution progress for a sprint.
+) -> PauseSprintResponse:
+    """Pause the execution of a sprint.
     
-    Returns detailed information about the current state of execution including:
-    - Overall progress percentage
-    - Number of completed, failed, and remaining tickets
-    - Current ticket being processed
-    - Timestamps for start and last checkpoint
+    This endpoint pauses orchestrator execution. The sprint can be resumed
+    later from the last checkpoint.
+    
+    Args:
+        request: Pause request with state_id and optional reason
+        db: Database session
+        
+    Returns:
+        PauseSprintResponse with pause confirmation
+        
+    Raises:
+        HTTPException: If state not found or cannot be paused
     """
     try:
-        state_uuid = UUID(state_id)
-        state_manager = StateManager(db=db)
-        
-        progress = state_manager.get_progress(state_uuid)
-        
-        return ExecutionProgressResponse(**progress)
-        
+        state_id = UUID(request.state_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid state ID format")
-    except Exception as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(status_code=404, detail=f"State {state_id} not found")
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid state_id format",
+        )
+    
+    try:
+        with Orchestrator(request.jira_project_key, db=db, verbose=True) as orch:
+            orch.pause(state_id, reason=request.reason)
+            
+            return PauseSprintResponse(
+                state_id=str(state_id),
+                status=OrchestratorStatus.PAUSED.value,
+                message="Sprint execution paused successfully",
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to pause sprint: {str(e)}",
+        )
+
+
+@router.post("/cancel", response_model=CancelSprintResponse)
+def cancel_sprint(
+    request: CancelSprintRequest,
+    db: Session = Depends(get_db),
+) -> CancelSprintResponse:
+    """Cancel the execution of a sprint.
+    
+    This endpoint cancels orchestrator execution. Unlike pause, a cancelled
+    sprint cannot be resumed.
+    
+    Args:
+        request: Cancel request with state_id and optional reason
+        db: Database session
+        
+    Returns:
+        CancelSprintResponse with cancellation confirmation
+        
+    Raises:
+        HTTPException: If state not found or cannot be cancelled
+    """
+    try:
+        state_id = UUID(request.state_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid state_id format",
+        )
+    
+    try:
+        with Orchestrator(request.jira_project_key, db=db, verbose=True) as orch:
+            orch.cancel(state_id, reason=request.reason)
+            
+            return CancelSprintResponse(
+                state_id=str(state_id),
+                status=OrchestratorStatus.CANCELLED.value,
+                message="Sprint execution cancelled successfully",
+            )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel sprint: {str(e)}",
+        )
+
+
+@router.get("/progress/{state_id}", response_model=ProgressResponse)
+def get_progress(
+    state_id: str,
+    jira_project_key: str,
+    db: Session = Depends(get_db),
+) -> ProgressResponse:
+    """Get execution progress for a sprint.
+    
+    This endpoint retrieves current execution status and progress statistics
+    for a sprint orchestration run.
+    
+    Args:
+        state_id: UUID of the orchestrator state
+        jira_project_key: Jira project key
+        db: Database session
+        
+    Returns:
+        ProgressResponse with detailed progress information
+        
+    Raises:
+        HTTPException: If state not found
+    """
+    try:
+        uuid_state_id = UUID(state_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid state_id format",
+        )
+    
+    try:
+        with Orchestrator(jira_project_key, db=db, verbose=False) as orch:
+            progress = orch.get_progress(uuid_state_id)
+            
+            return ProgressResponse(**progress)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get progress: {str(e)}",
         )
 
 
-@router.get("/resumable", response_model=List[ResumableStateResponse])
+@router.get("/resumable", response_model=ListResumableResponse)
 def list_resumable(
+    jira_project_key: str,
     db: Session = Depends(get_db),
-) -> List[ResumableStateResponse]:
+) -> ListResumableResponse:
     """List all sprints that can be resumed.
     
-    Returns states with PAUSED or FAILED status that can be resumed
-    to continue execution from the last checkpoint.
-    """
-    try:
-        # Create a temporary orchestrator instance just to access list_resumable
-        orchestrator = Orchestrator(
-            jira_project_key="",  # Not needed for listing
-            db=db,
-            verbose=False,
-        )
-        
-        resumable_states = orchestrator.list_resumable()
-        
-        return [ResumableStateResponse(**state) for state in resumable_states]
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list resumable states: {str(e)}",
-        )
-
-
-@router.post("/pause", response_model=OperationResponse)
-def pause_execution(
-    request: PauseExecutionRequest,
-    db: Session = Depends(get_db),
-) -> OperationResponse:
-    """Pause an ongoing sprint execution.
+    This endpoint returns all orchestrator states that are in PAUSED or
+    FAILED status and can be resumed.
     
-    The execution can be resumed later from the last checkpoint using the /resume endpoint.
+    Args:
+        jira_project_key: Jira project key
+        db: Database session
+        
+    Returns:
+        ListResumableResponse with list of resumable sprints
     """
     try:
-        state_id = UUID(request.state_id)
-        state_manager = StateManager(db=db)
-        
-        state_manager.pause_execution(state_id, reason=request.reason)
-        
-        return OperationResponse(
-            success=True,
-            state_id=request.state_id,
-            message="Execution paused successfully",
-        )
-        
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(status_code=404, detail=str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        with Orchestrator(jira_project_key, db=db, verbose=False) as orch:
+            resumable = orch.list_resumable()
+            
+            sprints = [ResumableSprintInfo(**sprint) for sprint in resumable]
+            
+            return ListResumableResponse(
+                sprints=sprints,
+                count=len(sprints),
+            )
     except Exception as e:
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to pause execution: {str(e)}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list resumable sprints: {str(e)}",
         )
-
-
-@router.post("/cancel", response_model=OperationResponse)
-def cancel_execution(
-    request: CancelExecutionRequest,
-    db: Session = Depends(get_db),
-) -> OperationResponse:
-    """Cancel an ongoing sprint execution.
-    
-    Unlike pause, a cancelled execution cannot be resumed. This permanently
-    ends the execution for this state.
-    """
-    try:
-        state_id = UUID(request.state_id)
-        state_manager = StateManager(db=db)
-        
-        state_manager.cancel_execution(state_id, reason=request.reason)
-        
-        return OperationResponse(
-            success=True,
-            state_id=request.state_id,
-            message="Execution cancelled successfully",
-        )
-        
-    except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(status_code=404, detail=str(e))
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to cancel execution: {str(e)}",
-        )
-
-
-@router.get("/health")
-def health_check() -> Dict[str, str]:
-    """Health check endpoint for orchestrator service."""
-    return {
-        "status": "ok",
-        "service": "orchestrator",
-        "version": "1.0.0",
-    }
