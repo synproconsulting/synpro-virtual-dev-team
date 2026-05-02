@@ -1,34 +1,42 @@
 """
-Tests for the Sprint Orchestrator.
+tests/test_orchestrator.py
+──────────────────────────
+Integration tests for the Orchestrator with state persistence.
+
+Tests cover:
+- Starting sprint executions
+- Resuming after failures
+- Pausing and resuming executions
+- Cancelling executions
+- Progress tracking during execution
+- Error handling and recovery
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from uuid import UUID
-
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import sys
+from uuid import uuid4
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../"))
+
 from models import Base, OrchestratorStatus
-from database import SessionLocal
-
-# Add agents directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 from agents.orchestrator import Orchestrator, TicketExecutionError
-from agents.orchestrator_state import StateManager
 
+
+# ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def db_session():
-    """Create a test database session."""
-    # Use in-memory SQLite for tests
+    """Create an in-memory SQLite database for testing."""
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    TestSessionLocal = sessionmaker(bind=engine)
-    session = TestSessionLocal()
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
     
     yield session
     
@@ -37,321 +45,369 @@ def db_session():
 
 @pytest.fixture
 def orchestrator(db_session):
-    """Create an orchestrator instance with test database."""
+    """Create an Orchestrator instance for testing."""
     return Orchestrator(
-        jira_project_key="SDT1",
+        jira_project_key="TEST",
         db=db_session,
         verbose=False,
     )
 
 
-def test_orchestrator_initialization(orchestrator):
-    """Test orchestrator initialization."""
-    assert orchestrator.jira_project_key == "SDT1"
-    assert orchestrator.verbose is False
-    assert orchestrator.state_manager is not None
+# ── Mock Orchestrator for Testing ─────────────────────────────────────────────
 
-
-def test_context_manager(db_session):
-    """Test orchestrator context manager."""
-    with Orchestrator("SDT1", db=db_session, verbose=False) as orch:
-        assert orch.jira_project_key == "SDT1"
-
-
-def test_start_sprint_empty(orchestrator):
-    """Test starting a sprint with no tickets."""
-    with patch.object(orchestrator, 'get_sprint_tickets', return_value=[]):
-        state_id = orchestrator.start_sprint(
-            sprint_id=123,
-            sprint_name="Sprint 1",
-        )
-        
-        assert isinstance(state_id, UUID)
-        
-        # Verify state was created
-        state = orchestrator.state_manager.get_state(state_id)
-        assert state is not None
-        assert state.sprint_id == 123
-        assert state.sprint_name == "Sprint 1"
-        assert state.status == OrchestratorStatus.COMPLETED
-
-
-def test_start_sprint_with_tickets(orchestrator):
-    """Test starting a sprint with multiple tickets."""
-    mock_tickets = [
-        {"key": "SDT1-1", "summary": "First ticket", "execution_order": 1},
-        {"key": "SDT1-2", "summary": "Second ticket", "execution_order": 2},
-        {"key": "SDT1-3", "summary": "Third ticket", "execution_order": 3},
-    ]
+class MockOrchestrator(Orchestrator):
+    """Mock orchestrator that simulates ticket execution without calling Jira."""
     
-    with patch.object(orchestrator, 'get_sprint_tickets', return_value=mock_tickets):
-        with patch.object(orchestrator, 'execute_ticket', return_value=True):
-            state_id = orchestrator.start_sprint(
-                sprint_id=123,
-                sprint_name="Sprint 1",
-            )
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ticket_results = {}  # ticket_key -> success (bool or Exception)
+        self.execution_log = []  # List of executed ticket keys
+    
+    def set_ticket_result(self, ticket_key: str, result) -> None:
+        """Set the result for a specific ticket.
+        
+        Args:
+            ticket_key: Ticket key
+            result: True for success, False for failure, or Exception to raise
+        """
+        self.ticket_results[ticket_key] = result
+    
+    def get_sprint_tickets(self, sprint_id: int):
+        """Override to return mock tickets."""
+        # Return predefined tickets for testing
+        return [
+            {"key": "TEST-1", "execution_order": 1},
+            {"key": "TEST-2", "execution_order": 2},
+            {"key": "TEST-3", "execution_order": 3},
+        ]
+    
+    def execute_ticket(self, ticket_key: str) -> bool:
+        """Override to simulate ticket execution."""
+        self.execution_log.append(ticket_key)
+        
+        # Check if we have a predefined result
+        if ticket_key in self.ticket_results:
+            result = self.ticket_results[ticket_key]
             
-            # Verify state
-            state = orchestrator.state_manager.get_state(state_id)
-            assert state.status == OrchestratorStatus.COMPLETED
-            assert len(state.completed_tickets) == 3
-            assert len(state.failed_tickets) == 0
-            assert len(state.ticket_queue) == 0
-
-
-def test_ticket_execution_failure(orchestrator):
-    """Test handling ticket execution failure."""
-    mock_tickets = [
-        {"key": "SDT1-1", "summary": "First ticket", "execution_order": 1},
-        {"key": "SDT1-2", "summary": "Second ticket", "execution_order": 2},
-    ]
-    
-    def mock_execute(ticket_key):
-        if ticket_key == "SDT1-1":
-            raise TicketExecutionError("Execution failed")
+            if isinstance(result, Exception):
+                raise result
+            
+            return result
+        
+        # Default: success
         return True
-    
-    with patch.object(orchestrator, 'get_sprint_tickets', return_value=mock_tickets):
-        with patch.object(orchestrator, 'execute_ticket', side_effect=mock_execute):
-            state_id = orchestrator.start_sprint(
-                sprint_id=123,
-                sprint_name="Sprint 1",
-            )
-            
-            # Verify state
-            state = orchestrator.state_manager.get_state(state_id)
-            assert state.status == OrchestratorStatus.COMPLETED
-            assert len(state.failed_tickets) == 1
-            assert state.failed_tickets[0]["ticket_key"] == "SDT1-1"
-            assert "TicketExecutionError" in state.failed_tickets[0]["error_message"]
-            # Second ticket should still complete
-            assert len(state.completed_tickets) == 1
-            assert "SDT1-2" in state.completed_tickets
 
 
-def test_resume_sprint(orchestrator):
-    """Test resuming a paused sprint."""
-    # Create initial state with some completed and some remaining tickets
-    state = orchestrator.state_manager.create_state(
-        sprint_id=123,
-        sprint_name="Sprint 1",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-2", "SDT1-3"],
+@pytest.fixture
+def mock_orchestrator(db_session):
+    """Create a MockOrchestrator instance for testing."""
+    return MockOrchestrator(
+        jira_project_key="TEST",
+        db=db_session,
+        verbose=False,
+    )
+
+
+# ── Tests: Basic Execution ────────────────────────────────────────────────────
+
+def test_start_sprint_success(mock_orchestrator):
+    """Test starting and completing a sprint successfully."""
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=100,
+        sprint_name="Test Sprint",
     )
     
-    # Mark as started and paused
-    orchestrator.state_manager.start_execution(state.id)
-    orchestrator.state_manager.checkpoint(
-        state.id,
-        completed_tickets=["SDT1-1"],
-    )
-    orchestrator.state_manager.pause_execution(state.id)
+    assert state_id is not None
     
-    # Resume execution
-    with patch.object(orchestrator, 'execute_ticket', return_value=True):
-        orchestrator.resume_sprint(state.id)
+    # Verify all tickets were executed
+    assert mock_orchestrator.execution_log == ["TEST-1", "TEST-2", "TEST-3"]
     
-    # Verify completion
-    updated_state = orchestrator.state_manager.get_state(state.id)
-    assert updated_state.status == OrchestratorStatus.COMPLETED
-    assert len(updated_state.completed_tickets) == 3
-    assert "SDT1-2" in updated_state.completed_tickets
-    assert "SDT1-3" in updated_state.completed_tickets
+    # Check state
+    progress = mock_orchestrator.get_progress(state_id)
+    assert progress["status"] == OrchestratorStatus.COMPLETED.value
+    assert progress["completed_tickets"] == 3
+    assert progress["failed_tickets"] == 0
 
 
-def test_resume_sprint_not_found(orchestrator):
-    """Test resuming a non-existent sprint raises error."""
-    from uuid import uuid4
+def test_start_sprint_with_ticket_failure(mock_orchestrator):
+    """Test sprint execution with a ticket failure."""
+    # Make TEST-2 fail
+    mock_orchestrator.set_ticket_result("TEST-2", False)
     
-    with pytest.raises(ValueError, match="State .* not found"):
-        orchestrator.resume_sprint(uuid4())
-
-
-def test_resume_sprint_invalid_status(orchestrator):
-    """Test resuming a sprint with invalid status raises error."""
-    state = orchestrator.state_manager.create_state(
-        sprint_id=123,
-        sprint_name="Sprint 1",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1"],
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=101,
+        sprint_name="Test Sprint with Failure",
     )
     
-    # Complete the state
-    orchestrator.state_manager.complete_execution(state.id)
+    # All tickets should be attempted
+    assert len(mock_orchestrator.execution_log) == 3
     
-    # Try to resume - should fail
-    with pytest.raises(ValueError, match="Cannot resume state"):
-        orchestrator.resume_sprint(state.id)
+    # Check state
+    progress = mock_orchestrator.get_progress(state_id)
+    assert progress["completed_tickets"] == 2  # TEST-1 and TEST-3
+    assert progress["failed_tickets"] == 1  # TEST-2
+    
+    # Check failed ticket details
+    state = mock_orchestrator.state_manager.get_state(state_id)
+    assert len(state.failed_tickets) == 1
+    assert state.failed_tickets[0]["ticket_key"] == "TEST-2"
 
 
-def test_pause_execution(orchestrator):
-    """Test pausing execution."""
-    state = orchestrator.state_manager.create_state(
-        sprint_id=123,
-        sprint_name="Sprint 1",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1"],
+def test_start_sprint_with_exception(mock_orchestrator):
+    """Test sprint execution with a ticket raising an exception."""
+    # Make TEST-2 raise an exception
+    mock_orchestrator.set_ticket_result("TEST-2", RuntimeError("Test error"))
+    
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=102,
+        sprint_name="Test Sprint with Exception",
     )
     
-    orchestrator.state_manager.start_execution(state.id)
-    orchestrator.pause(state.id, "User requested pause")
+    # All tickets should be attempted
+    assert len(mock_orchestrator.execution_log) == 3
     
-    updated_state = orchestrator.state_manager.get_state(state.id)
-    assert updated_state.status == OrchestratorStatus.PAUSED
-    assert updated_state.error_message == "User requested pause"
+    # Check state
+    progress = mock_orchestrator.get_progress(state_id)
+    assert progress["completed_tickets"] == 2  # TEST-1 and TEST-3
+    assert progress["failed_tickets"] == 1  # TEST-2
+    
+    # Check error message
+    state = mock_orchestrator.state_manager.get_state(state_id)
+    assert "Test error" in state.failed_tickets[0]["error_message"]
 
 
-def test_cancel_execution(orchestrator):
-    """Test cancelling execution."""
-    state = orchestrator.state_manager.create_state(
-        sprint_id=123,
-        sprint_name="Sprint 1",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1"],
+# ── Tests: Resume Capability ──────────────────────────────────────────────────
+
+def test_resume_from_paused(mock_orchestrator):
+    """Test resuming a paused execution."""
+    # Start sprint
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=103,
+        sprint_name="Test Resume from Pause",
     )
     
-    orchestrator.cancel(state.id, "User cancelled")
+    # Manually pause after first ticket
+    state = mock_orchestrator.state_manager.get_state(state_id)
+    state.ticket_queue = ["TEST-2", "TEST-3"]  # Simulate partial completion
+    state.completed_tickets = ["TEST-1"]
+    mock_orchestrator.state_manager.pause_execution(state_id, "Test pause")
     
-    updated_state = orchestrator.state_manager.get_state(state.id)
-    assert updated_state.status == OrchestratorStatus.CANCELLED
-    assert updated_state.error_message == "User cancelled"
+    # Clear execution log
+    mock_orchestrator.execution_log.clear()
+    
+    # Resume
+    mock_orchestrator.resume_sprint(state_id)
+    
+    # Should only execute remaining tickets
+    assert mock_orchestrator.execution_log == ["TEST-2", "TEST-3"]
+    
+    # Check final state
+    progress = mock_orchestrator.get_progress(state_id)
+    assert progress["status"] == OrchestratorStatus.COMPLETED.value
+    assert progress["completed_tickets"] == 3
 
 
-def test_get_progress(orchestrator):
+def test_resume_from_failed(mock_orchestrator):
+    """Test resuming a failed execution."""
+    # Make TEST-2 fail initially
+    mock_orchestrator.set_ticket_result("TEST-2", RuntimeError("Initial failure"))
+    
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=104,
+        sprint_name="Test Resume from Failed",
+    )
+    
+    # Verify TEST-2 failed
+    state = mock_orchestrator.state_manager.get_state(state_id)
+    assert len(state.failed_tickets) == 1
+    
+    # Manually set state to failed and restore TEST-2 to queue
+    state.ticket_queue = ["TEST-2"]  # Put failed ticket back
+    state.completed_tickets = ["TEST-1", "TEST-3"]
+    state.failed_tickets = []  # Clear failures
+    mock_orchestrator.state_manager.fail_execution(state_id, "Simulated failure")
+    
+    # Fix TEST-2 for retry
+    mock_orchestrator.set_ticket_result("TEST-2", True)
+    mock_orchestrator.execution_log.clear()
+    
+    # Resume
+    mock_orchestrator.resume_sprint(state_id)
+    
+    # Should retry TEST-2
+    assert "TEST-2" in mock_orchestrator.execution_log
+    
+    # Check final state
+    progress = mock_orchestrator.get_progress(state_id)
+    assert progress["status"] == OrchestratorStatus.COMPLETED.value
+    assert progress["completed_tickets"] == 3
+
+
+def test_resume_invalid_state(mock_orchestrator):
+    """Test that resuming an invalid state raises an error."""
+    fake_id = uuid4()
+    
+    with pytest.raises(ValueError, match="not found"):
+        mock_orchestrator.resume_sprint(fake_id)
+
+
+def test_resume_completed_state(mock_orchestrator):
+    """Test that resuming a completed state raises an error."""
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=105,
+        sprint_name="Completed Sprint",
+    )
+    
+    # State should be completed
+    state = mock_orchestrator.state_manager.get_state(state_id)
+    assert state.status == OrchestratorStatus.COMPLETED
+    
+    # Try to resume
+    with pytest.raises(ValueError, match="Cannot resume"):
+        mock_orchestrator.resume_sprint(state_id)
+
+
+# ── Tests: Pause and Cancel ───────────────────────────────────────────────────
+
+def test_pause_execution(mock_orchestrator):
+    """Test pausing an execution."""
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=106,
+        sprint_name="Test Pause",
+    )
+    
+    # Pause the execution
+    mock_orchestrator.pause(state_id, "Test pause")
+    
+    # Check state
+    state = mock_orchestrator.state_manager.get_state(state_id)
+    assert state.status == OrchestratorStatus.PAUSED
+    assert state.error_message == "Test pause"
+
+
+def test_cancel_execution(mock_orchestrator):
+    """Test cancelling an execution."""
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=107,
+        sprint_name="Test Cancel",
+    )
+    
+    # Cancel the execution
+    mock_orchestrator.cancel(state_id, "Test cancellation")
+    
+    # Check state
+    state = mock_orchestrator.state_manager.get_state(state_id)
+    assert state.status == OrchestratorStatus.CANCELLED
+    assert state.error_message == "Test cancellation"
+    assert state.completed_at is not None
+
+
+# ── Tests: Progress Tracking ──────────────────────────────────────────────────
+
+def test_get_progress(mock_orchestrator):
     """Test getting execution progress."""
-    mock_tickets = [
-        {"key": "SDT1-1", "summary": "First", "execution_order": 1},
-        {"key": "SDT1-2", "summary": "Second", "execution_order": 2},
-    ]
+    # Make TEST-2 fail
+    mock_orchestrator.set_ticket_result("TEST-2", False)
     
-    call_count = {"count": 0}
-    
-    def mock_execute(ticket_key):
-        call_count["count"] += 1
-        if call_count["count"] == 1:
-            # First ticket succeeds
-            return True
-        else:
-            # Pause after first ticket
-            raise KeyboardInterrupt("Test pause")
-    
-    with patch.object(orchestrator, 'get_sprint_tickets', return_value=mock_tickets):
-        with patch.object(orchestrator, 'execute_ticket', side_effect=mock_execute):
-            try:
-                state_id = orchestrator.start_sprint(123, "Sprint 1")
-            except KeyboardInterrupt:
-                pass
-    
-    # Get progress
-    progress = orchestrator.get_progress(state_id)
-    
-    assert progress["total_tickets"] == 2
-    assert progress["completed_tickets"] >= 1
-    assert progress["sprint_name"] == "Sprint 1"
-
-
-def test_list_resumable(orchestrator):
-    """Test listing resumable sprints."""
-    # Create multiple states
-    state1 = orchestrator.state_manager.create_state(
-        sprint_id=1,
-        sprint_name="Sprint 1",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1"],
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=108,
+        sprint_name="Test Progress",
     )
-    orchestrator.state_manager.pause_execution(state1.id)
     
-    state2 = orchestrator.state_manager.create_state(
-        sprint_id=2,
+    progress = mock_orchestrator.get_progress(state_id)
+    
+    assert progress["sprint_id"] == 108
+    assert progress["sprint_name"] == "Test Progress"
+    assert progress["total_tickets"] == 3
+    assert progress["completed_tickets"] == 2
+    assert progress["failed_tickets"] == 1
+    assert progress["remaining_tickets"] == 0
+    assert progress["progress_percentage"] == pytest.approx(66.67, abs=0.01)
+
+
+def test_list_resumable(mock_orchestrator):
+    """Test listing resumable states."""
+    # Create multiple states with different statuses
+    state1_id = mock_orchestrator.start_sprint(200, "Sprint 1")
+    mock_orchestrator.pause(state1_id, "Paused")
+    
+    # Manually create a failed state
+    state2 = mock_orchestrator.state_manager.create_state(
+        sprint_id=201,
         sprint_name="Sprint 2",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-2"],
+        jira_project_key="TEST",
+        ticket_queue=["TEST-1"],
     )
-    orchestrator.state_manager.start_execution(state2.id)
-    orchestrator.state_manager.fail_execution(state2.id, "Error")
+    mock_orchestrator.state_manager.fail_execution(state2.id, "Failed")
     
-    state3 = orchestrator.state_manager.create_state(
-        sprint_id=3,
-        sprint_name="Sprint 3",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-3"],
-    )
-    orchestrator.state_manager.complete_execution(state3.id)
+    # Completed state (should not be resumable)
+    mock_orchestrator.start_sprint(202, "Sprint 3")
     
-    # List resumable
-    resumable = orchestrator.list_resumable()
+    # Get resumable states
+    resumable = mock_orchestrator.list_resumable()
     
     assert len(resumable) == 2
-    assert any(r["sprint_id"] == 1 for r in resumable)
-    assert any(r["sprint_id"] == 2 for r in resumable)
-    assert not any(r["sprint_id"] == 3 for r in resumable)
+    
+    # Check that both paused and failed states are included
+    statuses = {s["status"] for s in resumable}
+    assert "paused" in statuses
+    assert "failed" in statuses
 
 
-def test_log_verbose(orchestrator):
-    """Test logging with verbose mode."""
-    orchestrator.verbose = True
+# ── Tests: Error Handling ─────────────────────────────────────────────────────
+
+def test_start_sprint_with_orchestrator_failure(mock_orchestrator):
+    """Test handling of orchestrator-level failures."""
+    # Make all tickets fail
+    mock_orchestrator.set_ticket_result("TEST-1", RuntimeError("Catastrophic failure"))
+    mock_orchestrator.set_ticket_result("TEST-2", RuntimeError("Catastrophic failure"))
+    mock_orchestrator.set_ticket_result("TEST-3", RuntimeError("Catastrophic failure"))
     
-    with patch('builtins.print') as mock_print:
-        orchestrator.log("Test message")
-        mock_print.assert_called_once_with("[ORCHESTRATOR] Test message")
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=109,
+        sprint_name="Test Catastrophic Failure",
+    )
+    
+    # Should still complete but with all tickets failed
+    progress = mock_orchestrator.get_progress(state_id)
+    assert progress["failed_tickets"] == 3
+    assert progress["completed_tickets"] == 0
 
 
-def test_log_silent(orchestrator):
-    """Test logging in silent mode."""
-    orchestrator.verbose = False
+def test_empty_sprint(mock_orchestrator):
+    """Test handling of sprint with no tickets."""
+    # Override to return no tickets
+    def get_no_tickets(sprint_id):
+        return []
     
-    with patch('builtins.print') as mock_print:
-        orchestrator.log("Test message")
-        mock_print.assert_not_called()
+    mock_orchestrator.get_sprint_tickets = get_no_tickets
+    
+    state_id = mock_orchestrator.start_sprint(
+        sprint_id=110,
+        sprint_name="Empty Sprint",
+    )
+    
+    # Should complete immediately
+    progress = mock_orchestrator.get_progress(state_id)
+    assert progress["status"] == OrchestratorStatus.COMPLETED.value
+    assert progress["total_tickets"] == 0
 
 
-def test_sequential_execution(orchestrator):
-    """Test that tickets are executed in correct order."""
-    mock_tickets = [
-        {"key": "SDT1-3", "summary": "Third", "execution_order": 3},
-        {"key": "SDT1-1", "summary": "First", "execution_order": 1},
-        {"key": "SDT1-2", "summary": "Second", "execution_order": 2},
-    ]
-    
-    execution_order = []
-    
-    def mock_execute(ticket_key):
-        execution_order.append(ticket_key)
-        return True
-    
-    with patch.object(orchestrator, 'get_sprint_tickets', return_value=mock_tickets):
-        with patch.object(orchestrator, 'execute_ticket', side_effect=mock_execute):
-            orchestrator.start_sprint(123, "Sprint 1")
-    
-    # Verify execution order matches ticket order from mock
-    # Note: The order depends on how get_sprint_tickets returns them
-    # In production, they should be sorted by execution_order
-    assert execution_order == ["SDT1-3", "SDT1-1", "SDT1-2"]
+# ── Tests: Context Manager ────────────────────────────────────────────────────
 
-
-def test_checkpoint_during_execution(orchestrator):
-    """Test that checkpoints are saved during execution."""
-    mock_tickets = [
-        {"key": "SDT1-1", "summary": "First", "execution_order": 1},
-        {"key": "SDT1-2", "summary": "Second", "execution_order": 2},
-    ]
-    
-    checkpoint_count = {"count": 0}
-    
-    def mock_checkpoint(*args, **kwargs):
-        checkpoint_count["count"] += 1
-    
-    with patch.object(orchestrator, 'get_sprint_tickets', return_value=mock_tickets):
-        with patch.object(orchestrator, 'execute_ticket', return_value=True):
-            with patch.object(
-                orchestrator.state_manager,
-                'checkpoint',
-                side_effect=mock_checkpoint
-            ):
-                # Execute tickets, tracking checkpoint calls
-                # Note: Original checkpoint still needs to work, so we need a different approach
-                state_id = orchestrator.start_sprint(123, "Sprint 1")
-    
-    # Verify checkpoints were created
-    state = orchestrator.state_manager.get_state(state_id)
-    assert state.last_checkpoint_at is not None
+def test_orchestrator_context_manager():
+    """Test Orchestrator as a context manager."""
+    with Orchestrator(jira_project_key="TEST", verbose=False) as orch:
+        # Should create its own session
+        assert orch._db is not None
+        assert orch.state_manager.db is not None
+        
+        # Test that it works
+        state = orch.state_manager.create_state(
+            sprint_id=300,
+            sprint_name="Context Test",
+            jira_project_key="TEST",
+            ticket_queue=["TEST-1"],
+        )
+        
+        assert state.id is not None

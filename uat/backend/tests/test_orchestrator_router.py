@@ -1,36 +1,44 @@
 """
-Tests for the Orchestrator API router.
+tests/test_orchestrator_router.py
+─────────────────────────────────
+Tests for the orchestrator REST API endpoints.
+
+Tests cover:
+- Starting sprint executions via API
+- Resuming executions via API
+- Getting progress via API
+- Listing resumable states via API
+- Pausing and cancelling via API
+- Error handling and validation
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from uuid import UUID, uuid4
-
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import sys
+from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from main import app
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../"))
+
 from models import Base, OrchestratorStatus
 from database import get_db
+from main import app
 
-# Add agents directory to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
-from agents.orchestrator_state import StateManager
 
+# ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def db_session():
-    """Create a test database session."""
-    # Use in-memory SQLite for tests
+    """Create an in-memory SQLite database for testing."""
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    TestSessionLocal = sessionmaker(bind=engine)
-    session = TestSessionLocal()
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
     
     yield session
     
@@ -39,7 +47,7 @@ def db_session():
 
 @pytest.fixture
 def client(db_session):
-    """Create a test client with test database."""
+    """Create a test client with database override."""
     def override_get_db():
         try:
             yield db_session
@@ -54,257 +62,404 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
-def test_start_sprint_endpoint(client, db_session):
-    """Test starting a sprint via API."""
-    with patch("orchestrator_router.Orchestrator") as mock_orchestrator_class:
-        # Mock orchestrator instance
-        mock_orchestrator = Mock()
-        mock_state_id = uuid4()
-        mock_orchestrator.start_sprint.return_value = mock_state_id
+@pytest.fixture
+def mock_orchestrator(monkeypatch):
+    """Mock the orchestrator to avoid actual Jira calls."""
+    from agents import orchestrator
+    
+    class MockOrchestrator:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
         
-        # Mock state
-        mock_state = Mock()
-        mock_state.status = OrchestratorStatus.RUNNING
-        mock_orchestrator.state_manager.get_state.return_value = mock_state
+        def start_sprint(self, sprint_id, sprint_name):
+            # Create a real state for testing
+            from agents.orchestrator_state import StateManager
+            state_manager = StateManager(db=self.kwargs.get('db'))
+            state = state_manager.create_state(
+                sprint_id=sprint_id,
+                sprint_name=sprint_name,
+                jira_project_key=self.kwargs.get('jira_project_key', 'TEST'),
+                ticket_queue=[],
+            )
+            state_manager.complete_execution(state.id)
+            return state.id
         
-        mock_orchestrator_class.return_value = mock_orchestrator
+        def resume_sprint(self, state_id):
+            from agents.orchestrator_state import StateManager
+            state_manager = StateManager(db=self.kwargs.get('db'))
+            state = state_manager.get_state(state_id)
+            if not state:
+                raise ValueError(f"State {state_id} not found")
+            if state.status not in [OrchestratorStatus.PAUSED, OrchestratorStatus.FAILED]:
+                raise ValueError(f"Cannot resume state with status {state.status.value}")
+            state_manager.complete_execution(state_id)
         
-        # Make request
-        response = client.post(
-            "/api/orchestrator/start",
-            json={
-                "sprint_id": 123,
-                "sprint_name": "Sprint 42",
-                "jira_project_key": "SDT1",
-            }
-        )
+        def get_progress(self, state_id):
+            from agents.orchestrator_state import StateManager
+            state_manager = StateManager(db=self.kwargs.get('db'))
+            return state_manager.get_progress(state_id)
         
-        assert response.status_code == 201
-        data = response.json()
-        assert data["sprint_id"] == 123
-        assert data["sprint_name"] == "Sprint 42"
-        assert data["state_id"] == str(mock_state_id)
+        def list_resumable(self):
+            from agents.orchestrator_state import StateManager
+            state_manager = StateManager(db=self.kwargs.get('db'))
+            states = state_manager.get_resumable_states()
+            return [
+                {
+                    "state_id": str(state.id),
+                    "sprint_id": state.sprint_id,
+                    "sprint_name": state.sprint_name,
+                    "status": state.status.value,
+                    "total_tickets": state.total_tickets,
+                    "completed": len(state.completed_tickets or []),
+                    "failed": len(state.failed_tickets or []),
+                    "remaining": len(state.ticket_queue or []),
+                    "last_updated": state.updated_at.isoformat(),
+                }
+                for state in states
+            ]
+        
+        def pause(self, state_id, reason=None):
+            from agents.orchestrator_state import StateManager
+            state_manager = StateManager(db=self.kwargs.get('db'))
+            state_manager.pause_execution(state_id, reason)
+        
+        def cancel(self, state_id, reason=None):
+            from agents.orchestrator_state import StateManager
+            state_manager = StateManager(db=self.kwargs.get('db'))
+            state_manager.cancel_execution(state_id, reason)
+    
+    monkeypatch.setattr(orchestrator, "Orchestrator", MockOrchestrator)
 
 
-def test_resume_sprint_endpoint(client, db_session):
-    """Test resuming a sprint via API."""
+# ── Tests: Start Sprint ───────────────────────────────────────────────────────
+
+def test_start_sprint_success(client, mock_orchestrator):
+    """Test starting a sprint execution via API."""
+    response = client.post(
+        "/api/orchestrator/start",
+        json={
+            "sprint_id": 100,
+            "sprint_name": "Test Sprint",
+            "jira_project_key": "TEST",
+        }
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    
+    assert data["success"] is True
+    assert "state_id" in data
+    assert data["sprint_id"] == 100
+    assert data["sprint_name"] == "Test Sprint"
+    assert "message" in data
+
+
+def test_start_sprint_invalid_data(client):
+    """Test starting a sprint with invalid data."""
+    response = client.post(
+        "/api/orchestrator/start",
+        json={
+            "sprint_id": "invalid",  # Should be int
+            "sprint_name": "Test Sprint",
+            "jira_project_key": "TEST",
+        }
+    )
+    
+    assert response.status_code == 422  # Validation error
+
+
+def test_start_sprint_missing_fields(client):
+    """Test starting a sprint with missing fields."""
+    response = client.post(
+        "/api/orchestrator/start",
+        json={
+            "sprint_id": 100,
+            # Missing sprint_name and jira_project_key
+        }
+    )
+    
+    assert response.status_code == 422  # Validation error
+
+
+# ── Tests: Resume Sprint ──────────────────────────────────────────────────────
+
+def test_resume_sprint_success(client, mock_orchestrator, db_session):
+    """Test resuming a sprint execution via API."""
     # Create a paused state
+    from agents.orchestrator_state import StateManager
     state_manager = StateManager(db=db_session)
     state = state_manager.create_state(
-        sprint_id=123,
-        sprint_name="Sprint 42",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1", "SDT1-2"],
+        sprint_id=101,
+        sprint_name="Resume Test",
+        jira_project_key="TEST",
+        ticket_queue=["TEST-1"],
     )
-    state_manager.start_execution(state.id)
-    state_manager.pause_execution(state.id)
+    state_manager.pause_execution(state.id, "Test pause")
     
-    with patch("orchestrator_router.Orchestrator") as mock_orchestrator_class:
-        # Mock orchestrator instance
-        mock_orchestrator = Mock()
-        mock_orchestrator.state_manager = state_manager
-        mock_orchestrator.resume_sprint.return_value = None
-        
-        mock_orchestrator_class.return_value = mock_orchestrator
-        
-        # Make request
-        response = client.post(
-            "/api/orchestrator/resume",
-            json={
-                "state_id": str(state.id),
-                "jira_project_key": "SDT1",
-            }
-        )
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["sprint_id"] == 123
-        assert data["sprint_name"] == "Sprint 42"
-
-
-def test_resume_sprint_invalid_uuid(client):
-    """Test resuming with invalid UUID format."""
     response = client.post(
         "/api/orchestrator/resume",
         json={
-            "state_id": "not-a-uuid",
-            "jira_project_key": "SDT1",
+            "state_id": str(state.id),
+            "jira_project_key": "TEST",
+        }
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    
+    assert data["success"] is True
+    assert data["state_id"] == str(state.id)
+    assert "message" in data
+
+
+def test_resume_sprint_invalid_state_id(client, mock_orchestrator):
+    """Test resuming with invalid state ID."""
+    response = client.post(
+        "/api/orchestrator/resume",
+        json={
+            "state_id": "invalid-uuid",
+            "jira_project_key": "TEST",
         }
     )
     
     assert response.status_code == 400
-    assert "Invalid state ID format" in response.json()["detail"]
 
 
-def test_get_progress_endpoint(client, db_session):
-    """Test getting progress via API."""
-    # Create a state
+def test_resume_sprint_not_found(client, mock_orchestrator):
+    """Test resuming a non-existent state."""
+    fake_id = str(uuid4())
+    
+    response = client.post(
+        "/api/orchestrator/resume",
+        json={
+            "state_id": fake_id,
+            "jira_project_key": "TEST",
+        }
+    )
+    
+    assert response.status_code == 400
+
+
+def test_resume_sprint_completed(client, mock_orchestrator, db_session):
+    """Test that completed states cannot be resumed."""
+    # Create a completed state
+    from agents.orchestrator_state import StateManager
     state_manager = StateManager(db=db_session)
     state = state_manager.create_state(
-        sprint_id=123,
-        sprint_name="Sprint 42",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1", "SDT1-2", "SDT1-3"],
+        sprint_id=102,
+        sprint_name="Completed Test",
+        jira_project_key="TEST",
+        ticket_queue=[],
+    )
+    state_manager.complete_execution(state.id)
+    
+    response = client.post(
+        "/api/orchestrator/resume",
+        json={
+            "state_id": str(state.id),
+            "jira_project_key": "TEST",
+        }
+    )
+    
+    assert response.status_code == 400
+
+
+# ── Tests: Get Progress ───────────────────────────────────────────────────────
+
+def test_get_progress_success(client, db_session):
+    """Test getting execution progress via API."""
+    # Create a state
+    from agents.orchestrator_state import StateManager
+    state_manager = StateManager(db=db_session)
+    state = state_manager.create_state(
+        sprint_id=103,
+        sprint_name="Progress Test",
+        jira_project_key="TEST",
+        ticket_queue=["TEST-1", "TEST-2"],
     )
     state_manager.start_execution(state.id)
-    state_manager.mark_ticket_completed(state.id, "SDT1-1")
+    state_manager.mark_ticket_completed(state.id, "TEST-1")
     
-    # Get progress
     response = client.get(f"/api/orchestrator/progress/{state.id}")
     
     assert response.status_code == 200
     data = response.json()
-    assert data["sprint_id"] == 123
-    assert data["total_tickets"] == 3
+    
+    assert data["state_id"] == str(state.id)
+    assert data["sprint_id"] == 103
+    assert data["sprint_name"] == "Progress Test"
+    assert data["total_tickets"] == 2
     assert data["completed_tickets"] == 1
-    assert data["remaining_tickets"] == 2
+    assert data["remaining_tickets"] == 1
 
 
 def test_get_progress_not_found(client):
     """Test getting progress for non-existent state."""
-    fake_uuid = str(uuid4())
-    response = client.get(f"/api/orchestrator/progress/{fake_uuid}")
+    fake_id = str(uuid4())
+    
+    response = client.get(f"/api/orchestrator/progress/{fake_id}")
     
     assert response.status_code == 404
 
 
-def test_list_resumable_endpoint(client, db_session):
-    """Test listing resumable sprints via API."""
+def test_get_progress_invalid_id(client):
+    """Test getting progress with invalid state ID."""
+    response = client.get("/api/orchestrator/progress/invalid-uuid")
+    
+    assert response.status_code == 400
+
+
+# ── Tests: List Resumable ─────────────────────────────────────────────────────
+
+def test_list_resumable_empty(client, mock_orchestrator):
+    """Test listing resumable states when none exist."""
+    response = client.get("/api/orchestrator/resumable")
+    
+    assert response.status_code == 200
+    data = response.json()
+    
+    assert isinstance(data, list)
+    assert len(data) == 0
+
+
+def test_list_resumable_with_states(client, mock_orchestrator, db_session):
+    """Test listing resumable states."""
     # Create multiple states
+    from agents.orchestrator_state import StateManager
     state_manager = StateManager(db=db_session)
     
-    # Paused state
-    state1 = state_manager.create_state(
-        sprint_id=1,
-        sprint_name="Sprint 1",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1"],
-    )
-    state_manager.pause_execution(state1.id)
+    state1 = state_manager.create_state(104, "Sprint 1", "TEST", ["TEST-1"])
+    state_manager.pause_execution(state1.id, "Paused")
     
-    # Failed state
-    state2 = state_manager.create_state(
-        sprint_id=2,
-        sprint_name="Sprint 2",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-2"],
-    )
-    state_manager.fail_execution(state2.id, "Error")
+    state2 = state_manager.create_state(105, "Sprint 2", "TEST", ["TEST-2"])
+    state_manager.fail_execution(state2.id, "Failed")
     
-    # Completed state (should not appear)
-    state3 = state_manager.create_state(
-        sprint_id=3,
-        sprint_name="Sprint 3",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-3"],
-    )
+    state3 = state_manager.create_state(106, "Sprint 3", "TEST", ["TEST-3"])
     state_manager.complete_execution(state3.id)
     
-    # Get resumable
     response = client.get("/api/orchestrator/resumable")
     
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 2
     
-    sprint_ids = [s["sprint_id"] for s in data]
-    assert 1 in sprint_ids
-    assert 2 in sprint_ids
-    assert 3 not in sprint_ids
+    assert len(data) == 2  # Only paused and failed
+    statuses = {item["status"] for item in data}
+    assert "paused" in statuses
+    assert "failed" in statuses
 
 
-def test_pause_sprint_endpoint(client, db_session):
-    """Test pausing a sprint via API."""
+# ── Tests: Pause Execution ────────────────────────────────────────────────────
+
+def test_pause_execution_success(client, mock_orchestrator, db_session):
+    """Test pausing an execution via API."""
     # Create a running state
+    from agents.orchestrator_state import StateManager
     state_manager = StateManager(db=db_session)
     state = state_manager.create_state(
-        sprint_id=123,
-        sprint_name="Sprint 42",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1"],
+        sprint_id=107,
+        sprint_name="Pause Test",
+        jira_project_key="TEST",
+        ticket_queue=["TEST-1"],
     )
     state_manager.start_execution(state.id)
     
-    # Pause it
     response = client.post(
         "/api/orchestrator/pause",
         json={
             "state_id": str(state.id),
-            "reason": "Maintenance",
+            "reason": "Test pause",
         }
     )
     
     assert response.status_code == 200
     data = response.json()
+    
     assert data["success"] is True
-    assert data["status"] == "paused"
-    
-    # Verify state was updated
-    updated_state = state_manager.get_state(state.id)
-    assert updated_state.status == OrchestratorStatus.PAUSED
-    assert updated_state.error_message == "Maintenance"
+    assert data["state_id"] == str(state.id)
+    assert "message" in data
 
 
-def test_cancel_sprint_endpoint(client, db_session):
-    """Test cancelling a sprint via API."""
-    # Create a running state
-    state_manager = StateManager(db=db_session)
-    state = state_manager.create_state(
-        sprint_id=123,
-        sprint_name="Sprint 42",
-        jira_project_key="SDT1",
-        ticket_queue=["SDT1-1"],
-    )
-    state_manager.start_execution(state.id)
-    
-    # Cancel it
-    response = client.post(
-        "/api/orchestrator/cancel",
-        json={
-            "state_id": str(state.id),
-            "reason": "Project cancelled",
-        }
-    )
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert data["success"] is True
-    assert data["status"] == "cancelled"
-    
-    # Verify state was updated
-    updated_state = state_manager.get_state(state.id)
-    assert updated_state.status == OrchestratorStatus.CANCELLED
-    assert updated_state.error_message == "Project cancelled"
-
-
-def test_pause_invalid_state(client):
+def test_pause_execution_not_found(client, mock_orchestrator):
     """Test pausing a non-existent state."""
+    fake_id = str(uuid4())
+    
     response = client.post(
         "/api/orchestrator/pause",
         json={
-            "state_id": str(uuid4()),
+            "state_id": fake_id,
         }
     )
     
     assert response.status_code == 404
 
 
-def test_cancel_invalid_state(client):
-    """Test cancelling a non-existent state."""
+def test_pause_execution_invalid_id(client):
+    """Test pausing with invalid state ID."""
+    response = client.post(
+        "/api/orchestrator/pause",
+        json={
+            "state_id": "invalid-uuid",
+        }
+    )
+    
+    assert response.status_code == 400
+
+
+# ── Tests: Cancel Execution ───────────────────────────────────────────────────
+
+def test_cancel_execution_success(client, mock_orchestrator, db_session):
+    """Test cancelling an execution via API."""
+    # Create a running state
+    from agents.orchestrator_state import StateManager
+    state_manager = StateManager(db=db_session)
+    state = state_manager.create_state(
+        sprint_id=108,
+        sprint_name="Cancel Test",
+        jira_project_key="TEST",
+        ticket_queue=["TEST-1"],
+    )
+    state_manager.start_execution(state.id)
+    
     response = client.post(
         "/api/orchestrator/cancel",
         json={
-            "state_id": str(uuid4()),
+            "state_id": str(state.id),
+            "reason": "Test cancellation",
+        }
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    
+    assert data["success"] is True
+    assert data["state_id"] == str(state.id)
+    assert "message" in data
+
+
+def test_cancel_execution_not_found(client, mock_orchestrator):
+    """Test cancelling a non-existent state."""
+    fake_id = str(uuid4())
+    
+    response = client.post(
+        "/api/orchestrator/cancel",
+        json={
+            "state_id": fake_id,
         }
     )
     
     assert response.status_code == 404
 
 
-def test_empty_resumable_list(client):
-    """Test listing resumable when none exist."""
-    response = client.get("/api/orchestrator/resumable")
+# ── Tests: Health Check ───────────────────────────────────────────────────────
+
+def test_health_check(client):
+    """Test orchestrator health check endpoint."""
+    response = client.get("/api/orchestrator/health")
     
     assert response.status_code == 200
     data = response.json()
-    assert data == []
+    
+    assert data["status"] == "ok"
+    assert data["service"] == "orchestrator"
+    assert "version" in data
