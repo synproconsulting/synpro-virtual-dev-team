@@ -14,7 +14,7 @@ import jwt
 import logging
 
 from email_service import send_password_reset_email
-from security_config import get_jwt_config
+from config import get_jwt_config
 
 logger = logging.getLogger(__name__)
 
@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-# Use hardened JWT configuration (SDT1-63)
+# Get JWT configuration with hardened secret validation (SDT1-63)
 _jwt_config = get_jwt_config()
-JWT_SECRET   = _jwt_config["secret"]
-JWT_EXPIRY   = _jwt_config["expiry_hours"]
+JWT_SECRET = _jwt_config["secret"]
+JWT_EXPIRY = _jwt_config["expiry_hours"]
 JWT_ALGORITHM = _jwt_config["algorithm"]
 
 
