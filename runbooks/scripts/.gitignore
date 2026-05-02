@@ -1,0 +1,30 @@
+# Token Rotation Scripts - Git Ignore
+# Ensure no secrets or backups are committed
+
+# Backup files containing environment variables
+backups/
+*.backup
+*.bak
+
+# Log files
+*.log
+rotation.log
+audit.log
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+
+# Environment files (should never be here, but just in case)
+.env
+.env.*
+*.key
+*.pem
+
+# Test output
+test_output/
+validation_output/
+
+# Allow .gitkeep to preserve directory structure
+!.gitkeep

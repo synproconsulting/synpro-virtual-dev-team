@@ -1,0 +1,3 @@
+# This directory stores backup environment variables during token rotation
+# Files in this directory are excluded from git (see .gitignore)
+# SECURITY: Do not commit actual backup files - they contain secrets

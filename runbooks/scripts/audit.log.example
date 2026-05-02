@@ -1,0 +1,22 @@
+# Token Rotation Audit Log
+# Format: timestamp,token_type,environment,performed_by,status,preview
+#
+# SECURITY: This file should be kept secure and access-restricted
+# RETENTION: Keep for 7 years minimum for compliance
+# LOCATION: Store in secure location (not public git repository)
+#
+# Token Types: JWT_SECRET, RAILWAY_API_TOKEN, DATABASE_URL, SMTP_PASSWORD
+# Environments: staging, production
+# Status: success, rolled_back, failed
+# Preview: Last 8 characters of new credential (for identification, not full value)
+#
+# Example entries (DO NOT use these in production):
+# 2024-01-15 14:30:00,JWT_SECRET,production,john.doe@example.com,success,...X7D9kL2p
+# 2024-01-15 14:45:00,RAILWAY_API_TOKEN,production,jane.smith@example.com,success,...rtf_xyz789
+# 2024-02-03 09:15:00,JWT_SECRET,production,security-team@example.com,success,...9rT5yU2i
+# 2024-03-20 02:00:00,DATABASE_URL,production,dba-team@example.com,success,...db_new
+# 2024-03-20 03:30:00,SMTP_PASSWORD,staging,devops@example.com,rolled_back,***
+#
+# ────────────────────────────────────────────────────────────────────────────
+# BEGIN AUDIT LOG
+# ────────────────────────────────────────────────────────────────────────────
