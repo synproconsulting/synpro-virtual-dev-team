@@ -20,7 +20,7 @@ from manager_agent_router import router as manager_agent_router
 from middleware    import RequestLoggingMiddleware
 from rate_limiter  import get_limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from config import get_cors_config, CORSConfigError
+from config import get_cors_config, CORSConfigError, get_jwt_config, JWTConfigError
 
 # ── Logging setup ─────────────────────────────────────────────────────────────────────
 
@@ -51,6 +51,14 @@ async def lifespan(app: FastAPI):
         logger.info("✓ CORS configuration validated successfully")
     except CORSConfigError as e:
         logger.error(f"❌ CORS configuration error: {e}")
+        raise
+    
+    # Validate JWT configuration on startup (SDT1-63)
+    try:
+        jwt_config = get_jwt_config()
+        logger.info("✓ JWT configuration validated successfully")
+    except JWTConfigError as e:
+        logger.error(f"❌ JWT configuration error: {e}")
         raise
     
     yield

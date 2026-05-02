@@ -14,14 +14,19 @@ import jwt
 import logging
 
 from email_service import send_password_reset_email
+from config import get_jwt_config
 
 logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────────────
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
-JWT_SECRET   = os.environ.get("JWT_SECRET", "dev-secret-change-in-production")
-JWT_EXPIRY   = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
+
+# Get JWT configuration with hardened secret validation (SDT1-63)
+_jwt_config = get_jwt_config()
+JWT_SECRET = _jwt_config["secret"]
+JWT_EXPIRY = _jwt_config["expiry_hours"]
+JWT_ALGORITHM = _jwt_config["algorithm"]
 
 
 # ── Database ────────────────────────────────────────────────────────────────────────
@@ -63,7 +68,7 @@ def create_jwt(user_id: str, email: str) -> str:
         "iat":   datetime.now(timezone.utc),
         "exp":   datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY),
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
 def validate_password(password: str) -> list[str]:
@@ -269,7 +274,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     token = authorization[7:]
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
