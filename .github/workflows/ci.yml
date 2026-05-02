@@ -1,4 +1,4 @@
-﻿name: CI Pipeline
+name: CI Pipeline
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       - main
 
 jobs:
-  # â”€â”€ Job 1: Unit tests + coverage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Job 1: Unit tests + coverage ─────────────────────────────────────────
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -65,7 +65,7 @@ jobs:
           path: coverage.xml
           if-no-files-found: ignore
 
-  # â”€â”€ Job 2: Security scan â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Job 2: Security scan ─────────────────────────────────────────────────
   security:
     name: Security scan
     runs-on: ubuntu-latest
@@ -99,7 +99,7 @@ jobs:
           path: bandit-report.json
           if-no-files-found: ignore
 
-  # â”€â”€ Job 3: SonarCloud analysis (informational only, not blocking) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Job 3: SonarCloud analysis (informational only, not blocking) ────────
   sonarcloud:
     name: SonarCloud analysis
     runs-on: ubuntu-latest
@@ -135,7 +135,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-  # â”€â”€ Job 4: Playwright E2E tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Job 4: Playwright E2E tests ──────────────────────────────────────────
   e2e:
     name: Playwright E2E tests
     runs-on: ubuntu-latest
@@ -182,7 +182,7 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
 
-  # â”€â”€ Job 5: Quality gate summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Job 5: Quality gate summary ──────────────────────────────────────────
   quality-gate:
     name: Quality gate
     runs-on: ubuntu-latest
@@ -201,9 +201,9 @@ jobs:
           echo "================================"
           echo "Ready for Dev Manager review."
 
-  # â”€â”€ Job 6: Deploy to Railway (main branch only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  deploy:
-    name: Deploy to Railway
+  # ── Job 6: Validate Railway API connectivity ─────────────────────────────
+  validate-railway:
+    name: Validate Railway API
     runs-on: ubuntu-latest
     needs: [test, security]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -212,67 +212,102 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy backend via Railway GraphQL API
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Validate Railway API connectivity
         env:
           RAILWAY_TOKEN:      ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
         run: |
-          echo "Querying Railway project for service and environment IDs..."
-          QUERY=$(printf '{"query":"{ project(id: \\"%s\\"){ environments{edges{node{id name}}} services{edges{node{id name}}} } }"}' "$RAILWAY_PROJECT_ID")
-          RESP=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
-            -H "Authorization: Bearer $RAILWAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$QUERY" || echo "CURL_FAILED")
-          echo "API response: $RESP"
-          if [ "$RESP" = "CURL_FAILED" ] || echo "$RESP" | grep -q '"errors"'; then
-            echo "Railway API error or unreachable — skipping backend deploy"; exit 0
+          python uat/backend/railway_deploy_validator.py
+          if [ $? -ne 0 ]; then
+            echo "::error::Railway API validation failed"
+            exit 1
           fi
-          ENV_ID=$(echo "$RESP" | jq -r '.data.project.environments.edges[].node | select(.name | ascii_downcase == "production") | .id // empty' | head -1)
-          SVC_ID=$(echo "$RESP" | jq -r '.data.project.services.edges[].node | select(.name == "synpro-virtual-dev-team") | .id // empty' | head -1)
-          if [ -z "$ENV_ID" ] || [ -z "$SVC_ID" ]; then
-            echo "Could not resolve IDs — skipping backend deploy"
-            echo "Environments: $(echo "$RESP" | jq -r '.data.project.environments.edges[].node.name' 2>/dev/null)"
-            echo "Services:     $(echo "$RESP" | jq -r '.data.project.services.edges[].node.name' 2>/dev/null)"
-            exit 0
-          fi
-          echo "Triggering backend redeploy (svc=$SVC_ID env=$ENV_ID)..."
-          MUT=$(printf '{"query":"mutation { serviceInstanceRedeploy(environmentId: \\"%s\\", serviceId: \\"%s\\") }"}' "$ENV_ID" "$SVC_ID")
-          REDEPLOY=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
-            -H "Authorization: Bearer $RAILWAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$MUT" || echo "CURL_FAILED")
-          echo "Backend redeploy response: $REDEPLOY"
 
-      - name: Deploy frontend via Railway GraphQL API
+  # ── Job 7: Deploy to Railway with validation and alerting ───────────────
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    needs: [test, security, validate-railway]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Deploy services with validation
         env:
           RAILWAY_TOKEN:      ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          GITHUB_SERVER_URL:  ${{ github.server_url }}
+          GITHUB_REPOSITORY:  ${{ github.repository }}
+          GITHUB_RUN_ID:      ${{ github.run_id }}
         run: |
-          echo "Querying Railway project for service and environment IDs..."
-          QUERY=$(printf '{"query":"{ project(id: \\"%s\\"){ environments{edges{node{id name}}} services{edges{node{id name}}} } }"}' "$RAILWAY_PROJECT_ID")
-          RESP=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
-            -H "Authorization: Bearer $RAILWAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$QUERY" || echo "CURL_FAILED")
-          echo "API response: $RESP"
-          if [ "$RESP" = "CURL_FAILED" ] || echo "$RESP" | grep -q '"errors"'; then
-            echo "Railway API error or unreachable — skipping frontend deploy"; exit 0
+          chmod +x scripts/deploy_railway_validated.py
+          python scripts/deploy_railway_validated.py \
+            --services synpro-virtual-dev-team Virtual-Dev-Team-UAT-Frontend \
+            --environment production \
+            --commit-sha ${{ github.sha }} \
+            --branch ${{ github.ref_name }}
+
+      - name: Report deployment status
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -X POST "$SLACK_WEBHOOK_URL" \
+              -H 'Content-Type: application/json' \
+              -d '{
+                "attachments": [{
+                  "color": "#ff0000",
+                  "title": "Railway Deployment Failed",
+                  "text": "❌ Railway deployment pipeline failed",
+                  "fields": [
+                    {
+                      "title": "Repository",
+                      "value": "${{ github.repository }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Branch",
+                      "value": "${{ github.ref_name }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Commit",
+                      "value": "${{ github.sha }}",
+                      "short": false
+                    },
+                    {
+                      "title": "Build URL",
+                      "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                      "short": false
+                    }
+                  ],
+                  "footer": "Railway CI/CD Pipeline"
+                }]
+              }'
           fi
-          ENV_ID=$(echo "$RESP" | jq -r '.data.project.environments.edges[].node | select(.name | ascii_downcase == "production") | .id // empty' | head -1)
-          SVC_ID=$(echo "$RESP" | jq -r '.data.project.services.edges[].node | select(.name == "Virtual-Dev-Team-UAT-Frontend") | .id // empty' | head -1)
-          if [ -z "$ENV_ID" ] || [ -z "$SVC_ID" ]; then
-            echo "Could not resolve IDs — skipping frontend deploy"
-            echo "Environments: $(echo "$RESP" | jq -r '.data.project.environments.edges[].node.name' 2>/dev/null)"
-            echo "Services:     $(echo "$RESP" | jq -r '.data.project.services.edges[].node.name' 2>/dev/null)"
-            exit 0
-          fi
-          echo "Triggering frontend redeploy (svc=$SVC_ID env=$ENV_ID)..."
-          MUT=$(printf '{"query":"mutation { serviceInstanceRedeploy(environmentId: \\"%s\\", serviceId: \\"%s\\") }"}' "$ENV_ID" "$SVC_ID")
-          REDEPLOY=$(curl -sf -X POST https://backboard.railway.app/graphql/v2 \
-            -H "Authorization: Bearer $RAILWAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$MUT" || echo "CURL_FAILED")
-          echo "Frontend redeploy response: $REDEPLOY"
-
-
-
