@@ -108,6 +108,11 @@ class ResetCompleteModel(BaseModel):
     new_password: str
 
 
+class MessageResponse(BaseModel):
+    """Generic message response model."""
+    message: str
+
+
 class UserResponse(BaseModel):
     id:         str
     email:      str
@@ -179,26 +184,39 @@ def login(req: LoginRequest, db=Depends(get_db)):
     )
 
 
-@router.post("/password-reset/request")
+@router.post("/password-reset/request", response_model=MessageResponse)
 async def request_password_reset(req: ResetRequestModel, db=Depends(get_db)):
     """
     Request a password reset token.
     
     Generates a reset token and sends it to the user's email address.
-    For security, always returns success message even if email doesn't exist.
+    
+    Security considerations (SDT1-62):
+    - The reset token is NEVER returned in the API response body
+    - The token is only sent via email to the registered address
+    - Always returns the same generic message to prevent email enumeration
+    - Token is single-use and expires after 1 hour
+    
+    Args:
+        req: Reset request containing user email
+        db: Database connection dependency
+    
+    Returns:
+        MessageResponse: Generic success message (same regardless of email existence)
     """
     cur = db.cursor()
     cur.execute("SELECT id FROM users WHERE email = %s", (req.email.lower(),))
     user = cur.fetchone()
 
-    # Always return the same message to prevent email enumeration
+    # SECURITY: Always return the same message to prevent email enumeration
     response_message = "If that email exists in our system, a password reset link has been sent"
 
     if not user:
         logger.info("Password reset requested for non-existent email: %s", req.email.lower())
-        return {"message": response_message}
+        # Return immediately without generating token for non-existent users
+        return MessageResponse(message=response_message)
 
-    # Generate reset token
+    # Generate reset token (stored in DB and sent via email, never in API response)
     token      = str(uuid.uuid4())
     expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
     
@@ -208,7 +226,7 @@ async def request_password_reset(req: ResetRequestModel, db=Depends(get_db)):
     )
     db.commit()
 
-    # Send email with reset token
+    # SECURITY: Token is sent via email only, never logged or returned in response
     try:
         email_sent = await send_password_reset_email(req.email.lower(), token)
         if email_sent:
@@ -218,15 +236,31 @@ async def request_password_reset(req: ResetRequestModel, db=Depends(get_db)):
     except Exception as e:
         logger.error("Error sending password reset email to %s: %s", req.email.lower(), str(e))
     
-    return {"message": response_message}
+    # SECURITY: Return generic message only - no token, no user info
+    return MessageResponse(message=response_message)
 
 
-@router.post("/password-reset/complete")
+@router.post("/password-reset/complete", response_model=MessageResponse)
 def complete_password_reset(req: ResetCompleteModel, db=Depends(get_db)):
     """
     Complete the password reset using a valid token.
     
     Validates the token and updates the user's password.
+    The token must be:
+    - Valid (exists in database)
+    - Not already used
+    - Not expired (within 1 hour of generation)
+    
+    Args:
+        req: Reset completion request with token and new password
+        db: Database connection dependency
+    
+    Returns:
+        MessageResponse: Success message on successful password reset
+    
+    Raises:
+        HTTPException: 400 if token is invalid, used, or expired
+        HTTPException: 400 if new password doesn't meet requirements
     """
     cur = db.cursor()
     cur.execute(
@@ -261,7 +295,7 @@ def complete_password_reset(req: ResetCompleteModel, db=Depends(get_db)):
     db.commit()
     
     logger.info("Password reset completed for user_id: %s", str(token_row["user_id"]))
-    return {"message": "Password reset successfully"}
+    return MessageResponse(message="Password reset successfully")
 
 
 @router.get("/me")
