@@ -7,15 +7,20 @@ Handles repo creation, branch management, file commits, and pull requests.
 
 import os
 import base64
+import time
 import requests
 from dotenv import load_dotenv
-from typing import Optional
+from typing import Optional, Dict, List
 
 load_dotenv()
 
 GITHUB_TOKEN    = os.environ["GITHUB_TOKEN"]
 GITHUB_USERNAME = os.environ["GITHUB_USERNAME"]
 GITHUB_REPO     = os.environ["GITHUB_REPO"]
+
+# CI wait timeout configuration (in seconds)
+CI_WAIT_TIMEOUT_SECONDS = 30 * 60  # 30 minutes (extended from 15 minutes)
+CI_POLL_INTERVAL_SECONDS = 30  # Poll every 30 seconds
 
 HEADERS = {
     "Authorization": f"token {GITHUB_TOKEN}",
@@ -212,3 +217,245 @@ def list_tree(branch: str = "main", path_prefix: str = "") -> list[dict]:
 
 def get_repo_url() -> str:
     return f"https://github.com/{GITHUB_USERNAME}/{GITHUB_REPO}"
+
+
+# ── CI/CD Checks ──────────────────────────────────────────────────────────────
+
+def get_commit_status(commit_sha: str) -> Dict:
+    """Get the combined CI status for a commit.
+    
+    Args:
+        commit_sha: Git commit SHA
+        
+    Returns:
+        Dictionary with status information:
+        - state: "pending", "success", "failure", or "error"
+        - statuses: List of individual status checks
+        - total_count: Number of status checks
+    """
+    data = _get(f"/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/commits/{commit_sha}/status")
+    return {
+        "state": data.get("state", "pending"),
+        "statuses": data.get("statuses", []),
+        "total_count": data.get("total_count", 0),
+    }
+
+
+def get_check_runs(commit_sha: str) -> Dict:
+    """Get check runs (GitHub Actions, etc.) for a commit.
+    
+    Args:
+        commit_sha: Git commit SHA
+        
+    Returns:
+        Dictionary with check run information:
+        - total_count: Number of check runs
+        - check_runs: List of check run objects
+    """
+    data = _get(f"/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/commits/{commit_sha}/check-runs")
+    return {
+        "total_count": data.get("total_count", 0),
+        "check_runs": data.get("check_runs", []),
+    }
+
+
+def get_combined_ci_status(commit_sha: str) -> Dict:
+    """Get combined status from both status checks and check runs.
+    
+    Args:
+        commit_sha: Git commit SHA
+        
+    Returns:
+        Dictionary with:
+        - state: Overall state ("pending", "success", "failure", "error")
+        - conclusion: Overall conclusion from check runs
+        - all_passed: Boolean indicating if all checks passed
+        - checks: Combined list of all checks
+    """
+    # Get traditional status checks
+    status = get_commit_status(commit_sha)
+    
+    # Get check runs (GitHub Actions)
+    check_runs = get_check_runs(commit_sha)
+    
+    # Determine overall state
+    all_checks = []
+    
+    # Process status checks
+    for s in status.get("statuses", []):
+        all_checks.append({
+            "name": s.get("context", "Unknown"),
+            "state": s.get("state", "pending"),
+            "type": "status",
+        })
+    
+    # Process check runs
+    for cr in check_runs.get("check_runs", []):
+        all_checks.append({
+            "name": cr.get("name", "Unknown"),
+            "status": cr.get("status", "queued"),
+            "conclusion": cr.get("conclusion"),
+            "type": "check_run",
+        })
+    
+    # Determine overall state
+    if not all_checks:
+        overall_state = "pending"
+        all_passed = False
+    else:
+        # Check if any failed
+        has_failure = any(
+            (c.get("state") in ["failure", "error"] if c["type"] == "status" 
+             else c.get("conclusion") in ["failure", "cancelled", "timed_out"])
+            for c in all_checks
+        )
+        
+        # Check if all completed successfully
+        all_success = all(
+            (c.get("state") == "success" if c["type"] == "status"
+             else c.get("status") == "completed" and c.get("conclusion") == "success")
+            for c in all_checks
+        )
+        
+        if has_failure:
+            overall_state = "failure"
+            all_passed = False
+        elif all_success:
+            overall_state = "success"
+            all_passed = True
+        else:
+            overall_state = "pending"
+            all_passed = False
+    
+    return {
+        "state": overall_state,
+        "all_passed": all_passed,
+        "checks": all_checks,
+        "total_checks": len(all_checks),
+    }
+
+
+def wait_for_ci_completion(
+    commit_sha: str,
+    timeout_seconds: int = CI_WAIT_TIMEOUT_SECONDS,
+    poll_interval: int = CI_POLL_INTERVAL_SECONDS,
+    verbose: bool = True,
+) -> Dict:
+    """Wait for CI checks to complete on a commit.
+    
+    Polls the commit status and check runs until all checks complete
+    or the timeout is reached.
+    
+    Args:
+        commit_sha: Git commit SHA to monitor
+        timeout_seconds: Maximum time to wait in seconds (default: 30 minutes)
+        poll_interval: How often to poll in seconds (default: 30 seconds)
+        verbose: Whether to print status updates
+        
+    Returns:
+        Dictionary with final CI status:
+        - completed: Boolean indicating if checks completed
+        - timed_out: Boolean indicating if wait timed out
+        - all_passed: Boolean indicating if all checks passed
+        - state: Final state
+        - duration_seconds: How long the wait took
+        - checks: List of all checks and their results
+        
+    Raises:
+        Exception: If there's an error fetching CI status
+    """
+    start_time = time.time()
+    elapsed = 0
+    
+    if verbose:
+        print(f"[CI WAIT] Waiting for CI checks on commit {commit_sha[:8]}...")
+        print(f"[CI WAIT] Timeout: {timeout_seconds / 60:.1f} minutes")
+    
+    while elapsed < timeout_seconds:
+        try:
+            status = get_combined_ci_status(commit_sha)
+            
+            if verbose:
+                state = status["state"]
+                total = status["total_checks"]
+                print(f"[CI WAIT] {elapsed:.0f}s elapsed - State: {state}, Checks: {total}")
+            
+            # Check if all checks are complete
+            if status["state"] in ["success", "failure", "error"]:
+                duration = time.time() - start_time
+                
+                if verbose:
+                    if status["all_passed"]:
+                        print(f"[CI WAIT] ✓ All CI checks passed after {duration:.1f}s")
+                    else:
+                        print(f"[CI WAIT] ✗ CI checks failed after {duration:.1f}s")
+                        for check in status["checks"]:
+                            if check["type"] == "status" and check.get("state") != "success":
+                                print(f"[CI WAIT]   - {check['name']}: {check['state']}")
+                            elif check["type"] == "check_run" and check.get("conclusion") != "success":
+                                print(f"[CI WAIT]   - {check['name']}: {check['conclusion']}")
+                
+                return {
+                    "completed": True,
+                    "timed_out": False,
+                    "all_passed": status["all_passed"],
+                    "state": status["state"],
+                    "duration_seconds": duration,
+                    "checks": status["checks"],
+                }
+            
+            # Wait before next poll
+            time.sleep(poll_interval)
+            elapsed = time.time() - start_time
+            
+        except Exception as e:
+            if verbose:
+                print(f"[CI WAIT] Error checking CI status: {e}")
+            raise
+    
+    # Timeout reached
+    duration = time.time() - start_time
+    final_status = get_combined_ci_status(commit_sha)
+    
+    if verbose:
+        print(f"[CI WAIT] ⚠ Timeout reached after {duration:.1f}s")
+        print(f"[CI WAIT] Final state: {final_status['state']}")
+    
+    return {
+        "completed": False,
+        "timed_out": True,
+        "all_passed": False,
+        "state": final_status["state"],
+        "duration_seconds": duration,
+        "checks": final_status["checks"],
+    }
+
+
+def wait_for_pr_ci(
+    pr_number: int,
+    timeout_seconds: int = CI_WAIT_TIMEOUT_SECONDS,
+    poll_interval: int = CI_POLL_INTERVAL_SECONDS,
+    verbose: bool = True,
+) -> Dict:
+    """Wait for CI checks to complete on a pull request.
+    
+    Convenience wrapper that gets the PR's head commit and waits for CI.
+    
+    Args:
+        pr_number: Pull request number
+        timeout_seconds: Maximum time to wait in seconds (default: 30 minutes)
+        poll_interval: How often to poll in seconds (default: 30 seconds)
+        verbose: Whether to print status updates
+        
+    Returns:
+        Same as wait_for_ci_completion()
+    """
+    # Get PR details to find head commit
+    pr = _get(f"/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/pulls/{pr_number}")
+    head_sha = pr["head"]["sha"]
+    
+    if verbose:
+        print(f"[CI WAIT] PR #{pr_number}: {pr['title']}")
+        print(f"[CI WAIT] Head commit: {head_sha[:8]}")
+    
+    return wait_for_ci_completion(head_sha, timeout_seconds, poll_interval, verbose)
