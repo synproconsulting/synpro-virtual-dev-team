@@ -1,0 +1,11 @@
+# Requirements for token rotation scripts
+# Install with: pip install -r requirements-scripts.txt
+
+# YAML parsing for Kubernetes configs
+PyYAML>=6.0.1
+
+# HTTP requests for API verification
+requests>=2.31.0
+
+# Type hints support (for older Python versions)
+typing-extensions>=4.8.0
