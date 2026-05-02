@@ -104,9 +104,19 @@ type Variable {
   value: String!
 }
 
+enum DeploymentOrderByColumn {
+  CREATED_AT
+  UPDATED_AT
+}
+
+enum OrderDirection {
+  ASC
+  DESC
+}
+
 input DeploymentOrderBy {
-  column: String!
-  direction: String!
+  column: DeploymentOrderByColumn!
+  direction: OrderDirection!
 }
 """
 
