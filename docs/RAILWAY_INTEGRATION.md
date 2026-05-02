@@ -1,212 +1,184 @@
-# Railway GraphQL API Integration
-
-This document describes the Railway GraphQL API integration for monitoring and triggering deployments through the Control Centre UAT Deploy tab.
+# Railway Integration Documentation
 
 ## Overview
 
-The Railway integration provides real-time visibility into deployment status across Railway projects and environments. It uses Railway's GraphQL API to fetch deployment information and trigger new deployments directly from the Control Centre.
+The UAT Deploy tab in the Control Centre provides real-time monitoring and management of Railway deployments through Railway's GraphQL API. This integration allows the team to monitor deployment status, view logs, and trigger new deployments directly from the Control Centre.
 
 ## Architecture
 
 ### Backend Components
 
-#### 1. Railway Client (`uat/backend/railway_client.py`)
+1. **`railway_client.py`** - Railway GraphQL API client
+   - Handles authentication with Railway API
+   - Executes GraphQL queries and mutations
+   - Provides methods for fetching projects, services, deployments, and logs
+   - Triggers new deployments
 
-Core client for interacting with Railway's GraphQL API.
-
-**Key Features:**
-- Asynchronous GraphQL query execution
-- Project and service discovery
-- Deployment status monitoring
-- Deployment log retrieval
-- Deployment triggering
-
-**Main Methods:**
-- `get_projects()` - Fetch all accessible projects
-- `get_project_services(project_id)` - Get services in a project
-- `get_service_deployments(service_id, environment_id, limit)` - Get recent deployments for a service
-- `get_environment_deployments(project_id, environment_name)` - Get all deployments in an environment
-- `get_deployment_logs(deployment_id, limit)` - Fetch deployment logs
-- `trigger_deployment(service_id, environment_id)` - Trigger a new deployment
-
-#### 2. Railway Router (`uat/backend/railway_router.py`)
-
-FastAPI router exposing Railway functionality through REST endpoints.
-
-**Endpoints:**
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/railway/projects` | List all projects |
-| GET | `/api/railway/projects/{project_id}/services` | List services in a project |
-| GET | `/api/railway/services/{service_id}/deployments` | Get service deployments |
-| GET | `/api/railway/projects/{project_id}/environments/{env_name}/deployments` | Get environment deployments |
-| GET | `/api/railway/deployments/{deployment_id}/logs` | Get deployment logs |
-| POST | `/api/railway/deployments/trigger` | Trigger a deployment |
-| GET | `/api/railway/health` | Check Railway API health |
+2. **`railway_router.py`** - FastAPI router with REST endpoints
+   - `/api/railway/projects` - Get all accessible projects
+   - `/api/railway/projects/{project_id}/services` - Get services in a project
+   - `/api/railway/services/{service_id}/deployments` - Get service deployments
+   - `/api/railway/projects/{project_id}/environments/{environment_name}/deployments` - Get environment deployments
+   - `/api/railway/deployments/{deployment_id}/logs` - Get deployment logs
+   - `/api/railway/deployments/trigger` - Trigger a new deployment
+   - `/api/railway/health` - Check Railway API health
 
 ### Frontend Components
 
-#### 1. Railway API Client (`control-centre/src/api/railway.js`)
+1. **`UATDeployment.jsx`** - React component for the UAT Deploy tab
+   - Displays Railway projects and environments
+   - Shows deployment status cards with real-time updates
+   - Auto-refresh functionality (30-second interval)
+   - Environment selection (production, staging, UAT, development)
 
-JavaScript client for calling backend Railway endpoints.
-
-**Key Functions:**
-- `getRailwayProjects()` - Fetch projects
-- `getRailwayServices(projectId)` - Fetch services
-- `getServiceDeployments(serviceId, options)` - Fetch deployments
-- `getEnvironmentDeployments(projectId, environmentName)` - Fetch environment deployments
-- `getDeploymentLogs(deploymentId, limit)` - Fetch logs
-- `triggerDeployment(serviceId, environmentId)` - Trigger deployment
-- `checkRailwayHealth()` - Check API health
-- `formatDeploymentStatus(status)` - Format status for display
-
-#### 2. UAT Deployment Component (`control-centre/src/components/UATDeployment.jsx`)
-
-React component displaying Railway deployment information.
-
-**Features:**
-- Project selection dropdown
-- Environment filtering (production, staging, UAT, development)
-- Real-time deployment status cards
-- Auto-refresh every 30 seconds (optional)
-- Manual refresh button
-- Deployment metadata display
-- Health status indicator
+2. **`railway.js`** - API client for frontend-backend communication
+   - Wraps all Railway API endpoints
+   - Handles error responses
+   - Formats deployment status for display
 
 ## Configuration
 
-### Environment Variables
+### Backend Configuration
 
-#### Backend (`uat/backend/.env`)
+Add the following to `uat/backend/.env`:
 
 ```bash
-# Railway API Configuration
+# Railway API token - get from https://railway.app/account/tokens
 RAILWAY_API_TOKEN=your-railway-api-token-here
-RAILWAY_PROJECT_ID=your-default-project-id
 ```
 
-**Getting Your Railway API Token:**
-1. Go to https://railway.app/account/tokens
-2. Click "Create Token"
-3. Copy the token and set it as `RAILWAY_API_TOKEN`
+**Getting your Railway API token:**
+1. Log in to [Railway](https://railway.app)
+2. Go to Account Settings → Tokens
+3. Create a new token with the following permissions:
+   - Read projects, services, and deployments
+   - Trigger deployments
+4. Copy the token and add it to your `.env` file
 
-**Finding Your Project ID:**
-1. Navigate to your Railway project
-2. The project ID is in the URL: `https://railway.app/project/{PROJECT_ID}`
-3. Set it as `RAILWAY_PROJECT_ID` (optional, for auto-selection)
+### Frontend Configuration
 
-#### Frontend (`control-centre/.env`)
+Add the following to `control-centre/.env`:
 
 ```bash
 # Backend API URL
 VITE_API_BASE_URL=http://localhost:8000
 
-# Optional: Default Railway project ID
-VITE_RAILWAY_PROJECT_ID=your-railway-project-id
+# Optional: Default Railway project ID to auto-select
+VITE_RAILWAY_PROJECT_ID=your-railway-project-id-here
 ```
+
+**Finding your Railway project ID:**
+1. Open your project in Railway
+2. Go to Settings
+3. Copy the Project ID from the project settings
 
 ## Usage
 
-### Backend Setup
+### Monitoring Deployments
 
-1. **Install Dependencies:**
-   ```bash
-   cd uat/backend
-   pip install -r requirements.txt
-   ```
+1. Navigate to the **UAT Deploy** tab in the Control Centre
+2. Select your project from the dropdown
+3. Choose the environment (production, staging, UAT, development)
+4. View deployment status cards showing:
+   - Service name
+   - Deployment status (with color-coded badges)
+   - Deployment ID
+   - Creation and update timestamps
+   - Service URL (if available)
 
-2. **Configure Environment:**
-   ```bash
-   export RAILWAY_API_TOKEN=your_token_here
-   export RAILWAY_PROJECT_ID=your_project_id
-   ```
+### Auto-Refresh
 
-3. **Start Server:**
-   ```bash
-   uvicorn main:app --reload
-   ```
+Enable auto-refresh to automatically update deployment status every 30 seconds:
+- Check the "Auto-refresh (30s)" checkbox
+- The display will refresh silently in the background
+- Last refresh timestamp is shown at the top
 
-4. **Verify Health:**
-   ```bash
-   curl http://localhost:8000/api/railway/health
-   ```
+### Triggering Deployments
 
-### Frontend Setup
+Use the `/api/railway/deployments/trigger` endpoint to trigger new deployments:
 
-1. **Install Dependencies:**
-   ```bash
-   cd control-centre
-   npm install
-   ```
+```bash
+curl -X POST http://localhost:8000/api/railway/deployments/trigger \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service_id": "your-service-id",
+    "environment_id": "your-environment-id"
+  }'
+```
 
-2. **Configure Environment:**
-   ```bash
-   echo "VITE_API_BASE_URL=http://localhost:8000" > .env
-   echo "VITE_RAILWAY_PROJECT_ID=your_project_id" >> .env
-   ```
+## Deployment Status Reference
 
-3. **Start Development Server:**
-   ```bash
-   npm run dev
-   ```
-
-4. **Access Control Centre:**
-   Navigate to http://localhost:3001 and click on "UAT Deploy" tab
-
-### Using the UAT Deploy Tab
-
-1. **Select Project:** Choose a Railway project from the dropdown
-2. **Select Environment:** Choose the target environment (production, staging, UAT, etc.)
-3. **View Deployments:** See all recent deployments with status indicators
-4. **Auto-Refresh:** Toggle auto-refresh for real-time updates every 30 seconds
-5. **Manual Refresh:** Click the refresh button to update deployment data
-
-## Railway Deployment Statuses
-
-The integration recognizes and displays the following Railway deployment statuses:
+The integration recognizes the following Railway deployment statuses:
 
 | Status | Color | Description |
 |--------|-------|-------------|
-| SUCCESS | Green | Deployment completed successfully |
-| ACTIVE | Green | Service is running |
-| FAILED | Red | Deployment failed |
-| CRASHED | Dark Red | Service crashed after deployment |
-| BUILDING | Blue | Currently building the service |
-| DEPLOYING | Purple | Currently deploying the service |
-| INITIALIZING | Cyan | Deployment initializing |
-| WAITING | Orange | Waiting in queue |
-| REMOVING | Gray | Being removed |
-| REMOVED | Gray | Has been removed |
+| SUCCESS | Green (#22c55e) | Deployment completed successfully |
+| ACTIVE | Green (#10b981) | Deployment is active and running |
+| BUILDING | Blue (#3b82f6) | Building the deployment |
+| DEPLOYING | Purple (#8b5cf6) | Deploying to Railway |
+| INITIALIZING | Cyan (#06b6d4) | Initializing deployment |
+| WAITING | Orange (#f59e0b) | Waiting in queue |
+| FAILED | Red (#ef4444) | Deployment failed |
+| CRASHED | Red (#dc2626) | Deployment crashed |
+| REMOVING | Gray (#9ca3af) | Removing deployment |
+| REMOVED | Gray (#6b7280) | Deployment removed |
 
-## API Examples
+## API Reference
 
-### Fetch Projects
+### Get Projects
 
-```bash
-curl http://localhost:8000/api/railway/projects
+```http
+GET /api/railway/projects
 ```
+
+Returns all Railway projects accessible to the configured API token.
 
 **Response:**
 ```json
 {
   "projects": [
     {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "name": "My Project",
-      "description": "Production services",
+      "id": "project-id",
+      "name": "Project Name",
+      "description": "Project description",
       "createdAt": "2024-01-01T00:00:00Z",
-      "updatedAt": "2024-01-15T00:00:00Z"
+      "updatedAt": "2024-01-01T00:00:00Z"
     }
   ]
 }
 ```
 
-### Fetch Environment Deployments
+### Get Project Services
 
-```bash
-curl "http://localhost:8000/api/railway/projects/PROJECT_ID/environments/production/deployments"
+```http
+GET /api/railway/projects/{project_id}/services
 ```
+
+Returns all services in a specific project.
+
+### Get Service Deployments
+
+```http
+GET /api/railway/services/{service_id}/deployments?environment_id=env1&limit=10
+```
+
+Returns recent deployments for a service, optionally filtered by environment.
+
+**Query Parameters:**
+- `environment_id` (optional) - Filter by environment ID
+- `limit` (optional, default: 10, max: 50) - Number of deployments to return
+
+### Get Environment Deployments
+
+```http
+GET /api/railway/projects/{project_id}/environments/{environment_name}/deployments
+```
+
+Returns all deployments for all services in a specific environment.
+
+**Path Parameters:**
+- `project_id` - Railway project ID
+- `environment_name` - Environment name (e.g., "production", "staging", "uat")
 
 **Response:**
 ```json
@@ -214,46 +186,122 @@ curl "http://localhost:8000/api/railway/projects/PROJECT_ID/environments/product
   "environment": "production",
   "deployments": [
     {
-      "id": "deploy-123",
+      "id": "deployment-id",
       "status": "SUCCESS",
-      "serviceName": "API Service",
-      "createdAt": "2024-01-15T10:30:00Z",
-      "updatedAt": "2024-01-15T10:35:00Z",
-      "staticUrl": "https://api.railway.app"
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2024-01-01T00:01:00Z",
+      "staticUrl": "https://service.railway.app",
+      "serviceId": "service-id",
+      "serviceName": "API Service"
     }
   ]
 }
 ```
 
+### Get Deployment Logs
+
+```http
+GET /api/railway/deployments/{deployment_id}/logs?limit=100
+```
+
+Returns logs for a specific deployment.
+
+**Query Parameters:**
+- `limit` (optional, default: 100, max: 500) - Number of log entries to return
+
 ### Trigger Deployment
 
-```bash
-curl -X POST http://localhost:8000/api/railway/deployments/trigger \
-  -H "Content-Type: application/json" \
-  -d '{
-    "service_id": "service-123",
-    "environment_id": "env-456"
-  }'
+```http
+POST /api/railway/deployments/trigger
+Content-Type: application/json
+
+{
+  "service_id": "service-id",
+  "environment_id": "environment-id"
+}
 ```
+
+Triggers a new deployment for a service in a specific environment.
 
 **Response:**
 ```json
 {
   "success": true,
   "deployment": {
-    "id": "deploy-789",
+    "id": "deployment-id",
     "status": "INITIALIZING",
-    "createdAt": "2024-01-15T11:00:00Z"
+    "createdAt": "2024-01-01T00:00:00Z"
   },
   "message": "Deployment triggered successfully"
 }
 ```
 
+### Health Check
+
+```http
+GET /api/railway/health
+```
+
+Checks if Railway API is configured and accessible.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "configured": true,
+  "projects_count": 5
+}
+```
+
+Possible statuses:
+- `healthy` - Railway API is configured and accessible
+- `unconfigured` - RAILWAY_API_TOKEN not set
+- `unhealthy` - Configured but unable to connect to Railway API
+
+## Error Handling
+
+### Backend Errors
+
+All Railway API endpoints return standard HTTP error responses:
+
+- **500 Internal Server Error** - Railway API not configured or API error
+  ```json
+  {
+    "detail": "Railway API not configured"
+  }
+  ```
+  or
+  ```json
+  {
+    "detail": "Failed to fetch projects: <error message>"
+  }
+  ```
+
+- **422 Unprocessable Entity** - Invalid request payload
+  ```json
+  {
+    "detail": [
+      {
+        "loc": ["body", "service_id"],
+        "msg": "field required",
+        "type": "value_error.missing"
+      }
+    ]
+  }
+  ```
+
+### Frontend Error Handling
+
+The UATDeployment component displays errors in a red alert banner:
+- Connection errors to backend
+- Railway API configuration errors
+- Failed API requests
+
 ## Testing
 
 ### Backend Tests
 
-Run the test suite:
+Run the Railway integration tests:
 
 ```bash
 cd uat/backend
@@ -261,143 +309,100 @@ pytest tests/test_railway_client.py -v
 pytest tests/test_railway_router.py -v
 ```
 
-**Test Coverage:**
-- Railway client initialization
-- GraphQL query execution
-- Project and service fetching
-- Deployment retrieval and filtering
-- Deployment triggering
-- Error handling
-- Router endpoint responses
-
 ### Manual Testing
 
-1. **Test Health Endpoint:**
+1. **Test Railway API connection:**
    ```bash
    curl http://localhost:8000/api/railway/health
    ```
 
-2. **Test Projects Endpoint:**
+2. **Test project listing:**
    ```bash
    curl http://localhost:8000/api/railway/projects
    ```
 
-3. **Test in Control Centre:**
-   - Navigate to UAT Deploy tab
-   - Verify projects load
-   - Switch between environments
-   - Enable auto-refresh
-   - Check deployment cards display correctly
+3. **Test environment deployments:**
+   ```bash
+   curl http://localhost:8000/api/railway/projects/PROJECT_ID/environments/production/deployments
+   ```
 
 ## Troubleshooting
 
-### "Railway API not configured" Error
+### Railway API not configured
 
-**Cause:** `RAILWAY_API_TOKEN` environment variable is not set.
+**Error:** "Railway API is not configured. Please set RAILWAY_API_TOKEN environment variable."
 
 **Solution:**
-```bash
-export RAILWAY_API_TOKEN=your_token_here
-```
+1. Ensure `RAILWAY_API_TOKEN` is set in `uat/backend/.env`
+2. Restart the backend server
+3. Verify the token is valid by checking the health endpoint
 
-### "Failed to fetch projects" Error
+### No deployments showing
 
-**Causes:**
-- Invalid API token
-- Network connectivity issues
-- Railway API is down
+**Issue:** Projects load but no deployments appear
 
 **Solutions:**
-1. Verify token is valid: https://railway.app/account/tokens
-2. Check network connectivity
-3. Check Railway status: https://railway.app/status
+1. Verify the environment name matches your Railway environments
+2. Check that the project has services deployed to the selected environment
+3. Review backend logs for API errors
 
-### Empty Deployments List
+### Connection timeout
 
-**Causes:**
-- Wrong environment name
-- No deployments in environment
-- Service not deployed yet
+**Issue:** Requests to Railway API timeout
 
 **Solutions:**
-1. Verify environment name (case-insensitive)
-2. Check Railway dashboard for deployments
-3. Try different environment (production, staging, etc.)
+1. Check your internet connection
+2. Verify Railway API is not experiencing downtime (check Railway status page)
+3. Increase the timeout in `railway_client.py` if needed (default: 30 seconds)
 
-### Auto-refresh Not Working
+### Invalid GraphQL query errors
 
-**Causes:**
-- Auto-refresh not enabled
-- Browser tab not active (some browsers throttle timers)
-- Network issues
+**Issue:** GraphQL errors in backend logs
 
 **Solutions:**
-1. Ensure auto-refresh checkbox is checked
-2. Keep tab active
-3. Check network connectivity
-4. Try manual refresh
+1. Ensure your Railway API token has the required permissions
+2. Check that the token hasn't expired
+3. Review the Railway GraphQL schema for any API changes
 
 ## Security Considerations
 
-1. **API Token Protection:**
-   - Store Railway API token in environment variables only
-   - Never commit tokens to version control
-   - Rotate tokens regularly
-   - Use Railway's token permissions to limit scope
+1. **API Token Security**
+   - Never commit the `RAILWAY_API_TOKEN` to version control
+   - Use environment variables for all sensitive configuration
+   - Rotate tokens regularly (recommended: every 90 days)
+   - Use Railway's token permissions to limit access scope
 
-2. **Backend Proxy:**
-   - All Railway API calls go through the backend
-   - Frontend never exposes Railway API token
-   - Backend validates requests before forwarding
+2. **CORS Configuration**
+   - Backend CORS is configured via `FRONTEND_URL` in `.env`
+   - Only allow trusted frontend origins in production
 
-3. **Rate Limiting:**
-   - Railway API has rate limits
-   - Backend should implement caching for frequently accessed data
-   - Auto-refresh interval should be reasonable (30s minimum)
-
-4. **Error Handling:**
-   - Graceful degradation when Railway API is unavailable
-   - Clear error messages without exposing sensitive information
-   - Logging of errors for debugging
+3. **Rate Limiting**
+   - Railway API has rate limits - implement caching if needed
+   - Auto-refresh is limited to 30-second intervals to avoid excessive requests
 
 ## Future Enhancements
 
-1. **Deployment Logs in UI:**
-   - Add button to view deployment logs
-   - Stream logs in real-time
-   - Filter logs by severity
+Possible improvements to the Railway integration:
 
-2. **Deployment Actions:**
-   - Rollback to previous deployment
-   - Cancel in-progress deployment
-   - Restart service
+1. **Deployment Logs Viewer** - Add a modal to view full deployment logs
+2. **Deployment History** - Show deployment history timeline
+3. **Multi-environment Comparison** - Compare deployments across environments
+4. **Deployment Metrics** - Show build time, deployment duration, etc.
+5. **Rollback Functionality** - Quick rollback to previous deployment
+6. **Notification Integration** - Alert on deployment failures
+7. **Manual Deployment Triggers** - UI buttons to trigger deployments from Control Centre
 
-3. **Metrics Integration:**
-   - Display service metrics (CPU, memory, requests)
-   - Historical deployment success rate
-   - Deployment duration trends
+## Related Documentation
 
-4. **Notifications:**
-   - Alert on deployment failures
-   - Notify on deployment completion
-   - Webhook integration
-
-5. **Multi-environment Comparison:**
-   - Side-by-side environment comparison
-   - Diff between environment deployments
-   - Promotion workflow (staging → production)
-
-## References
-
-- [Railway API Documentation](https://docs.railway.app/reference/public-api)
-- [Railway GraphQL Schema](https://railway.app/graphql)
-- [Railway Account Tokens](https://railway.app/account/tokens)
-- [Railway Status Page](https://railway.app/status)
+- [Railway GraphQL API Documentation](https://docs.railway.app/reference/public-api)
+- [Railway Deployments Guide](https://docs.railway.app/guides/deployments)
+- UAT Backend API Documentation: `uat/backend/README.md`
+- Control Centre Documentation: `control-centre/README.md`
 
 ## Support
 
 For issues or questions:
-1. Check Railway documentation: https://docs.railway.app
-2. Review Railway status: https://railway.app/status
-3. Check backend logs for errors
-4. Verify environment variables are set correctly
+1. Check this documentation first
+2. Review backend logs: `uat/backend/logs/`
+3. Check Railway status: https://status.railway.app
+4. Contact the development team
