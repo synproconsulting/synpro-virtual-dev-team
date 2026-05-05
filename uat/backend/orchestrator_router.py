@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
-from auth import require_auth
+from auth import get_current_user as require_auth
 
 import sys
 import os
