@@ -3,7 +3,8 @@ import { fetchSprints, fetchSprintIssues, fetchSprintData, triggerSprint, trigge
 import JiraSprintView from './JiraSprintView';
 import PullRequestView from './PullRequestView';
 import CIPipelineView from './CIPipelineView';
-import { Play, GitPullRequest } from 'lucide-react';
+import SprintStatusOverview from './SprintStatusOverview';
+import { Play, GitPullRequest, BarChart3 } from 'lucide-react';
 
 const MetricCard = ({ title, value, sub, color }) => (
   <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"1rem",borderLeft:color?`3px solid ${color}`:undefined}}>
@@ -21,7 +22,7 @@ const SprintDashboard = () => {
   const [loading, setLoading]       = useState(true);
   const [triggering, setTriggering] = useState(false);
   const [msg, setMsg]               = useState(null);
-  const [activeTab, setActiveTab]   = useState("jira");
+  const [activeTab, setActiveTab]   = useState("overview");
   const [mergedPRs, setMergedPRs]     = useState([]);
 
   const loadGlobal = useCallback(async () => {
@@ -78,6 +79,7 @@ const SprintDashboard = () => {
   const ciRate    = runs.length ? Math.round((runs.filter(r=>r.conclusion==="success").length/runs.length)*100) : 0;
 
   const TABS = [
+    { id:"overview", label:"Sprint Overview", icon: <BarChart3 size={14} /> },
     { id:"jira", label:`Jira Issues (${issues.length})` },
     { id:"prs",  label:`Pull Requests (${prs.length})` },
     { id:"ci",   label:`CI/CD (${runs.length})` },
@@ -165,8 +167,12 @@ const SprintDashboard = () => {
             background:activeTab===t.id?"var(--accent)":"transparent",
             color:activeTab===t.id?"white":"var(--muted)",
             border:"none", borderRadius:6, padding:"6px 14px",
-            fontSize:13, cursor:"pointer", fontFamily:"inherit"
-          }}>{t.label}</button>
+            fontSize:13, cursor:"pointer", fontFamily:"inherit",
+            display:"flex", alignItems:"center", gap:6
+          }}>
+            {t.icon}
+            {t.label}
+          </button>
         ))}
       </div>
 
@@ -174,6 +180,7 @@ const SprintDashboard = () => {
         <div style={{textAlign:"center",color:"var(--muted)",padding:"2rem"}}>Loading...</div>
       ) : (
         <>
+          {activeTab === "overview" && <SprintStatusOverview />}
           {activeTab === "jira" && <JiraSprintView issues={issues} mergedPRs={mergedPRs}/>}
           {activeTab === "prs" && (
             <div>
