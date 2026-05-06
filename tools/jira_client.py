@@ -330,6 +330,67 @@ def create_sprint(
     }
 
 
+def start_sprint(sprint_id: int) -> dict[str, Any]:
+    """Start a sprint, transitioning it from 'future' to 'active' state.
+    
+    This function activates a sprint in Jira, making it the current working sprint.
+    The sprint must be in 'future' state to be started.
+    
+    Args:
+        sprint_id: The ID of the sprint to start
+    
+    Returns:
+        A dictionary containing:
+            - id: The sprint ID
+            - name: The sprint name
+            - state: The sprint state (should be 'active' after starting)
+            - start_date: When the sprint was started
+            - end_date: When the sprint is scheduled to end
+    
+    Raises:
+        ValueError: If the sprint cannot be started (e.g., already active, or has no issues)
+    """
+    jira = _get_client()
+    
+    # Get the sprint to verify it exists and check its state
+    sprint = jira.sprint(sprint_id)
+    
+    if sprint.state == "active":
+        raise ValueError(f"Sprint {sprint_id} is already active")
+    
+    if sprint.state == "closed":
+        raise ValueError(f"Sprint {sprint_id} is closed and cannot be started")
+    
+    # Use the Jira REST API to start the sprint
+    # The python-jira library doesn't have a direct start_sprint method,
+    # so we need to use the underlying REST API
+    url = f"{jira._options['server']}/rest/agile/1.0/sprint/{sprint_id}"
+    
+    # Prepare the payload to transition the sprint to active state
+    payload = {
+        "state": "active",
+    }
+    
+    # Make the PUT request to update the sprint
+    response = jira._session.put(url, json=payload)
+    
+    if response.status_code not in [200, 204]:
+        error_msg = f"Failed to start sprint {sprint_id}: {response.status_code} - {response.text}"
+        raise ValueError(error_msg)
+    
+    # Fetch the updated sprint to return current state
+    updated_sprint = jira.sprint(sprint_id)
+    
+    return {
+        "id": updated_sprint.id,
+        "name": updated_sprint.name,
+        "state": updated_sprint.state,
+        "start_date": getattr(updated_sprint, "startDate", None),
+        "end_date": getattr(updated_sprint, "endDate", None),
+        "goal": getattr(updated_sprint, "goal", ""),
+    }
+
+
 def add_issues_to_sprint(sprint_id: int, issue_keys: list[str]) -> None:
     """Move issues from backlog into a sprint."""
     jira = _get_client()
