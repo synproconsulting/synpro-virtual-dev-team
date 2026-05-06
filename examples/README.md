@@ -58,6 +58,61 @@ Step 2: Creating Story A (Database Schema)...
 ✓ All stories created with proper dependencies and execution order
 ```
 
+### orchestrator_with_ci_monitoring.py
+
+Demonstrates how to integrate CI/CD monitoring into the Orchestrator.
+
+**What it does:**
+1. Shows how to extend the base Orchestrator class with CI monitoring
+2. Demonstrates waiting for GitHub Actions pipelines to complete
+3. Shows different timeout configurations (15, 30, 45 minutes)
+4. Explains error handling for CI failures, timeouts, and cancellations
+5. Demonstrates sprint execution with CI validation
+
+**Prerequisites:**
+```bash
+export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxx"
+export JIRA_PROJECT_KEY="SDT1"
+```
+
+**Run it:**
+```bash
+python examples/orchestrator_with_ci_monitoring.py
+```
+
+**Key Features:**
+- **Extended Timeout**: Uses 30-minute CI wait timeout (SDT1-64)
+- **Automatic Retry**: Handles transient GitHub API errors
+- **Real-time Monitoring**: Polls CI status every 30 seconds
+- **Smart Completion**: Returns immediately when CI finishes (doesn't wait full timeout)
+
+**Example Scenarios:**
+
+```python
+# Quick CI pipeline (15 minutes)
+orchestrator = OrchestratorWithCI(
+    jira_project_key="SDT1",
+    github_repo_owner="myorg",
+    github_repo_name="quick-repo",
+    ci_timeout_minutes=15,
+)
+
+# Standard pipeline (30 minutes - default from SDT1-64)
+orchestrator = OrchestratorWithCI(
+    jira_project_key="SDT1",
+    github_repo_owner="myorg",
+    github_repo_name="standard-repo",
+)
+
+# Long-running pipeline (45 minutes)
+orchestrator = OrchestratorWithCI(
+    jira_project_key="SDT1",
+    github_repo_owner="myorg",
+    github_repo_name="complex-repo",
+    ci_timeout_minutes=45,
+)
+```
+
 ## Adding New Examples
 
 When creating new examples:
@@ -74,3 +129,5 @@ When creating new examples:
 - [Jira Issue Links Documentation](../docs/jira-issue-links.md)
 - [PM Agent Documentation](../agents/pm_agent.py)
 - [PM Tools API](../tools/pm_tools.py)
+- [Orchestrator CI Monitoring](../docs/orchestrator_ci_monitoring.md) ⭐ New
+- [SDT1-64 Migration Guide](../docs/MIGRATION_SDT1-64.md) ⭐ New
