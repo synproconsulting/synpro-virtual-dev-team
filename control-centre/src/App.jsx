@@ -5,12 +5,12 @@ import GitHubWorkflowMonitor from "./components/GitHubWorkflowMonitor";
 import UATDeployment from "./components/UATDeployment";
 import SonarCloudTrigger from "./components/SonarCloudTrigger";
 import PMAgentChat from "./components/PMAgentChat";
-import OrchestratorStateView from "./components/OrchestratorStateView";
+import OrchestratorControl from "./components/OrchestratorControl";
 
 const TABS = [
   { id: "overview",      label: "Overview",      component: DashboardMain },
   { id: "sprint",        label: "Sprint Status", component: SprintDashboard },
-  { id: "orchestrator",  label: "Orchestrator",  component: OrchestratorStateView },
+  { id: "orchestrator",  label: "Orchestrator",  component: OrchestratorControl },
   { id: "workflows",     label: "Workflows",     component: GitHubWorkflowMonitor },
   { id: "deploy",        label: "UAT Deploy",    component: UATDeployment },
   { id: "sonarcloud",    label: "SonarCloud",    component: SonarCloudTrigger },
