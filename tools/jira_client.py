@@ -330,79 +330,59 @@ def create_sprint(
     }
 
 
+def add_issues_to_sprint(sprint_id: int, issue_keys: list[str]) -> None:
+    """Move issues from backlog into a sprint."""
+    jira = _get_client()
+    jira.add_issues_to_sprint(sprint_id, issue_keys)
+
+
 def start_sprint(sprint_id: int) -> dict[str, Any]:
-    """Start (activate) a sprint by its ID.
+    """Start (activate) a sprint in Jira.
     
-    Transitions a sprint from 'future' state to 'active' state. This makes the
-    sprint the active sprint for the team and moves all issues in the sprint
-    into active development.
+    This transitions a sprint from 'future' state to 'active' state,
+    making it the current working sprint for the team.
     
     Args:
-        sprint_id: The numeric ID of the sprint to start
+        sprint_id: The ID of the sprint to start
     
     Returns:
         A dictionary containing:
             - id: The sprint ID
             - name: The sprint name
-            - state: The new sprint state (should be 'active')
-            - start_date: The sprint start date (ISO-8601)
-            - end_date: The sprint end date (ISO-8601)
+            - state: The sprint state (should be 'active' after starting)
+            - start_date: The start date
+            - end_date: The end date
     
     Raises:
-        ValueError: If the sprint is not in 'future' state or if required dates are missing
+        ValueError: If the sprint is already active or closed
         Exception: If the Jira API call fails
-    
-    Note:
-        - The sprint must be in 'future' state to be started
-        - The sprint must have start_date and end_date set
-        - Only one sprint can be active at a time per board
     """
     jira = _get_client()
     
-    # Retrieve the sprint to check its current state
+    # Get the sprint to check its current state
     sprint = jira.sprint(sprint_id)
     
-    if sprint.state != "future":
-        raise ValueError(
-            f"Sprint {sprint_id} is in '{sprint.state}' state. "
-            f"Only sprints in 'future' state can be started."
-        )
+    if sprint.state == "active":
+        raise ValueError(f"Sprint {sprint_id} is already active")
     
-    # Verify sprint has required dates
-    start_date = getattr(sprint, "startDate", None)
-    end_date = getattr(sprint, "endDate", None)
+    if sprint.state == "closed":
+        raise ValueError(f"Sprint {sprint_id} is closed and cannot be started")
     
-    if not start_date or not end_date:
-        raise ValueError(
-            f"Sprint {sprint_id} must have start_date and end_date set before it can be started. "
-            f"Use create_sprint or update the sprint in Jira to set these dates."
-        )
+    # Update the sprint to active state
+    # The Jira API requires at least state to be set when updating a sprint
+    jira.update_sprint(sprint_id, state="active")
     
-    # Update sprint state to active
-    sprint_data = {
-        "state": "active",
-    }
-    
-    # Use the Jira client's update_sprint method
-    jira.update_sprint(sprint_id, **sprint_data)
-    
-    # Retrieve updated sprint to return current state
+    # Refresh the sprint object to get updated state
     updated_sprint = jira.sprint(sprint_id)
     
     return {
         "id": updated_sprint.id,
         "name": updated_sprint.name,
         "state": updated_sprint.state,
+        "goal": getattr(updated_sprint, "goal", ""),
         "start_date": getattr(updated_sprint, "startDate", None),
         "end_date": getattr(updated_sprint, "endDate", None),
-        "goal": getattr(updated_sprint, "goal", ""),
     }
-
-
-def add_issues_to_sprint(sprint_id: int, issue_keys: list[str]) -> None:
-    """Move issues from backlog into a sprint."""
-    jira = _get_client()
-    jira.add_issues_to_sprint(sprint_id, issue_keys)
 
 
 # ── Fix Version Management ─────────────────────────────────────────────────────
