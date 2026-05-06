@@ -35,8 +35,9 @@ class TestRailwayClientInit:
         client = RailwayClient()
         assert client.api_token == "test-token-123"
     
-    def test_init_without_token(self):
+    def test_init_without_token(self, monkeypatch):
         """Test initialization fails without token."""
+        monkeypatch.delenv("RAILWAY_API_TOKEN", raising=False)
         with pytest.raises(RailwayAPIError, match="Railway API token not provided"):
             RailwayClient()
 
@@ -382,7 +383,8 @@ class TestGetRailwayClient:
         assert client.api_token == "test-token-123"
     
     @pytest.mark.asyncio
-    async def test_get_railway_client_no_token(self):
+    async def test_get_railway_client_no_token(self, monkeypatch):
         """Test factory function fails without token."""
+        monkeypatch.delenv("RAILWAY_API_TOKEN", raising=False)
         with pytest.raises(RailwayAPIError):
             await get_railway_client()
