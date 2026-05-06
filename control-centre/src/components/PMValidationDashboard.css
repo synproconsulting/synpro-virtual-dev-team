@@ -1,0 +1,342 @@
+/**
+ * PMValidationDashboard.css
+ * ─────────────────────────
+ * Styles for PM Agent validation dashboard
+ */
+
+.pm-validation-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pm-validation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pm-validation-header-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.pm-validation-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 6px 0;
+}
+
+.pm-validation-subtitle {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0;
+}
+
+.pm-validation-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pm-validation-auto-refresh {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.pm-validation-auto-refresh label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.pm-validation-auto-refresh input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.pm-validation-refresh-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pm-validation-refresh-btn:hover:not(:disabled) {
+  background: var(--accent-hover, #4f46e5);
+  transform: translateY(-1px);
+}
+
+.pm-validation-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pm-validation-summary {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.pm-validation-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.pm-validation-summary-card {
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.pm-validation-summary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.pm-validation-summary-card.critical {
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.05);
+}
+
+.pm-validation-summary-card.info {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.pm-validation-summary-card.success {
+  border-color: #4ade80;
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.pm-validation-summary-card.pending {
+  border-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.05);
+}
+
+.pm-validation-summary-card-value {
+  font-size: 36px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.pm-validation-summary-card.critical .pm-validation-summary-card-value {
+  color: #f97316;
+}
+
+.pm-validation-summary-card.info .pm-validation-summary-card-value {
+  color: #3b82f6;
+}
+
+.pm-validation-summary-card.success .pm-validation-summary-card-value {
+  color: #4ade80;
+}
+
+.pm-validation-summary-card-icon {
+  margin-bottom: 8px;
+  font-size: 36px;
+}
+
+.pm-validation-summary-card-icon svg {
+  color: #4ade80;
+}
+
+.pm-validation-summary-card.pending .pm-validation-summary-card-icon {
+  font-size: 48px;
+}
+
+.pm-validation-summary-card-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pm-validation-summary-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.pm-validation-last-check {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pm-validation-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #ef4444;
+  font-size: 13px;
+}
+
+.pm-validation-error-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.pm-validation-error-message {
+  flex: 1;
+}
+
+.pm-validation-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  background: var(--bg-card);
+  border: 2px solid #4ade80;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.pm-validation-success h3 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 16px 0 8px 0;
+}
+
+.pm-validation-success p {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0;
+  max-width: 400px;
+}
+
+.pm-validation-content {
+  /* Warnings component is styled independently */
+}
+
+.pm-validation-help {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.pm-validation-help h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 16px 0;
+}
+
+.pm-validation-help-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pm-validation-help-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.pm-validation-help-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+}
+
+.pm-validation-help-icon.critical {
+  background: rgba(249, 115, 22, 0.1);
+}
+
+.pm-validation-help-icon.info {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.pm-validation-help-item div {
+  flex: 1;
+}
+
+.pm-validation-help-item strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.pm-validation-help-item p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.pm-validation-help-item code {
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  color: var(--accent);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .pm-validation-header {
+    flex-direction: column;
+  }
+
+  .pm-validation-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .pm-validation-summary-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .pm-validation-title {
+    font-size: 20px;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
