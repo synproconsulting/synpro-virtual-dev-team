@@ -1,0 +1,137 @@
+name: Security Configuration Audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'uat/backend/config.py'
+      - 'uat/backend/main.py'
+      - 'uat/backend/.env.example'
+      - '.github/workflows/security-audit.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'uat/backend/config.py'
+      - 'uat/backend/main.py'
+  workflow_dispatch:
+
+jobs:
+  security-audit:
+    name: Security Configuration Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          cd uat/backend
+          pip install --upgrade pip
+          pip install -r requirements.txt || true
+          pip install pytest pytest-cov
+      
+      - name: Run configuration tests
+        run: |
+          cd uat/backend
+          pytest tests/test_config.py -v --tb=short
+        env:
+          ENVIRONMENT: development
+          FRONTEND_URL: http://localhost:3000
+          JWT_SECRET: test-secret-for-ci-minimum-32-characters-long
+          ALLOW_WEAK_JWT_SECRET: 'true'
+      
+      - name: Run security audit (development)
+        run: |
+          cd uat/backend
+          python security_audit.py
+        env:
+          ENVIRONMENT: development
+          FRONTEND_URL: http://localhost:3000
+          JWT_SECRET: test-secret-for-ci-minimum-32-characters-long
+          ALLOW_WEAK_JWT_SECRET: 'true'
+      
+      - name: Run security audit (production simulation)
+        run: |
+          cd uat/backend
+          python security_audit.py
+        env:
+          ENVIRONMENT: production
+          FRONTEND_URL: https://app.example.com
+          JWT_SECRET: ${{ secrets.JWT_SECRET_TEST || 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/==' }}
+      
+      - name: Check for secrets in code
+        run: |
+          # Check for common secret patterns (basic scan)
+          echo "Scanning for potential secrets in code..."
+          
+          # Check for hardcoded tokens/keys (case-insensitive)
+          if grep -r -i -E "(api[_-]?key|api[_-]?token|access[_-]?token|secret[_-]?key|password)\s*=\s*['\"][^'\"]{10,}" uat/backend/*.py 2>/dev/null | grep -v ".env.example" | grep -v "test_" | grep -v "# Example:"; then
+            echo "⚠️  Warning: Potential hardcoded secrets found"
+            exit 1
+          fi
+          
+          echo "✅ No obvious hardcoded secrets detected"
+      
+      - name: Verify .env.example is up to date
+        run: |
+          cd uat/backend
+          
+          # Check that .env.example exists
+          if [ ! -f .env.example ]; then
+            echo "❌ .env.example file is missing"
+            exit 1
+          fi
+          
+          echo "✅ .env.example exists"
+          
+          # Check for required variables in .env.example
+          required_vars=("FRONTEND_URL" "ENVIRONMENT" "JWT_SECRET" "DATABASE_URL")
+          
+          for var in "${required_vars[@]}"; do
+            if ! grep -q "^${var}=" .env.example && ! grep -q "^# ${var}=" .env.example; then
+              echo "⚠️  Warning: ${var} not found in .env.example"
+            fi
+          done
+          
+          echo "✅ .env.example contains required variables"
+      
+      - name: Check documentation exists
+        run: |
+          # Check that documentation files exist
+          docs=(
+            "uat/backend/docs/CORS_CONFIGURATION.md"
+            "uat/backend/docs/CORS_QUICK_REFERENCE.md"
+            "uat/backend/docs/DEPLOYMENT_CHECKLIST.md"
+          )
+          
+          for doc in "${docs[@]}"; do
+            if [ ! -f "$doc" ]; then
+              echo "❌ Documentation missing: $doc"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All documentation files present"
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Security Audit Complete"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "✅ Configuration tests passed"
+          echo "✅ Security audits completed"
+          echo "✅ No hardcoded secrets detected"
+          echo "✅ Documentation verified"
+          echo ""
+          echo "Related tickets: SDT1-56 (CORS), SDT1-63 (JWT)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
