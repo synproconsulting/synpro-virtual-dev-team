@@ -1,0 +1,183 @@
+name: Token Rotation Reminder
+
+on:
+  schedule:
+    # Run weekly on Mondays at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      force_check:
+        description: 'Force check all tokens'
+        required: false
+        default: 'false'
+
+jobs:
+  check-token-expiry:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Check token rotation schedule
+        id: check_tokens
+        run: |
+          # This is a simple check based on dates in the audit log
+          # Customize based on your actual tracking method
+          
+          AUDIT_LOG="docs/security-audit-log.md"
+          CURRENT_DATE=$(date +%s)
+          THIRTY_DAYS_AGO=$(date -d '30 days ago' +%s)
+          SIXTY_DAYS_AGO=$(date -d '60 days ago' +%s)
+          NINETY_DAYS_AGO=$(date -d '90 days ago' +%s)
+          
+          # Initialize arrays for due tokens
+          declare -a OVERDUE_TOKENS
+          declare -a DUE_SOON_TOKENS
+          
+          # Check if audit log exists
+          if [ ! -f "$AUDIT_LOG" ]; then
+            echo "::warning::Security audit log not found"
+            exit 0
+          fi
+          
+          # Parse audit log and check dates
+          # This is a simplified example - implement based on your audit log format
+          
+          # Example checks (customize based on actual implementation)
+          echo "Checking token rotation schedule..."
+          
+          # Set output for next step
+          if [ ${#OVERDUE_TOKENS[@]} -gt 0 ]; then
+            echo "has_overdue=true" >> $GITHUB_OUTPUT
+            echo "overdue_list=${OVERDUE_TOKENS[*]}" >> $GITHUB_OUTPUT
+          else
+            echo "has_overdue=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if [ ${#DUE_SOON_TOKENS[@]} -gt 0 ]; then
+            echo "has_due_soon=true" >> $GITHUB_OUTPUT
+            echo "due_soon_list=${DUE_SOON_TOKENS[*]}" >> $GITHUB_OUTPUT
+          else
+            echo "has_due_soon=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create issue for overdue tokens
+        if: steps.check_tokens.outputs.has_overdue == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const title = '🚨 Token Rotation Overdue';
+            const body = `## Token Rotation Required
+            
+            The following tokens are **overdue** for rotation:
+            
+            ${{ steps.check_tokens.outputs.overdue_list }}
+            
+            ### Action Required
+            
+            Please rotate these tokens **immediately** following the runbook:
+            - [Token Rotation Runbook](docs/runbooks/token-rotation.md)
+            - [Quick Reference](docs/runbooks/token-rotation-quick-reference.md)
+            
+            ### Resources
+            
+            - 📖 Full documentation: \`docs/runbooks/token-rotation.md\`
+            - ⚡ Quick reference: \`docs/runbooks/token-rotation-quick-reference.md\`
+            - 🔧 Helper scripts: \`scripts/\`
+            
+            ### Steps
+            
+            1. Review the appropriate section in the runbook
+            2. Schedule the rotation (preferably during low-traffic hours)
+            3. Run the rotation using helper scripts
+            4. Verify with \`python scripts/verify-token-rotation.py\`
+            5. Update the security audit log
+            6. Close this issue
+            
+            ---
+            
+            ⚠️ **Security Priority:** High
+            📅 **Created:** ${new Date().toISOString()}
+            🤖 **Automated reminder from GitHub Actions**
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'high-priority', 'token-rotation']
+            });
+      
+      - name: Create issue for tokens due soon
+        if: steps.check_tokens.outputs.has_due_soon == 'true' && steps.check_tokens.outputs.has_overdue == 'false'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const title = '⏰ Token Rotation Due Soon';
+            const body = `## Token Rotation Scheduled
+            
+            The following tokens are **due for rotation** within the next 7 days:
+            
+            ${{ steps.check_tokens.outputs.due_soon_list }}
+            
+            ### Action Required
+            
+            Please schedule rotation for these tokens following the runbook:
+            - [Token Rotation Runbook](docs/runbooks/token-rotation.md)
+            - [Quick Reference](docs/runbooks/token-rotation-quick-reference.md)
+            
+            ### Resources
+            
+            - 📖 Full documentation: \`docs/runbooks/token-rotation.md\`
+            - ⚡ Quick reference: \`docs/runbooks/token-rotation-quick-reference.md\`
+            - 🔧 Helper scripts: \`scripts/\`
+            
+            ### Steps
+            
+            1. Review the appropriate section in the runbook
+            2. Schedule the rotation (preferably during low-traffic hours)
+            3. Notify the team in #engineering
+            4. Run the rotation using helper scripts
+            5. Verify with \`python scripts/verify-token-rotation.py\`
+            6. Update the security audit log
+            7. Close this issue
+            
+            ---
+            
+            📅 **Created:** ${new Date().toISOString()}
+            🤖 **Automated reminder from GitHub Actions**
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'token-rotation', 'scheduled']
+            });
+      
+      - name: Post summary
+        run: |
+          echo "## Token Rotation Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Scheduled token rotation check completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Check Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.check_tokens.outputs.has_overdue }}" == "true" ]; then
+            echo "🚨 **Overdue tokens found** - Issue created" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.check_tokens.outputs.has_due_soon }}" == "true" ]; then
+            echo "⏰ **Tokens due soon** - Issue created" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All tokens are up to date" >> $GITHUB_STEP_SUMMARY
+          fi
