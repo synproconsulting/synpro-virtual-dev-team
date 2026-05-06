@@ -229,6 +229,11 @@ def execute_tool(name, inputs, state):
         return f"File '{path}' staged. Total staged: {len(state['staged'])}."
 
     elif name == "create_pr":
+        if state.get("pr_number"):
+            return (
+                f"ERROR: PR #{state['pr_number']} is already open. "
+                f"The implementation is complete — do not stage additional files or call create_pr again."
+            )
         branch = state.get("branch")
         staged = state.get("staged", {})
         if not branch:
