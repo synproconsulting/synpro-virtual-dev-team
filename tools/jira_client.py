@@ -330,6 +330,67 @@ def create_sprint(
     }
 
 
+def start_sprint(sprint_id: int) -> dict[str, Any]:
+    """Start a sprint that is in 'future' state.
+    
+    Args:
+        sprint_id: The ID of the sprint to start
+    
+    Returns:
+        A dictionary containing:
+            - id: The sprint ID
+            - name: The sprint name
+            - state: The sprint state (should be 'active' after starting)
+            - start_date: The sprint start date
+            - end_date: The sprint end date
+    
+    Raises:
+        ValueError: If the sprint is not in 'future' state or doesn't exist
+    """
+    jira = _get_client()
+    board_id = _get_board_id()
+    
+    # Get the sprint to verify it exists and is in future state
+    sprint = jira.sprint(sprint_id)
+    
+    if sprint.state.lower() not in ['future']:
+        raise ValueError(
+            f"Cannot start sprint {sprint_id} with state '{sprint.state}'. "
+            "Only sprints in 'future' state can be started."
+        )
+    
+    # The JIRA library doesn't have a direct start_sprint method,
+    # so we need to use the raw REST API
+    url = f"{jira._options['server']}/rest/agile/1.0/sprint/{sprint_id}"
+    
+    # Update sprint state to 'active'
+    update_data = {
+        "state": "active"
+    }
+    
+    response = jira._session.post(
+        url,
+        json=update_data,
+    )
+    
+    if response.status_code not in [200, 204]:
+        raise ValueError(
+            f"Failed to start sprint {sprint_id}. "
+            f"Status: {response.status_code}, Response: {response.text}"
+        )
+    
+    # Fetch the updated sprint to return current state
+    updated_sprint = jira.sprint(sprint_id)
+    
+    return {
+        "id": updated_sprint.id,
+        "name": updated_sprint.name,
+        "state": updated_sprint.state,
+        "start_date": getattr(updated_sprint, "startDate", None),
+        "end_date": getattr(updated_sprint, "endDate", None),
+    }
+
+
 def add_issues_to_sprint(sprint_id: int, issue_keys: list[str]) -> None:
     """Move issues from backlog into a sprint."""
     jira = _get_client()

@@ -57,6 +57,10 @@ class CreateSprintInput(BaseModel):
     end_date:   Optional[str] = Field(None)
 
 
+class StartSprintInput(BaseModel):
+    sprint_id: int = Field(..., description="The ID of the sprint to start")
+
+
 class AddToSprintInput(BaseModel):
     sprint_id:  int       = Field(...)
     issue_keys: list[str] = Field(...)
@@ -216,6 +220,29 @@ class CreateSprintTool(BaseTool):
         return f"Sprint created: ID={sprint_id} — {name}"
 
 
+class StartSprintTool(BaseTool):
+    name:        str = "start_sprint"
+    description: str = (
+        "Start a sprint that is currently in 'future' state. "
+        "This activates the sprint and begins the sprint timeline. "
+        "Use this after creating a sprint and adding all stories to it. "
+        "The sprint must be in 'future' state - active or closed sprints cannot be started."
+    )
+    args_schema: type = StartSprintInput
+
+    def _run(self, sprint_id: int) -> str:
+        try:
+            result = jira.start_sprint(sprint_id)
+            return (
+                f"Sprint started successfully: {result['name']} (ID: {result['id']}) "
+                f"— state: {result['state']}"
+            )
+        except ValueError as e:
+            return f"Error starting sprint: {str(e)}"
+        except Exception as e:
+            return f"Unexpected error starting sprint: {str(e)}"
+
+
 class AddToSprintTool(BaseTool):
     name:        str = "add_issues_to_sprint"
     description: str = "Move a list of backlog issues into a specific sprint by sprint ID."
@@ -364,6 +391,7 @@ BACKLOG_TOOLS = [
 SPRINT_TOOLS = [
     ListSprintsTool(),
     CreateSprintTool(),
+    StartSprintTool(),
     AddToSprintTool(),
     AddCommentTool(),
     TransitionIssueTool(),
