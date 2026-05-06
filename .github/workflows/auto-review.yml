@@ -10,6 +10,10 @@ on:
         required: false
         default: ''
 
+concurrency:
+  group: review-${{ github.head_ref }}
+  cancel-in-progress: true
+
 jobs:
   wait-and-review:
     name: Manager Agent review
