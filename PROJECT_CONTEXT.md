@@ -2,7 +2,7 @@
 
 > Deep implementation reference for Claude Code sessions.
 > Supplements CLAUDE.md — read CLAUDE.md first for project overview, sprint history, and environment setup.
-> Last updated: 2026-04-30 (Sprint 5 complete)
+> Last updated: 2026-05-05 (Sprint 6 complete)
 
 ---
 
@@ -364,6 +364,16 @@ CREATE TABLE password_reset_tokens (
 
 ---
 
+### New Endpoints Added in Sprint 6
+
+**Orchestrator API** (`/api/orchestrator/*` — SDT1-66): start/resume/pause/cancel sprint execution, query progress, list resumable states. State persisted in `orchestrator_states` table (UUID id, sprint_id, ticket_queue JSON, completed_tickets JSON, failed_tickets JSON, status enum PENDING/RUNNING/PAUSED/COMPLETED/FAILED/CANCELLED).
+
+**Railway API** (`/api/railway/*` — SDT1-58): list projects/services/environments, trigger deployments, query deployment status. Uses `RailwayClient` in `railway_api.py` with `RAILWAY_API_TOKEN` env var.
+
+> **Token naming:** `RAILWAY_TOKEN` = CI deploy token (GitHub Secret). `RAILWAY_API_TOKEN` = backend runtime token (Railway service variable). Both required but for different purposes.
+
+---
+
 ## 4. Component Structure & Data Flow
 
 ### UAT Frontend (`uat/frontend/src/`)
@@ -411,11 +421,11 @@ Browser → Anthropic API (via /api/pm-agent/* — API key never in browser)
 
 | Tab | Working | Notes |
 |-----|---------|-------|
-| Overview | No | Needs redesign (Sprint 5 — S5-07) |
+| Overview | Yes | Redesigned (Sprint 6 — SDT1-59, PR #147) |
 | Sprint Status | Yes | Sprint selector, per-ticket PR refs, CI runs |
 | Workflows | Yes | GitHub Actions monitor, auto-refresh every 30s |
-| UAT Deploy | No | Static form, not wired to Railway API (S5-02) |
-| SonarCloud | No | Trigger only, no results view (S5-09) |
+| UAT Deploy | Yes | Wired to Railway GraphQL API (Sprint 6 — SDT1-58, PR #125) |
+| SonarCloud | Yes | Results view added (Sprint 6 — SDT1-61, PR #135) |
 | PM Agent | Partial | Chat works; history not persisted (S5-10); approve not wired to Jira (S5-11) |
 
 **Data flow — Sprint Status tab:**
@@ -560,13 +570,14 @@ Target per sprint: **20–40 points**
 | Sprint 3 | 10066 | 70 |
 | Sprint 4 | 10099 | 71 |
 | Sprint 5 | 10132 | 72 |
+| Sprint 6 | 10198 | 105 |
 
 ### CI Timeout Values (orchestrator)
 
 | Wait | Max time | Poll interval |
 |------|----------|---------------|
 | PR open | 5 minutes | 10 seconds |
-| CI passing | 15 minutes | 10 seconds |
+| CI passing | 30 minutes | 10 seconds |
 | PR merged | 10 minutes | 10 seconds |
 
 ### CI Timeout (ci_manager_agent)
