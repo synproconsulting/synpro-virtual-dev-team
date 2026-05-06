@@ -331,55 +331,62 @@ def create_sprint(
 
 
 def start_sprint(sprint_id: int) -> dict[str, Any]:
-    """Start a sprint that is in 'future' state.
+    """Start (activate) a sprint by its ID.
+    
+    Transitions a sprint from 'future' state to 'active' state. This makes the
+    sprint the active sprint for the team and moves all issues in the sprint
+    into active development.
     
     Args:
-        sprint_id: The ID of the sprint to start
+        sprint_id: The numeric ID of the sprint to start
     
     Returns:
         A dictionary containing:
             - id: The sprint ID
             - name: The sprint name
-            - state: The sprint state (should be 'active' after starting)
-            - start_date: The sprint start date
-            - end_date: The sprint end date
+            - state: The new sprint state (should be 'active')
+            - start_date: The sprint start date (ISO-8601)
+            - end_date: The sprint end date (ISO-8601)
     
     Raises:
-        ValueError: If the sprint is not in 'future' state or doesn't exist
+        ValueError: If the sprint is not in 'future' state or if required dates are missing
+        Exception: If the Jira API call fails
+    
+    Note:
+        - The sprint must be in 'future' state to be started
+        - The sprint must have start_date and end_date set
+        - Only one sprint can be active at a time per board
     """
     jira = _get_client()
-    board_id = _get_board_id()
     
-    # Get the sprint to verify it exists and is in future state
+    # Retrieve the sprint to check its current state
     sprint = jira.sprint(sprint_id)
     
-    if sprint.state.lower() not in ['future']:
+    if sprint.state != "future":
         raise ValueError(
-            f"Cannot start sprint {sprint_id} with state '{sprint.state}'. "
-            "Only sprints in 'future' state can be started."
+            f"Sprint {sprint_id} is in '{sprint.state}' state. "
+            f"Only sprints in 'future' state can be started."
         )
     
-    # The JIRA library doesn't have a direct start_sprint method,
-    # so we need to use the raw REST API
-    url = f"{jira._options['server']}/rest/agile/1.0/sprint/{sprint_id}"
+    # Verify sprint has required dates
+    start_date = getattr(sprint, "startDate", None)
+    end_date = getattr(sprint, "endDate", None)
     
-    # Update sprint state to 'active'
-    update_data = {
-        "state": "active"
+    if not start_date or not end_date:
+        raise ValueError(
+            f"Sprint {sprint_id} must have start_date and end_date set before it can be started. "
+            f"Use create_sprint or update the sprint in Jira to set these dates."
+        )
+    
+    # Update sprint state to active
+    sprint_data = {
+        "state": "active",
     }
     
-    response = jira._session.post(
-        url,
-        json=update_data,
-    )
+    # Use the Jira client's update_sprint method
+    jira.update_sprint(sprint_id, **sprint_data)
     
-    if response.status_code not in [200, 204]:
-        raise ValueError(
-            f"Failed to start sprint {sprint_id}. "
-            f"Status: {response.status_code}, Response: {response.text}"
-        )
-    
-    # Fetch the updated sprint to return current state
+    # Retrieve updated sprint to return current state
     updated_sprint = jira.sprint(sprint_id)
     
     return {
@@ -388,6 +395,7 @@ def start_sprint(sprint_id: int) -> dict[str, Any]:
         "state": updated_sprint.state,
         "start_date": getattr(updated_sprint, "startDate", None),
         "end_date": getattr(updated_sprint, "endDate", None),
+        "goal": getattr(updated_sprint, "goal", ""),
     }
 
 

@@ -58,7 +58,7 @@ class CreateSprintInput(BaseModel):
 
 
 class StartSprintInput(BaseModel):
-    sprint_id: int = Field(..., description="The ID of the sprint to start")
+    sprint_id: int = Field(..., description="The numeric ID of the sprint to start")
 
 
 class AddToSprintInput(BaseModel):
@@ -223,10 +223,10 @@ class CreateSprintTool(BaseTool):
 class StartSprintTool(BaseTool):
     name:        str = "start_sprint"
     description: str = (
-        "Start a sprint that is currently in 'future' state. "
-        "This activates the sprint and begins the sprint timeline. "
-        "Use this after creating a sprint and adding all stories to it. "
-        "The sprint must be in 'future' state - active or closed sprints cannot be started."
+        "Start (activate) a sprint by its ID. This transitions the sprint from 'future' state to 'active' state. "
+        "Use this after creating a sprint and adding issues to it, once the team is ready to begin work. "
+        "The sprint must have start_date and end_date set before it can be started. "
+        "Only one sprint can be active at a time per board."
     )
     args_schema: type = StartSprintInput
 
@@ -234,13 +234,17 @@ class StartSprintTool(BaseTool):
         try:
             result = jira.start_sprint(sprint_id)
             return (
-                f"Sprint started successfully: {result['name']} (ID: {result['id']}) "
-                f"— state: {result['state']}"
+                f"Sprint started successfully!\n"
+                f"  ID: {result['id']}\n"
+                f"  Name: {result['name']}\n"
+                f"  State: {result['state']}\n"
+                f"  Start: {result.get('start_date', 'N/A')}\n"
+                f"  End: {result.get('end_date', 'N/A')}"
             )
         except ValueError as e:
-            return f"Error starting sprint: {str(e)}"
+            return f"Failed to start sprint: {str(e)}"
         except Exception as e:
-            return f"Unexpected error starting sprint: {str(e)}"
+            return f"Error starting sprint: {str(e)}"
 
 
 class AddToSprintTool(BaseTool):
