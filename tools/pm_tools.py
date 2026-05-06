@@ -62,6 +62,10 @@ class AddToSprintInput(BaseModel):
     issue_keys: list[str] = Field(...)
 
 
+class StartSprintInput(BaseModel):
+    sprint_id: int = Field(..., description="The ID of the sprint to start/activate")
+
+
 class CreateIssueLinkInput(BaseModel):
     blocker_issue_key: str = Field(..., description="The issue that blocks another issue")
     blocked_issue_key: str = Field(..., description="The issue that is blocked")
@@ -226,6 +230,31 @@ class AddToSprintTool(BaseTool):
         return f"Added {issue_keys} to sprint {sprint_id}."
 
 
+class StartSprintTool(BaseTool):
+    name:        str = "start_sprint"
+    description: str = (
+        "Start (activate) a sprint in Jira. This transitions the sprint from 'future' to 'active' state, "
+        "making it the current working sprint. Use this after populating a sprint with stories and "
+        "receiving approval to begin work. The sprint must be in 'future' state to be started."
+    )
+    args_schema: type = StartSprintInput
+
+    def _run(self, sprint_id: int) -> str:
+        try:
+            result = jira.start_sprint(sprint_id)
+            return (
+                f"✓ Sprint started successfully!\n"
+                f"  Sprint ID: {result['id']}\n"
+                f"  Name: {result['name']}\n"
+                f"  State: {result['state']}\n"
+                f"  Goal: {result.get('goal', 'No goal set')}"
+            )
+        except ValueError as e:
+            return f"✗ Failed to start sprint: {e}"
+        except Exception as e:
+            return f"✗ Error starting sprint: {e}"
+
+
 class CreateBlockerLinkTool(BaseTool):
     name:        str = "create_blocker_link"
     description: str = (
@@ -365,6 +394,7 @@ SPRINT_TOOLS = [
     ListSprintsTool(),
     CreateSprintTool(),
     AddToSprintTool(),
+    StartSprintTool(),
     AddCommentTool(),
     TransitionIssueTool(),
 ]

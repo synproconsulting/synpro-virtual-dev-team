@@ -336,6 +336,55 @@ def add_issues_to_sprint(sprint_id: int, issue_keys: list[str]) -> None:
     jira.add_issues_to_sprint(sprint_id, issue_keys)
 
 
+def start_sprint(sprint_id: int) -> dict[str, Any]:
+    """Start (activate) a sprint in Jira.
+    
+    This transitions a sprint from 'future' state to 'active' state,
+    making it the current working sprint for the team.
+    
+    Args:
+        sprint_id: The ID of the sprint to start
+    
+    Returns:
+        A dictionary containing:
+            - id: The sprint ID
+            - name: The sprint name
+            - state: The sprint state (should be 'active' after starting)
+            - start_date: The start date
+            - end_date: The end date
+    
+    Raises:
+        ValueError: If the sprint is already active or closed
+        Exception: If the Jira API call fails
+    """
+    jira = _get_client()
+    
+    # Get the sprint to check its current state
+    sprint = jira.sprint(sprint_id)
+    
+    if sprint.state == "active":
+        raise ValueError(f"Sprint {sprint_id} is already active")
+    
+    if sprint.state == "closed":
+        raise ValueError(f"Sprint {sprint_id} is closed and cannot be started")
+    
+    # Update the sprint to active state
+    # The Jira API requires at least state to be set when updating a sprint
+    jira.update_sprint(sprint_id, state="active")
+    
+    # Refresh the sprint object to get updated state
+    updated_sprint = jira.sprint(sprint_id)
+    
+    return {
+        "id": updated_sprint.id,
+        "name": updated_sprint.name,
+        "state": updated_sprint.state,
+        "goal": getattr(updated_sprint, "goal", ""),
+        "start_date": getattr(updated_sprint, "startDate", None),
+        "end_date": getattr(updated_sprint, "endDate", None),
+    }
+
+
 # ── Fix Version Management ─────────────────────────────────────────────────────
 
 def create_or_get_fix_version(
