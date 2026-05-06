@@ -1,1 +1,5 @@
-"""Tests for the UAT backend."""
+"""
+tests/__init__.py
+================
+Test package initialization for uat/backend tests.
+"""
