@@ -171,3 +171,24 @@ export const fetchMergedPRs = async () => {
     return [];
   }
 };
+
+export const completeSprint = async (nativeSprintId, moveIncompleteTo = "backlog", nextSprintId = null) => {
+  const API_URL = import.meta.env.VITE_API_URL || "";
+  if (!API_URL) return { success: false, error: "API_URL not configured" };
+  try {
+    const body = { moveIncompleteTo };
+    if (nextSprintId) body.nextSprintId = nextSprintId;
+    const r = await fetch(`${API_URL}/proxy/jira/sprint/${nativeSprintId}/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return { success: false, error: err.detail || `HTTP ${r.status}` };
+    }
+    return await r.json();
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+};

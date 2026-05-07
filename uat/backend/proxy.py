@@ -9,6 +9,8 @@ import base64
 
 import httpx
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
+from typing import Optional
 
 # -- Config --------------------------------------------------------------------
 
@@ -234,3 +236,60 @@ async def proxy_sprint_issues(version_id: str):
             return {"issues": [], "error": f"Jira returned {r.status_code}"}
         except Exception as e:
             return {"issues": [], "error": str(e)}
+
+
+class CompleteSprintRequest(BaseModel):
+    moveIncompleteTo: str = "backlog"
+    nextSprintId: Optional[str] = None
+
+
+@router.post("/sprint/{sprint_id}/complete")
+async def proxy_complete_sprint(sprint_id: str, body: CompleteSprintRequest):
+    """Complete (close) a Jira sprint and optionally move incomplete issues.
+
+    sprint_id must be the native Jira sprint ID (not the fix-version ID).
+    moveIncompleteTo: "backlog" (default) | "nextSprint"
+    nextSprintId: required when moveIncompleteTo == "nextSprint"
+    """
+    if not JIRA_BASE_URL:
+        return {"success": False, "error": "JIRA not configured"}
+
+    async with httpx.AsyncClient() as client:
+        jql = f"project = {JIRA_PROJECT} AND sprint = {sprint_id} AND status != Done"
+        r   = await client.get(
+            f"{JIRA_BASE_URL}/rest/api/3/search/jql",
+            headers=jira_auth(),
+            params={"jql": jql, "maxResults": 100, "fields": "summary,status"},
+            timeout=15.0
+        )
+        incomplete_keys = []
+        if r.status_code == 200:
+            incomplete_keys = [i["key"] for i in r.json().get("issues", [])]
+
+        if incomplete_keys:
+            if body.moveIncompleteTo == "backlog":
+                await client.post(
+                    f"{JIRA_BASE_URL}/rest/agile/1.0/backlog/issue",
+                    headers=jira_auth(),
+                    json={"issues": incomplete_keys},
+                    timeout=10.0
+                )
+            elif body.moveIncompleteTo == "nextSprint" and body.nextSprintId:
+                await client.post(
+                    f"{JIRA_BASE_URL}/rest/agile/1.0/sprint/{body.nextSprintId}/issue",
+                    headers=jira_auth(),
+                    json={"issues": incomplete_keys},
+                    timeout=10.0
+                )
+
+        close_r = await client.put(
+            f"{JIRA_BASE_URL}/rest/agile/1.0/sprint/{sprint_id}",
+            headers=jira_auth(),
+            json={"state": "closed"},
+            timeout=10.0
+        )
+        return {
+            "success":         close_r.status_code in (200, 204),
+            "statusCode":      close_r.status_code,
+            "incompleteMoved": len(incomplete_keys),
+        }
