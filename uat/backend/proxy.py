@@ -10,7 +10,7 @@ import base64
 import httpx
 from fastapi import APIRouter, Query
 
-# ?? Config ????????????????????????????????????????????????????????????????????
+# -- Config --------------------------------------------------------------------
 
 JIRA_BASE_URL  = os.getenv("JIRA_BASE_URL", "")
 JIRA_EMAIL     = os.getenv("JIRA_EMAIL", "")
@@ -26,7 +26,7 @@ def jira_auth():
             "Content-Type": "application/json"}
 
 
-# ?? Router ????????????????????????????????????????????????????????????????????
+# -- Router --------------------------------------------------------------------
 
 router = APIRouter(prefix="/proxy/jira", tags=["proxy"])
 
@@ -102,7 +102,12 @@ async def proxy_jira_transition(issue_key: str, body: dict):
 
 @router.get("/sprints")
 async def proxy_jira_sprints():
-    """Get all sprints - combines fix versions and native sprints."""
+    """Get all sprints - combines fix versions and native sprints.
+
+    Each sprint object includes state (active/closed/future), startDate, and
+    endDate sourced from the Jira Agile API so the Control Centre can display
+    sprint health without a separate API call (SDT1-74).
+    """
     if not JIRA_BASE_URL:
         return {"sprints": [], "error": "JIRA_BASE_URL not configured"}
     async with httpx.AsyncClient() as client:
@@ -120,12 +125,18 @@ async def proxy_jira_sprints():
             sprints    = []
             seen_names = set()
 
+            # Build a map from sprint number -> native sprint metadata
             native_sprint_map = {}
             if sprints_r.status_code == 200:
                 for s in sprints_r.json().get("values", []):
                     m = re.search(r'sprint\s+(\d+)', s.get("name", ""), re.IGNORECASE)
                     if m:
-                        native_sprint_map[int(m.group(1))] = str(s["id"])
+                        native_sprint_map[int(m.group(1))] = {
+                            "id":        str(s["id"]),
+                            "state":     s.get("state", "future"),
+                            "startDate": s.get("startDate"),
+                            "endDate":   s.get("endDate"),
+                        }
 
             if versions_r.status_code == 200:
                 for idx, v in enumerate(versions_r.json(), start=1):
@@ -133,13 +144,24 @@ async def proxy_jira_sprints():
                         vname      = v["name"]
                         m          = re.search(r'sprint\s+(\d+)', vname, re.IGNORECASE)
                         sprint_num = int(m.group(1)) if m else idx
-                        native_id  = native_sprint_map.get(sprint_num)
+                        native     = native_sprint_map.get(sprint_num, {})
+                        native_id  = native.get("id")
+                        # Prefer native sprint state; derive from version flags as fallback
+                        if native.get("state"):
+                            state = native["state"]
+                        elif v.get("released", False):
+                            state = "closed"
+                        else:
+                            state = "future"
                         sprints.append({
-                            "id":       v["id"],
-                            "nativeId": native_id,
-                            "name":     vname,
-                            "released": v.get("released", False),
-                            "type":     "version",
+                            "id":        v["id"],
+                            "nativeId":  native_id,
+                            "name":      vname,
+                            "released":  v.get("released", False),
+                            "type":      "version",
+                            "state":     state,
+                            "startDate": native.get("startDate"),
+                            "endDate":   native.get("endDate"),
                         })
                         seen_names.add(vname.lower())
 
@@ -148,11 +170,14 @@ async def proxy_jira_sprints():
                     name = s.get("name", "")
                     if s.get("state") != "future":
                         sprints.append({
-                            "id":       str(s["id"]),
-                            "nativeId": str(s["id"]),
-                            "name":     name,
-                            "released": s.get("state") == "closed",
-                            "type":     "sprint",
+                            "id":        str(s["id"]),
+                            "nativeId":  str(s["id"]),
+                            "name":      name,
+                            "released":  s.get("state") == "closed",
+                            "type":      "sprint",
+                            "state":     s.get("state", "future"),
+                            "startDate": s.get("startDate"),
+                            "endDate":   s.get("endDate"),
                         })
 
             return {"sprints": sorted(sprints, key=lambda x: str(x["id"]))}
