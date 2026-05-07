@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { fetchSprints, fetchSprintIssues, fetchSprintData, triggerSprint, triggerAutoReview, fetchMergedPRs } from '../api/sprintApi';
+import { fetchSprints, fetchSprintIssues, fetchSprintData, triggerSprint, triggerAutoReview, fetchMergedPRs, completeSprint } from '../api/sprintApi';
 import JiraSprintView from './JiraSprintView';
 import PullRequestView from './PullRequestView';
 import CIPipelineView from './CIPipelineView';
@@ -38,6 +38,10 @@ const SprintDashboard = () => {
   const [msg, setMsg]               = useState(null);
   const [activeTab, setActiveTab]   = useState("jira");
   const [mergedPRs, setMergedPRs]   = useState([]);
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [completeDestination, setCompleteDestination] = useState("backlog");
+  const [nextSprintTarget, setNextSprintTarget] = useState("");
+  const [completing, setCompleting]         = useState(false);
 
   const loadGlobal = useCallback(async () => {
     setGlobalData(await fetchSprintData());
@@ -84,6 +88,29 @@ const SprintDashboard = () => {
     setMsg({ success: true, text: `✓ Auto Review triggered for PR #${prNumber}` });
   };
 
+  const openCompleteDialog = () => {
+    const nextSprints = sprints.filter(s => s.id !== selected?.id && s.state !== "closed");
+    setNextSprintTarget(nextSprints.length > 0 ? (nextSprints[0].nativeId || "") : "");
+    setCompleteDestination("backlog");
+    setShowCompleteDialog(true);
+  };
+
+  const handleCompleteSprint = async () => {
+    if (!selected?.nativeId) return;
+    setCompleting(true);
+    const nextId = completeDestination === "nextSprint" ? nextSprintTarget : null;
+    const result = await completeSprint(selected.nativeId, completeDestination, nextId);
+    setCompleting(false);
+    setShowCompleteDialog(false);
+    if (result.success) {
+      setSprints(prev => prev.map(s => s.id === selected.id ? { ...s, state: "closed" } : s));
+      setSelected(prev => ({ ...prev, state: "closed" }));
+      setMsg({ success: true, text: "✓ Sprint completed successfully" });
+    } else {
+      setMsg({ success: false, text: `✗ Failed to complete sprint: ${result.error || "Unknown error"}` });
+    }
+  };
+
   const prs       = globalData?.prs  || [];
   const runs      = globalData?.runs || [];
   const done      = issues.filter(i => i.status === "Done");
@@ -103,7 +130,7 @@ const SprintDashboard = () => {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
 
-      {/* Sprint selector + Run button */}
+      {/* Sprint selector + buttons */}
       <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"1rem"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
           <div style={{position:"relative",flex:1,minWidth:0}}>
@@ -141,16 +168,27 @@ const SprintDashboard = () => {
               pointerEvents:"none",
             }}/>
           </div>
-          <button onClick={handleRunSprint} disabled={triggering||todo.length===0} style={{
-            background: todo.length===0 ? "rgba(99,102,241,0.2)" : "var(--accent)",
-            color:"white", border:"none", borderRadius:8, padding:"7px 14px",
-            fontSize:12, cursor:todo.length===0?"not-allowed":"pointer",
-            fontFamily:"inherit", fontWeight:500, display:"flex", alignItems:"center", gap:6,
-            opacity:triggering?0.7:1, flexShrink:0,
-          }}>
-            <Play size={12}/>
-            {triggering ? "Triggering..." : `Run Sprint (${todo.length})`}
-          </button>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {selected?.state === "active" && selected?.nativeId && (
+              <button onClick={openCompleteDialog} disabled={completing} style={{
+                background:"#ef4444",color:"white",border:"none",borderRadius:8,
+                padding:"7px 14px",fontSize:12,fontFamily:"inherit",fontWeight:500,
+                cursor:completing?"not-allowed":"pointer",opacity:completing?0.7:1,flexShrink:0,
+              }}>
+                {completing ? "Completing..." : "Complete Sprint"}
+              </button>
+            )}
+            <button onClick={handleRunSprint} disabled={triggering||todo.length===0} style={{
+              background: todo.length===0 ? "rgba(99,102,241,0.2)" : "var(--accent)",
+              color:"white", border:"none", borderRadius:8, padding:"7px 14px",
+              fontSize:12, cursor:todo.length===0?"not-allowed":"pointer",
+              fontFamily:"inherit", fontWeight:500, display:"flex", alignItems:"center", gap:6,
+              opacity:triggering?0.7:1, flexShrink:0,
+            }}>
+              <Play size={12}/>
+              {triggering ? "Triggering..." : `Run Sprint (${todo.length})`}
+            </button>
+          </div>
         </div>
         {msg && (
           <div style={{marginTop:8,padding:"6px 10px",borderRadius:6,fontSize:12,
@@ -239,6 +277,87 @@ const SprintDashboard = () => {
           )}
           {activeTab === "ci" && <CIPipelineView pipelines={runs}/>}
         </>
+      )}
+
+      {/* Complete Sprint confirmation dialog */}
+      {showCompleteDialog && (
+        <div style={{
+          position:"fixed",top:0,left:0,right:0,bottom:0,
+          background:"rgba(0,0,0,0.6)",zIndex:1000,
+          display:"flex",alignItems:"center",justifyContent:"center",
+        }}>
+          <div style={{
+            background:"var(--bg-card)",border:"1px solid var(--border)",
+            borderRadius:12,padding:"1.5rem",width:440,maxWidth:"90vw",
+          }}>
+            <h3 style={{margin:"0 0 1rem",fontSize:16,fontWeight:600}}>Complete Sprint</h3>
+            <p style={{fontSize:13,color:"var(--muted)",margin:"0 0 1rem"}}>
+              <strong style={{color:"var(--fg)"}}>{selected?.name}</strong>{" "}has{" "}
+              <strong style={{color:"#4ade80"}}>{done.length} completed</strong> and{" "}
+              <strong style={{color:"#fbbf24"}}>{todo.length + inProg.length} incomplete</strong>
+              {" "}ticket{todo.length + inProg.length !== 1 ? "s" : ""}.
+            </p>
+            {(todo.length + inProg.length) > 0 && (
+              <div style={{marginBottom:"1rem"}}>
+                <label style={{fontSize:12,color:"var(--muted)",display:"block",marginBottom:6}}>
+                  Move incomplete tickets to:
+                </label>
+                <select
+                  value={completeDestination}
+                  onChange={e => setCompleteDestination(e.target.value)}
+                  style={{
+                    background:"var(--bg)",border:"1px solid var(--border)",
+                    borderRadius:6,padding:"6px 10px",fontSize:13,
+                    color:"var(--fg)",width:"100%",fontFamily:"inherit",
+                  }}
+                >
+                  <option value="backlog">Backlog</option>
+                  <option value="nextSprint">Next Sprint</option>
+                </select>
+                {completeDestination === "nextSprint" && (
+                  <select
+                    value={nextSprintTarget}
+                    onChange={e => setNextSprintTarget(e.target.value)}
+                    style={{
+                      background:"var(--bg)",border:"1px solid var(--border)",
+                      borderRadius:6,padding:"6px 10px",fontSize:13,
+                      color:"var(--fg)",width:"100%",fontFamily:"inherit",marginTop:8,
+                    }}
+                  >
+                    {sprints
+                      .filter(s => s.id !== selected?.id && s.state !== "closed")
+                      .map(s => <option key={s.id} value={s.nativeId || s.id}>{s.name}</option>)
+                    }
+                  </select>
+                )}
+              </div>
+            )}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:4}}>
+              <button
+                onClick={() => setShowCompleteDialog(false)}
+                style={{
+                  background:"transparent",border:"1px solid var(--border)",
+                  borderRadius:6,padding:"7px 16px",fontSize:12,
+                  color:"var(--muted)",cursor:"pointer",fontFamily:"inherit",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCompleteSprint}
+                disabled={completing}
+                style={{
+                  background:"#ef4444",color:"white",border:"none",
+                  borderRadius:6,padding:"7px 16px",fontSize:12,
+                  cursor:completing?"not-allowed":"pointer",
+                  fontFamily:"inherit",fontWeight:500,opacity:completing?0.7:1,
+                }}
+              >
+                {completing ? "Completing..." : "Complete Sprint"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
