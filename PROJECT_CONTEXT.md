@@ -571,6 +571,8 @@ Target per sprint: **20–40 points**
 | Sprint 4 | 10099 | 71 |
 | Sprint 5 | 10132 | 72 |
 | Sprint 6 | 10198 | 105 |
+| Sprint 7 | 10231 | 138 |
+| Sprint 8 | 10264 | 171 |
 
 ### CI Timeout Values (orchestrator)
 
