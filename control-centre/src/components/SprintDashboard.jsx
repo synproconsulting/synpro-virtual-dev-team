@@ -5,6 +5,21 @@ import PullRequestView from './PullRequestView';
 import CIPipelineView from './CIPipelineView';
 import { Play, GitPullRequest } from 'lucide-react';
 
+const formatDate = (dateStr) => {
+  if (!dateStr) return '';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch {
+    return dateStr;
+  }
+};
+
+const STATE_STYLE = {
+  active:  { bg: '#4ade80', text: '#052e16' },
+  closed:  { bg: 'rgba(148,163,184,0.2)', text: '#94a3b8' },
+  future:  { bg: 'rgba(96,165,250,0.2)', text: '#60a5fa' },
+};
+
 const MetricCard = ({ title, value, sub, color }) => (
   <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"1rem",borderLeft:color?`3px solid ${color}`:undefined}}>
     <div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>{title}</div>
@@ -22,7 +37,7 @@ const SprintDashboard = () => {
   const [triggering, setTriggering] = useState(false);
   const [msg, setMsg]               = useState(null);
   const [activeTab, setActiveTab]   = useState("jira");
-  const [mergedPRs, setMergedPRs]     = useState([]);
+  const [mergedPRs, setMergedPRs]   = useState([]);
 
   const loadGlobal = useCallback(async () => {
     setGlobalData(await fetchSprintData());
@@ -35,9 +50,11 @@ const SprintDashboard = () => {
       setSprints(sprintList);
       setGlobalData(global);
       if (sprintList.length) {
-        const latest = sprintList[sprintList.length - 1];
-        setSelected(latest);
-        setIssues(await fetchSprintIssues(latest));
+        // Default to the active sprint; fall back to the last sprint
+        const activeSprint  = sprintList.find(s => s.state === 'active');
+        const defaultSprint = activeSprint || sprintList[sprintList.length - 1];
+        setSelected(defaultSprint);
+        setIssues(await fetchSprintIssues(defaultSprint));
       }
       setLoading(false);
     };
@@ -94,16 +111,29 @@ const SprintDashboard = () => {
               display:"flex", gap:6, overflowX:"auto", paddingBottom:2,
               scrollbarWidth:"none", msOverflowStyle:"none",
             }}>
-              {sprints.map(sprint => (
-                <button key={sprint.id} onClick={() => onSprintChange(sprint)} style={{
-                  background: selected?.id===sprint.id ? "var(--accent)" : "var(--bg)",
-                  color: selected?.id===sprint.id ? "white" : "var(--muted)",
-                  border: `1px solid ${selected?.id===sprint.id ? "var(--accent)" : "var(--border)"}`,
-                  borderRadius:20, padding:"4px 14px", fontSize:12,
-                  cursor:"pointer", fontFamily:"inherit", fontWeight:500,
-                  flexShrink:0,
-                }}>{sprint.name.split(" - ")[0]}</button>
-              ))}
+              {sprints.map(sprint => {
+                const isActive   = sprint.state === 'active';
+                const isSelected = selected?.id === sprint.id;
+                const stStyle    = STATE_STYLE[sprint.state] || STATE_STYLE.closed;
+                return (
+                  <button key={sprint.id} onClick={() => onSprintChange(sprint)} style={{
+                    background: isSelected ? (isActive ? '#16a34a' : 'var(--accent)') : 'var(--bg)',
+                    color:      isSelected ? 'white' : isActive ? '#4ade80' : 'var(--muted)',
+                    border:     `1px solid ${isSelected ? (isActive ? '#16a34a' : 'var(--accent)') : isActive ? '#4ade80' : 'var(--border)'}`,
+                    borderRadius: 20, padding: '4px 10px 4px 12px', fontSize: 12,
+                    cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
+                    flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
+                  }}>
+                    <span>{sprint.name.split(' - ')[0]}</span>
+                    <span style={{
+                      background:    isSelected ? 'rgba(255,255,255,0.25)' : stStyle.bg,
+                      color:         isSelected ? 'white' : stStyle.text,
+                      fontSize:      9, fontWeight: 700, padding: '1px 5px',
+                      borderRadius:  8, letterSpacing: '0.05em', textTransform: 'uppercase',
+                    }}>{sprint.state || '?'}</span>
+                  </button>
+                );
+              })}
             </div>
             <div style={{
               position:"absolute", right:0, top:0, bottom:0, width:32,
@@ -132,7 +162,7 @@ const SprintDashboard = () => {
         )}
       </div>
 
-      {/* Metrics — same style as before */}
+      {/* Metrics */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
         <MetricCard title="Completion" value={`${pct}%`} sub={`${done.length}/${issues.length} issues`} color={pct===100?"#4ade80":pct>50?"#60a5fa":"#fbbf24"}/>
         <MetricCard title="Story Points" value={`${donePts}/${totalPts}`} sub={`${totalPts-donePts} remaining`} color="#a855f7"/>
@@ -140,11 +170,18 @@ const SprintDashboard = () => {
         <MetricCard title="CI Success Rate" value={`${ciRate}%`} sub={`${runs.length} recent runs`} color={ciRate>=80?"#4ade80":"#f87171"}/>
       </div>
 
-      {/* Progress bar */}
+      {/* Progress bar + sprint info */}
       {issues.length > 0 && (
         <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"1rem"}}>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--muted)",marginBottom:8}}>
-            <span style={{fontWeight:500}}>{selected?.name}</span>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",fontSize:12,color:"var(--muted)",marginBottom:8}}>
+            <div>
+              <span style={{fontWeight:500,color:"var(--fg)"}}>{selected?.name}</span>
+              {selected?.startDate && (
+                <span style={{marginLeft:8,fontSize:11}}>
+                  {formatDate(selected.startDate)}{selected.endDate ? ` – ${formatDate(selected.endDate)}` : ''}
+                </span>
+              )}
+            </div>
             <span>{pct}% complete</span>
           </div>
           <div style={{height:8,background:"var(--bg)",borderRadius:4,overflow:"hidden"}}>
