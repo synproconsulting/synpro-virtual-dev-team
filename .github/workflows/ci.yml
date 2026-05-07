@@ -179,7 +179,7 @@ jobs:
             exit 1
           fi
 
-  # ── Job 7: Deploy to Railway with validation and alerting ───────────────
+  # ── Job 7: Deploy to Railway with validation ─────────────────────────────
   deploy:
     name: Deploy to Railway
     runs-on: ubuntu-latest
@@ -205,7 +205,6 @@ jobs:
         env:
           RAILWAY_TOKEN:      ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
           GITHUB_SERVER_URL:  ${{ github.server_url }}
           GITHUB_REPOSITORY:  ${{ github.repository }}
           GITHUB_RUN_ID:      ${{ github.run_id }}
@@ -216,43 +215,3 @@ jobs:
             --environment production \
             --commit-sha ${{ github.sha }} \
             --branch ${{ github.ref_name }}
-
-      - name: Report deployment status
-        if: failure()
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: |
-          if [ -n "$SLACK_WEBHOOK_URL" ]; then
-            curl -X POST "$SLACK_WEBHOOK_URL" \
-              -H 'Content-Type: application/json' \
-              -d '{
-                "attachments": [{
-                  "color": "#ff0000",
-                  "title": "Railway Deployment Failed",
-                  "text": "❌ Railway deployment pipeline failed",
-                  "fields": [
-                    {
-                      "title": "Repository",
-                      "value": "${{ github.repository }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Branch",
-                      "value": "${{ github.ref_name }}",
-                      "short": true
-                    },
-                    {
-                      "title": "Commit",
-                      "value": "${{ github.sha }}",
-                      "short": false
-                    },
-                    {
-                      "title": "Build URL",
-                      "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-                      "short": false
-                    }
-                  ],
-                  "footer": "Railway CI/CD Pipeline"
-                }]
-              }'
-          fi
