@@ -3,15 +3,17 @@
 > This file is the single source of truth for Claude Code and Claude chat sessions.
 > Load it at the start of every session to restore full project context.
 
+> Sprint history moved to CLAUDE_HISTORY.md
+
 ---
 
 ## What This Project Is
 
 An AI-powered Virtual Development Team that automates the full software development lifecycle. Given a plain-English feature brief, the system plans a sprint in Jira, implements the code via AI agents, raises PRs, runs CI, reviews and merges — with a React Control Centre dashboard to monitor and control everything.
 
-**Owner:** Johan Wessels — SynPro Consulting  
-**Started:** April 21, 2025  
-**Current state:** Sprints 1–5 complete and merged. Sprint 6 planned in Jira — not yet started.
+**Owner:** Johan Wessels — SynPro Consulting
+**Started:** April 21, 2025
+**Current state:** Sprints 1–6 complete and merged. Sprint 7 planned in Jira — not yet started.
 
 ---
 
@@ -357,8 +359,8 @@ virtual-dev-team/
 ## The Four AI Agents
 
 ### 1. PM Agent (`agents/pm_agent.py`)
-**Role:** AI Product Manager  
-**Framework:** CrewAI + claude-sonnet-4-5  
+**Role:** AI Product Manager
+**Framework:** CrewAI + claude-sonnet-4-5
 **Invocation:**
 ```bash
 python main.py --agent pm --task plan --brief "Build a notification system..."
@@ -378,7 +380,7 @@ python main.py --agent pm --task plan --brief "Build a notification system..."
 ---
 
 ### 2. Dev Agent (`agents/dev_agent.py`)
-**Role:** AI Developer — implements one ticket at a time  
+**Role:** AI Developer — implements one ticket at a time
 **Invocation:**
 ```bash
 python main.py --agent dev --task implement --ticket SDT1-31 --summary "Sprint status dashboard"
@@ -399,7 +401,7 @@ python main.py --agent dev --task implement --ticket SDT1-31 --summary "Sprint s
 ---
 
 ### 3. Manager Agent (`agents/manager_agent.py` / `ci_manager_agent.py`)
-**Role:** AI Dev Manager — reviews PRs, enforces quality, merges  
+**Role:** AI Dev Manager — reviews PRs, enforces quality, merges
 **Invocation:** Auto-triggered by GitHub Actions on every push, or manually:
 ```bash
 python main.py --agent manager --task review --pr 71
@@ -415,7 +417,7 @@ python main.py --agent manager --task review --pr 71
 ---
 
 ### 4. Orchestrator (`orchestrator.py`)
-**Role:** Sprint runner — sequences Dev Agent across all sprint tickets  
+**Role:** Sprint runner — sequences Dev Agent across all sprint tickets
 **Invocation:**
 ```bash
 python main.py --agent sprint
@@ -447,10 +449,10 @@ CI check exclusions (step 3): `"Manager Agent review"` and `"wait-and-review"` r
 - Step 5 timeout → returns `"merge_timeout"`, **halts the sprint with `sys.exit(1)`**. Dependent tickets are not started. The operator must resolve the PR on GitHub, confirm the merge, then re-run the sprint. Already-merged tickets are safe to skip on re-run (their Jira status is Done, so they are not fetched as To Do).
 - 5-second sleep between tickets on success or non-halt failures.
 
-#### What is NOT implemented (as of Sprint 5)
+#### What is NOT implemented (as of Sprint 6)
 - **Epic grouping:** no logic groups tickets by epic. Serial order is flat across the entire sprint.
 - **Parallel execution:** `run_sprint()` accepts a `max_agents` parameter (default 1) that is never read or acted on inside the function. It is a dead parameter — a placeholder for future parallel support. All execution is strictly one ticket at a time.
-- **Independent-epic detection:** no file-overlap analysis, no dependency graph traversal. The `max_agents` stub and the Sprint 5 wave-order plan in this document describe an intended future state, not current behaviour.
+- **Independent-epic detection:** no file-overlap analysis, no dependency graph traversal.
 
 #### Execution order field requirement
 Every sprint story **must** have `customfield_10071` set by the PM Agent at planning time. Stories without it receive order `999` and sort unpredictably behind all explicitly-ordered tickets. The fallback `EXECUTION_ORDER` list in the source is hardcoded for Sprint 4 and provides no guarantee for future sprints.
@@ -463,8 +465,8 @@ Every sprint story **must** have `customfield_10071` set by the PM Agent at plan
 |---|---|
 | Site | `synproconsulting.atlassian.net` |
 | Project key | `SDT1` |
-| Sprint IDs (native) | Sprint 1: 35, Sprint 2: 69, Sprint 3: 70, Sprint 4: 71, Sprint 5: 72, Sprint 6: 105 |
-| Sprint fix version IDs | Sprint 1: 10000, Sprint 2: 10033, Sprint 3: 10066, Sprint 4: 10099, Sprint 5: 10132, Sprint 6: 10198 |
+| Sprint IDs (native) | Sprint 1: 35, Sprint 2: 69, Sprint 3: 70, Sprint 4: 71, Sprint 5: 72, Sprint 6: 105, Sprint 7: 138 |
+| Sprint fix version IDs | Sprint 1: 10000, Sprint 2: 10033, Sprint 3: 10066, Sprint 4: 10099, Sprint 5: 10132, Sprint 6: 10198, Sprint 7: 10231 |
 | Execution order field | `customfield_10071` |
 | Story points field | `customfield_10016` |
 
@@ -543,102 +545,6 @@ Verified complete package list as of Sprint 5 completion (audited against all im
 
 ---
 
-## Sprint History
-
-### Sprint 1 — Auth Module
-Tickets SDT1-1 through ~SDT1-10. User registration, login, JWT, password reset, profile basics.
-
-### Sprint 2 — User Profile Module  
-Tickets SDT1-11 through ~SDT1-20. Profile page UI/UX, profile update endpoints, delete account.
-
-### Sprint 3 — Notification System
-Tickets SDT1-21 through ~SDT1-30. Email notifications, in-app notifications, notification preferences.  
-Note: SDT1-26 had a long conflict/retrigger loop — resolved via PR #71, Jira closed.
-
-### Sprint 4 — Control Centre Dashboard
-Tickets SDT1-31 through ~SDT1-40. Full Control Centre build: Sprint Status tab, Workflows tab, CI/CD monitoring, PM Agent chat UI, SonarCloud tab stub, UAT Deploy tab stub.
-
-### Sprint 5 — Foundations ✅ Complete
-Tickets SDT1-44 through SDT1-53. All 10 stories, 37 story points, merged to main.
-
-| Exec # | Ticket | Summary | Status |
-|--------|--------|---------|--------|
-| 1 | SDT1-48 | Add Alembic migration framework with initial schema changes | ✅ Done |
-| 2 | SDT1-49 | Add conversations and messages schema for PM Agent chat history | ✅ Done |
-| 3 | SDT1-51 | Add products table for multi-product configuration | ✅ Done |
-| 4 | SDT1-47 | Split main.py into separate router modules | ✅ Done |
-| 5 | SDT1-50 | Fix password reset flow — send token via email only | ✅ Done (PR #96) |
-| 6 | SDT1-45 | Add request logging middleware and rate limiting | ✅ Done (PR #88) |
-| 7 | SDT1-44 | Add exponential backoff retry to Manager Agent Jira transitions | ✅ Done |
-| 8 | SDT1-46 | Improve Manager Agent diff truncation to prioritise new files | ✅ Done (PR #103) |
-| 9 | SDT1-52 | Add resume capability to Orchestrator with state persistence | ✅ Done |
-| 10 | SDT1-53 | Extend PM Agent to write Jira blocks/is-blocked-by link types | ✅ Done (PR #100) |
-
-**Fix PRs opened during Sprint 5 (infrastructure, not sprint tickets):**
-
-| PR | Branch | What it fixed |
-|----|--------|---------------|
-| #89 | fix/pm-agent-execution-order | `execution_order` missing from `CreateStoryInput` schema; no backstory rule — caused all Sprint 5 tickets to have no execution order |
-| #90 | fix/backend-add-httpx-requirement | `httpx` missing from `uat/backend/requirements.txt` — Railway deploy failing |
-| #91 | fix/agent-prompts-requirements-txt-rule | requirements.txt critical-file rule added to both Dev Agent prompts |
-| #92 | fix/backend-add-anthropic-requirement | `anthropic` missing from `uat/backend/requirements.txt` |
-| #93 | fix/claude-md-document-backend-requirements | CLAUDE.md: document verified requirements.txt package list |
-| #94 | fix/backend-health-endpoint | Add `GET /health` endpoint to UAT backend |
-| #95 | fix/ci-dev-agent-read-file-directory | `gh_read_file` crashed on directory paths — TypeError crashing Auto Implement runs |
-| #101 | fix/manager-agent-retrigger-and-comment | Manager Agent retrigger used GITHUB_TOKEN (blocked); no PR comment on conflict close |
-| #102 | fix/orchestrator-re-query-jira-per-ticket | Orchestrator used stale ticket snapshot; switch to while-loop with Jira re-query per iteration |
-
-> **Sprint 5 setup note:** During sprint creation the PM Agent created a spurious "Sprint 6 - Foundations" version (ID 10165) instead of reusing the pre-created Sprint 5 (ID 10132). The erroneous version was deleted and all stories were manually reassigned to fix version 10132. `customfield_10071` was also not set by the PM Agent (bug fixed in PR #89) and had to be set manually before the Orchestrator could run.
-
-### Sprint 6 — Control Centre Completion & Operational Hardening ✅ Complete
-Epic SDT1-55. 15 stories, 48 story points. Fix version 10198, native sprint ID 105.
-
-| Exec # | Ticket | Summary | Status | PR |
-|--------|--------|---------|--------|----|
-| 1 | SDT1-57 | PM Agent — CreateOrGetFixVersionTool with deterministic fix version ID | ✅ Done | #114 |
-| 2 | SDT1-56 | Harden CORS FRONTEND_URL configuration | ✅ Done | #151 |
-| 3 | SDT1-63 | Harden JWT secret key handling | ✅ Done | #117 |
-| 4 | SDT1-62 | Remove password reset token from API response body | ✅ Done | #118 |
-| 5 | SDT1-64 | Extend Orchestrator CI wait timeout from 15 to 30 minutes | ✅ Done | #150 |
-| 6 | SDT1-58 | UAT Deploy tab — wire to Railway GraphQL API | ✅ Done | #125 |
-| 7 | SDT1-60 | Cap Manager Agent retrigger loop to prevent infinite cycles | ✅ Done | #128 |
-| 8 | SDT1-65 | PM Agent validation — warn on missing execution_order | ✅ Done | #149 |
-| 9 | SDT1-66 | Orchestrator state persistence — resume after crash | ✅ Done | #148 |
-| 10 | SDT1-59 | Overview tab redesign | ✅ Done | #147 |
-| 11 | SDT1-61 | SonarCloud tab — add results view | ✅ Done | #135 |
-| 12 | SDT1-67 | Railway GraphQL deploy — add validation and alerting in CI | ✅ Done | #136 |
-| 13 | SDT1-70 | Token rotation runbook | ✅ Done | #146 |
-| 14 | SDT1-69 | Add unit tests for manager_agent_router.py | ✅ Done | #139 |
-| 15 | SDT1-68 | Add integration test for /api/railway/redeploy endpoint | ✅ Done | #142 |
-
-**Backlog epic also created (not Sprint 6):** SDT1-71 — Sprint Lifecycle Management (3 stories: SDT1-72, SDT1-73, SDT1-74 / 11 pts). No sprint assignment — planned for a future sprint.
-
-> **Sprint 6 setup notes:**
-> - Fix version 10198 ("Sprint 6") was created manually — the spurious ID 10165 (deleted during Sprint 5) was not reused; Jira assigned 10198 as the next available ID.
-> - Native sprint ID 105 ("SDT1 Sprint 6") already existed in Jira (state: future) — no creation needed.
-> - PM Agent ran in two separate epic passes (`run_sprint6_epic1.py` / `run_sprint6_epic2.py`) to prevent stories from being mixed across epics.
-> - All 15 Sprint 6 stories have `customfield_10071` set (no manual correction needed — brief included explicit execution_order values).
-> - `main.py` updated: `run_pm_plan_backlog_only()` added for epics with no sprint assignment; Phase 1 story count constraint changed from "4–6 stories" to "ALL stories in the brief".
-
----
-
-## Post-Sprint 5 Infrastructure Fixes
-
-Infrastructure bugs discovered and fixed during Railway deployment investigation after Sprint 5 completed:
-
-| PR | Branch | What it fixed |
-|----|--------|---------------|
-| #106 | fix/manager-agent-merge-pat-token | `merge_pr()` was using `GITHUB_TOKEN` — GitHub suppresses push events for GITHUB_TOKEN merges, so CI and Railway deploy never fired after any Manager Agent merge |
-| #108 | fix/backend-manager-agent-router-rename | Renamed `manager_agent.py` → `manager_agent_router.py` in `uat/backend/` to avoid name collision with root-level `agents/manager_agent.py` |
-| #109 | fix/backend-manager-agent-router-self-contained | Rewrote `manager_agent_router.py` as self-contained — original imported from `agents/manager_agent.py` via `sys.path.insert` hack, but `agents/manager_agent.py` is the CrewAI PR-reviewer and doesn't define those symbols; backend crashed at startup |
-| #110 | fix/ci-railway-service-names | `railway up --service backend/frontend` used wrong service names; corrected to `synpro-virtual-dev-team` and `Virtual-Dev-Team-UAT-Frontend` |
-| #111 | fix/ci-railway-api-deploy | Replaced Railway CLI deploy with GraphQL API `serviceInstanceRedeploy` mutation — removes npm install step, uses `RAILWAY_TOKEN` + `RAILWAY_PROJECT_ID` |
-| #112 | fix/ci-railway-graphql-query | Fixed four issues in PR #111's GraphQL steps: `printf` for JSON construction, `ascii_downcase` for case-insensitive env name, echo full response for debug, grep for `"errors"` key in response |
-
-**Root cause chain:** Sprint 5 merges used `GITHUB_TOKEN` → no push events on `main` → CI never ran → Railway never deployed → UAT backend ran stale code with broken imports (`manager_agent_router.py` crashing on startup) and wrong CORS config blocking the Control Centre.
-
----
-
 ## Environment Variables (.env)
 
 ```
@@ -689,37 +595,6 @@ python main.py --agent sprint
 - **Execution order:** `customfield_10071` in Jira — Orchestrator sorts by this
 - **ADF:** Acceptance criteria written in Atlassian Document Format in Jira descriptions
 - **CORS:** Jira calls always go via FastAPI proxy — never direct from browser
-
----
-
-## Sprint 6 Fix PRs (infrastructure, not sprint tickets)
-
-| PR | Branch | What it fixed |
-|----|--------|---------------|
-| #144 | fix/backend-orchestrator-router-import | `require_auth` → `get_current_user as require_auth` in orchestrator_router (superseded by #145) |
-| #145 | fix/backend-orchestrator-router-self-contained | Removed `agents/` imports from `orchestrator_router.py` — caused Railway startup crash |
-
----
-
-## Sprint 6 Lessons Learned
-
-### 1. `uat/backend/` self-containment is a recurring blind spot
-`orchestrator_router.py` was generated with `sys.path.insert` to import from `agents/` — the exact same mistake as `manager_agent_router.py` in Sprint 5. Added as a Hard Rule and as AD-22. The fix pattern is always: inline the logic as local helpers.
-
-### 2. Auth function name drift causes silent router failures
-The auth dependency was called `require_auth` in the Dev Agent's mental model but `get_current_user` in the actual `auth.py`. Routers compiled without error but crashed with 500 on every authenticated endpoint. The new Hard Rule requires reading `auth.py` before writing any router.
-
-### 3. Test isolation must be explicit for environment-variable-gated tests
-`test_init_without_token` passed locally (`RAILWAY_API_TOKEN` not set) but failed in CI (it is a GitHub secret exposed to the runner). Fix: `monkeypatch.delenv("RAILWAY_API_TOKEN", raising=False)`. Always explicitly clear env vars that tests assert are absent.
-
-### 4. Multiple retriggers per ticket are normal but expensive
-Many Sprint 6 tickets required 2–3 Auto Implement retriggers. The Manager Agent retrigger cap (SDT1-60, PR #128) now limits this to 3 attempts before requiring manual intervention.
-
-### 5. Security hardening needs Railway variable changes documented upfront
-SDT1-56 and SDT1-63 produced correct code changes that were ineffective until Railway env vars were updated. The next sprint's security tickets must include Railway variable changes in acceptance criteria.
-
-### 6. Never run two Claude Code instances simultaneously
-Running parallel sessions caused race conditions on GitHub (duplicate branches, conflicting PR states) and Jira (tickets transitioned twice). Now a Hard Rule.
 
 ---
 
