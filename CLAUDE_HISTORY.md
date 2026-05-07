@@ -112,6 +112,27 @@ Epic SDT1-55. 15 stories, 48 story points. Fix version 10198, native sprint ID 1
 
 ---
 
+### Sprint 7 — Sprint Lifecycle Management ✅ Complete
+Epic SDT1-71. 3 stories, 11 story points. Fix version 10231, native sprint ID 138.
+
+| Exec # | Ticket | Summary | Status | PR |
+|--------|--------|---------|--------|----|
+| 1 | SDT1-73 | PM Agent starts Jira sprint on approval | ✅ Done | #154 |
+| 2 | SDT1-74 | Control Centre shows current sprint status | ✅ Done | #160 |
+| 3 | SDT1-72 | Control Centre Complete Sprint button | ✅ Done | #162 |
+
+**Fix PRs opened during Sprint 7 (infrastructure, not sprint tickets):**
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #155 | fix/ci-dev-agent-create-pr-guard | Guard against multiple `create_pr` calls in `ci_dev_agent.py` |
+| #156 | fix/auto-review-concurrency-guard | Add concurrency guard to `auto-review.yml` to prevent overlapping review runs |
+| #157 | fix/remove-sonarcloud-from-ci | Remove SonarCloud from CI pipeline |
+| #159 | fix/split-claude-md | Split `CLAUDE.md` to reduce file size (sprint history moved to `CLAUDE_HISTORY.md`) |
+| #161 | fix/document-ci-dev-agent-system-prompt | Document `ci_dev_agent` system prompt rules in `PROJECT_CONTEXT.md` |
+
+---
+
 ## Sprint 6 Lessons Learned
 
 ### 1. `uat/backend/` self-containment is a recurring blind spot
