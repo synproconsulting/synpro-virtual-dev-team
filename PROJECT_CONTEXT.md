@@ -728,3 +728,172 @@ Scripts that have accumulated at the project root from prior sprints. These are 
 | `SONAR_TOKEN` | CI SonarCloud | SonarCloud analysis token |
 | `JWT_EXPIRY_HOURS` | UAT backend | Token lifetime (default: 24) |
 | `OPENAI_API_KEY` | CrewAI | Set to `"sk-no-openai-needed"` — required by CrewAI framework even though Claude is used |
+
+
+---
+
+## 11. CI Dev Agent System Prompt Rules
+
+Source: `ci_dev_agent.py` — `SYSTEM_PROMPT` constant and `TOOLS` list.
+
+This section documents the full ruleset baked into the CI Dev Agent's system prompt and tool schema. Every Auto Implement run triggered by GitHub Actions (`auto-implement.yml`) operates under these rules. The CrewAI Dev Agent (`agents/dev_agent.py`) enforces the same rules via its backstory — any change must be applied to both (AD-4).
+
+---
+
+### Agent Identity and Configuration
+
+| Setting | Value |
+|---|---|
+| Role | Skilled Python/React developer implementing Jira tickets |
+| Model | `claude-sonnet-4-5` |
+| Max tokens per turn | 16 000 |
+| Max tool-loop iterations | 40 |
+| Stop condition | `stop_reason == "end_turn"` or no tool calls returned |
+| Exit on no PR | `sys.exit(1)` — CI step fails and blocks the ticket |
+
+---
+
+### Mandatory Workflow (exact order)
+
+The agent must call four tools in this exact sequence. Calling `stage_file` or `create_pr` before `create_branch` results in an error because `state["branch"]` is `None`.
+
+| Step | Tool | When |
+|------|------|------|
+| 1 | `create_branch` | First call — always, before reading or staging anything |
+| 2 | `read_file` | Before every file that may already exist — existing content must be merged in, never overwritten |
+| 3 | `stage_file` | Once per file — supply complete final content |
+| 4 | `create_pr` | Once, after all files are staged — commits and opens the PR atomically |
+
+---
+
+### Repository Layout Rules (from system prompt)
+
+| Path | Rule |
+|------|------|
+| `uat/backend/` | **Flat layout** — all Python files sit directly in `uat/backend/`. No `src/` subdirectory, no `__init__.py` files. Tests go in `uat/backend/tests/`. Imports are flat: `from models import ...` |
+| `control-centre/src/components/` | React components |
+| `control-centre/src/api/` | API helper modules |
+| `agents/`, `tools/` (repo root) | Agent and orchestration code |
+
+---
+
+### Jira Custom Fields (from system prompt)
+
+| Field | Alias | Purpose |
+|---|---|---|
+| `customfield_10071` | `execution_order` (integer) | Set by PM Agent at sprint planning; read by Orchestrator to sequence tickets |
+| `customfield_10016` | `story_points` (integer) | Story point estimate |
+
+---
+
+### Code Standards (from system prompt)
+
+- **Python version:** 3.11+
+- **Type hints:** Required on all functions
+- **Docstrings:** Required on all public functions and classes
+- **Secrets:** Never hardcoded — environment variables only
+- **Tests:** Write meaningful pytest tests for all new backend logic
+- **File size:** Keep files focused; split across multiple files rather than one large file
+
+---
+
+### Merge Rule (Critical — from system prompt)
+
+> "If `read_file` returns content, you MUST incorporate the existing content into your staged version — never discard existing code when extending a file."
+
+The agent calls `read_file` before touching any shared file (e.g. `models.py`, `main.py`, `requirements.txt`). The returned content is merged with the new changes before staging. Discarding existing code would silently delete all prior work in that file.
+
+---
+
+### Dependency Rule (Critical — from system prompt)
+
+> "`requirements.txt` is a critical file — always read its existing content before writing, never remove existing dependencies, only append new ones. Removing a dependency will break the deployed service for every feature that depends on it."
+
+Applies to `uat/backend/requirements.txt`. This rule is also a Hard Rule in CLAUDE.md and is enforced in the CrewAI Dev Agent backstory (see AD-4).
+
+---
+
+### PR Title Format (from system prompt)
+
+```
+[TICKET-ID] Brief description
+```
+
+Example: `[SDT1-74] Control Centre shows current sprint status`
+
+`ci_manager_agent.py` parses the ticket key from the PR title using `\[([A-Z]+-\d+)\]`. A missing or malformed bracket causes the Manager Agent to silently skip the Jira status transition after merge.
+
+---
+
+### Tool Definitions (from `TOOLS` list)
+
+#### `create_branch`
+- Creates `feature/{ticket}-{slug}` from the latest main SHA
+- Deletes any existing branch with the same name first — guarantees a clean diff with no stale commits (AD-3)
+- Sets `state["branch"]`; `create_pr` will error if this is unset
+
+#### `read_file`
+- Reads a file by path and branch (default: `main`)
+- Returns `None` for both 404 (file not found) and directory paths
+  - **Directory guard:** checks `isinstance(data, list)` after parsing the GitHub Contents API response. The API returns a JSON array for directory paths, which would raise `TypeError` on `data["content"]` without this guard. Introduced in fix PR #95 (Sprint 5).
+- When `None` is returned, the agent sees `"File '...' does not exist on branch '...'"` and should try an alternative path
+
+#### `stage_file`
+- Stores `{path: content}` in `state["staged"]`
+- All staged files are committed in a single atomic commit when `create_pr` is called
+
+#### `create_pr`
+- Idempotent: checks for an existing open PR on the branch first; returns early with the existing PR number if found
+- Constructs commit message: `feat({ticket.lower()}): {summary[:60].lower()}`
+- Delegates to `gh_commit_files()` which uses the Git Trees API — one clean commit regardless of how many files were staged
+- Guards against double-call: returns an error if `state["pr_number"]` is already set
+- Calls `sys.exit(1)` if the PR cannot be created (fails the CI step)
+
+---
+
+### State Object
+
+A mutable `state` dict is passed by reference to every tool call, carrying context across the entire loop:
+
+```python
+state = {
+    "ticket":    str,         # e.g. "SDT1-74"
+    "summary":   str,         # e.g. "Control Centre shows current sprint status"
+    "branch":    str | None,  # set by create_branch; None until then
+    "staged":    dict,        # {path: content} accumulated by stage_file calls
+    "pr_number": int | None,  # set by create_pr on success
+    "pr_url":    str | None,  # set by create_pr on success
+}
+```
+
+---
+
+### Branch Naming
+
+Derived at runtime from ticket ID and summary:
+
+```python
+slug        = re.sub(r'[^a-z0-9-]', '-', summary.lower())[:40].rstrip('-')
+branch_name = f"feature/{ticket.lower()}-{slug}"
+```
+
+Example: `SDT1-74` + `"Control Centre shows current sprint status"` → `feature/sdt1-74-control-centre-shows-current-sprint`
+
+---
+
+### Feedback / Conflict-Retrigger Behaviour
+
+When `ci_manager_agent.py` detects a merge conflict it closes the PR and retriggers `auto-implement.yml` with a `--feedback` string. The agent prepends this to the task context:
+
+```
+FEEDBACK FROM PREVIOUS ATTEMPT (address all points):
+{feedback}
+```
+
+`create_branch` then deletes the stale branch and recreates it from the latest main SHA, ensuring the retrigger starts clean with no pre-existing conflicts (AD-3, AD-18).
+
+---
+
+### Relationship to CrewAI Dev Agent
+
+`ci_dev_agent.py` and `agents/dev_agent.py` are intentional duplicates maintained in sync by hand (AD-4). The CI agent uses the raw Anthropic SDK tool-use loop; the CrewAI agent uses `BaseTool` subclasses. Both enforce identical layout rules, the merge rule, and the dependency rule. Any change to the ruleset must be applied to both files.
