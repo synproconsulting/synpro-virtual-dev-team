@@ -156,19 +156,38 @@ Running parallel sessions caused race conditions on GitHub (duplicate branches, 
 
 ---
 
-### Sprint 8 — Bug Fixes (In Progress)
+### Sprint 8 — Bug Fixes ✅ Complete
 Fix version 10264, native sprint ID 171. Epic SDT1-78.
 
 | Exec # | Ticket | Summary | Status | PR |
 |--------|--------|---------|--------|----|
-| 1 | SDT1-79 | Replace ci_manager_agent with rule-based auto-merger | ✅ Done | #TBD |
-| 2 | SDT1-80 | Disable auto-implement.yml automatic trigger | ✅ Done | #TBD |
-| 3 | SDT1-81 | (pending) | - | - |
-| 4 | SDT1-82 | Audit and revert SDT1-74 unrequested additions | ✅ Done | #TBD |
-| 5 | SDT1-83 | Remove PM Agent Claude API calls from backend | ✅ Done | #TBD |
+| 1 | SDT1-79 | Replace ci_manager_agent with rule-based auto-merger | ✅ Done | #167 |
+| 2 | SDT1-80 | Disable auto-implement.yml automatic trigger | ✅ Done | #168 |
+| 3 | SDT1-83 | Remove PM Agent Claude API calls from backend | ✅ Done | #169 |
+| 4 | SDT1-82 | Audit and revert SDT1-74 unrequested additions | ✅ Done | #170 |
+| 5 | SDT1-81 | Fix Complete Sprint button returns Unknown error | ✅ Done | #171 |
 
-**SDT1-82 audit findings:**
-- PR #160 (the merged SDT1-74 PR) only modified the two explicitly requested files: uat/backend/proxy.py and control-centre/src/components/SprintDashboard.jsx.
-- uat/backend/scripts/check_railway_health.py and uat/backend/scripts/collect_deployment_metrics.py were added by SDT1-67 (PR #136), not SDT1-74.
-- ci.yml was already clean — Slack and validate-railway jobs were removed by fix PRs #164 and #165 (both fixing SDT1-67 additions, not SDT1-74).
-- No files were removed by this PR. The audit confirmed main was already clean with respect to SDT1-74.
+**Fix PRs opened during Sprint 8 (infrastructure, not sprint tickets):**
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #164 | fix/remove-slack-from-ci | Remove Slack notification from CI pipeline |
+| #165 | fix/remove-railway-health-check-from-ci | Remove Railway health check from CI pipeline |
+| #166 | fix/add-sprint8-jira-ids | Add Sprint 8 Jira IDs to CLAUDE.md and PROJECT_CONTEXT.md |
+| #172 | fix/restore-simple-graphql-deploy | Restore simple GraphQL deploy mutation in CI per AD-21 |
+
+---
+
+## Sprint 8 Lessons Learned
+
+### 1. Rule-based merger eliminates Claude API dependency for PR merging
+`ci_manager_agent.py` was replaced with a deterministic rule-based auto-merger (SDT1-79, PR #167). All future PRs self-merge on CI pass without Claude API calls. This removes API cost and latency from the merge path and eliminates the class of failures where Claude disagreed with the merge criteria.
+
+### 2. Dev Agent scope discipline: changes must match acceptance criteria only
+SDT1-82 (PR #170) audited the SDT1-74 merge and confirmed the PR was clean. The scope creep that prompted the audit originated from SDT1-67 (PR #136), not SDT1-74. Going forward: always verify that files changed match only what the acceptance criteria require — nothing extra.
+
+### 3. `deploy_railway_validated.py` blocks CI for 10+ minutes when Railway is slow
+The Railway health-check validation script introduced in SDT1-67 (PR #136) caused CI to hang when Railway was slow to respond. It was removed (PR #165) and the CI deploy step was restored to the simple GraphQL `serviceInstanceRedeploy` mutation per AD-21 (PR #172).
+
+### 4. CLAUDE_HISTORY.md should only be updated at sprint closeout, not mid-sprint
+Partial in-progress updates to sprint tables (with `#TBD` PR numbers) create inconsistent history. Sprint history entries should be written once, completely, at closeout time.
