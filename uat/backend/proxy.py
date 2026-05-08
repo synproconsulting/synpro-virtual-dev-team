@@ -282,14 +282,32 @@ async def proxy_complete_sprint(sprint_id: str, body: CompleteSprintRequest):
                     timeout=10.0
                 )
 
-        close_r = await client.put(
+        # POST is the partial-update endpoint — only the supplied fields are changed.
+        # PUT requires ALL sprint fields (name, startDate, endDate, state) and returns
+        # 400 "Sprint name is required" when only state is sent.
+        close_r = await client.post(
             f"{JIRA_BASE_URL}/rest/agile/1.0/sprint/{sprint_id}",
             headers=jira_auth(),
             json={"state": "closed"},
             timeout=10.0
         )
-        return {
-            "success":         close_r.status_code in (200, 204),
+        success = close_r.status_code in (200, 204)
+        result: dict = {
+            "success":         success,
             "statusCode":      close_r.status_code,
             "incompleteMoved": len(incomplete_keys),
         }
+        if not success:
+            try:
+                err_body = close_r.json()
+                errors = err_body.get("errors", {})
+                msgs   = err_body.get("errorMessages", [])
+                if errors:
+                    result["error"] = "; ".join(f"{k}: {v}" for k, v in errors.items())
+                elif msgs:
+                    result["error"] = "; ".join(msgs)
+                else:
+                    result["error"] = f"Jira returned {close_r.status_code}"
+            except Exception:
+                result["error"] = f"Jira returned {close_r.status_code}"
+        return result
