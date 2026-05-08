@@ -55,6 +55,8 @@ Committing directly to `main` bypasses the audit trail, CI gates, and the Manage
 
 **Never run two Claude Code instances simultaneously on this project.** Concurrent instances make overlapping API calls to GitHub, Jira, and Railway — producing race conditions, duplicate PRs, and split-brain Jira state.
 
+**uto-implement.yml is manual-only — never dispatch it programmatically.** Claude Code is the Dev Agent for Sprint 8 and beyond. The uto-implement.yml workflow exists for reference and manual single-ticket testing from the GitHub Actions UI only. The orchestrator.py Orchestrator must not dispatch it automatically via the GitHub API. Implement tickets directly with Claude Code.
+
 ---
 
 ## Key Architectural Decisions
