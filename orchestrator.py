@@ -173,30 +173,11 @@ def process_ticket(ticket):
     if pr_number:
         console.print(f"  [yellow]↩ Open PR #{pr_number} already exists — skipping Auto Implement[/yellow]")
     else:
-        # Step 1: Trigger Auto Implement
-        console.print(f"  [cyan]1/5 Triggering Auto Implement...[/cyan]")
-        ok = trigger_workflow("auto-implement.yml", {
-            "ticket": key, "summary": summary, "feedback": ""
-        })
-        if not ok:
-            console.print(f"  [red]✗ Failed to trigger Auto Implement[/red]")
-            return "failed"
-        console.print(f"  [green]✓ Auto Implement triggered[/green]")
-
-        # Step 2: Wait for PR to open (5 min)
-        console.print(f"  [cyan]2/5 Waiting for PR to open...[/cyan]")
-        for i in range(30):
-            time.sleep(10)
-            pr_number = get_open_pr_for_ticket(key)
-            if pr_number:
-                console.print(f"  [green]✓ PR #{pr_number} opened[/green]")
-                break
-            if i % 6 == 5:
-                console.print(f"  [dim]    Still waiting... ({(i+1)*10}s elapsed)[/dim]")
-
-        if not pr_number:
-            console.print(f"  [red]✗ No PR opened after 5 minutes — skipping[/red]")
-            return "failed"
+        # auto-implement.yml dispatch is disabled — Claude Code is the Dev Agent (SDT1-80).
+        # Implement tickets directly via Claude Code; do not dispatch via GitHub API.
+        console.print(f"  [red]✗ No open PR for [{key}] and auto-implement.yml dispatch is disabled.[/red]")
+        console.print(f"  [yellow]  Implement this ticket directly with Claude Code.[/yellow]")
+        return "failed"
 
     # Step 3: Wait for CI (15 min)
     console.print(f"  [cyan]3/5 Waiting for CI on PR #{pr_number}...[/cyan]")
