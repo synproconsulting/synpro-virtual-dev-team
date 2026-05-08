@@ -152,3 +152,23 @@ SDT1-56 and SDT1-63 produced correct code changes that were ineffective until Ra
 
 ### 6. Never run two Claude Code instances simultaneously
 Running parallel sessions caused race conditions on GitHub (duplicate branches, conflicting PR states) and Jira (tickets transitioned twice). Now a Hard Rule.
+
+
+---
+
+### Sprint 8 — Bug Fixes (In Progress)
+Fix version 10264, native sprint ID 171. Epic SDT1-78.
+
+| Exec # | Ticket | Summary | Status | PR |
+|--------|--------|---------|--------|----|
+| 1 | SDT1-79 | Replace ci_manager_agent with rule-based auto-merger | ✅ Done | #TBD |
+| 2 | SDT1-80 | Disable auto-implement.yml automatic trigger | ✅ Done | #TBD |
+| 3 | SDT1-81 | (pending) | - | - |
+| 4 | SDT1-82 | Audit and revert SDT1-74 unrequested additions | ✅ Done | #TBD |
+| 5 | SDT1-83 | Remove PM Agent Claude API calls from backend | ✅ Done | #TBD |
+
+**SDT1-82 audit findings:**
+- PR #160 (the merged SDT1-74 PR) only modified the two explicitly requested files: uat/backend/proxy.py and control-centre/src/components/SprintDashboard.jsx.
+- uat/backend/scripts/check_railway_health.py and uat/backend/scripts/collect_deployment_metrics.py were added by SDT1-67 (PR #136), not SDT1-74.
+- ci.yml was already clean — Slack and validate-railway jobs were removed by fix PRs #164 and #165 (both fixing SDT1-67 additions, not SDT1-74).
+- No files were removed by this PR. The audit confirmed main was already clean with respect to SDT1-74.
