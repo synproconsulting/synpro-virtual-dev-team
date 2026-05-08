@@ -7,7 +7,10 @@ export const sendPMAgentMessage = async (message, conversationHistory = []) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, history: conversationHistory }),
   });
-  if (!r.ok) throw new Error(`PM Agent error: ${r.status}`);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.detail || `PM Agent error: ${r.status}`);
+  }
   const data = await r.json();
   // Map backend 'reply' field to 'message' for component compatibility
   return {
@@ -24,7 +27,10 @@ export const generateSprintPlan = async (brief, conversationHistory = []) => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ brief, history: conversationHistory }),
   });
-  if (!r.ok) throw new Error(`Sprint generation error: ${r.status}`);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.detail || `Sprint generation error: ${r.status}`);
+  }
   return r.json();
 };
 
