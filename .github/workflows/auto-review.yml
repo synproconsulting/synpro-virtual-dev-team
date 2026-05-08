@@ -35,11 +35,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install anthropic requests python-dotenv
+          pip install requests
 
-      - name: Wait for CI and run Manager Agent
+      - name: Wait for CI and run rule-based merger
         env:
-          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
           JIRA_BASE_URL:      ${{ secrets.JIRA_BASE_URL }}
           JIRA_EMAIL:         ${{ secrets.JIRA_EMAIL }}
           JIRA_API_TOKEN:     ${{ secrets.JIRA_API_TOKEN }}
@@ -52,4 +51,4 @@ jobs:
           MANUAL_PR:          ${{ github.event.inputs.pr_number }}
           EVENT_NAME:         ${{ github.event_name }}
           HEAD_SHA:           ${{ github.event.pull_request.head.sha }}
-        run: python ci_manager_agent.py --auto
+        run: python ci_rule_based_merger.py --auto
