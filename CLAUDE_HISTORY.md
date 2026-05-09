@@ -174,7 +174,6 @@ Fix version 10264, native sprint ID 171. Epic SDT1-78.
 | #164 | fix/remove-slack-from-ci | Remove Slack notification from CI pipeline |
 | #165 | fix/remove-railway-health-check-from-ci | Remove Railway health check from CI pipeline |
 | #166 | fix/add-sprint8-jira-ids | Add Sprint 8 Jira IDs to CLAUDE.md and PROJECT_CONTEXT.md |
-| #172 | fix/restore-simple-graphql-deploy | Restore simple GraphQL deploy mutation in CI per AD-21 |
 
 ---
 
@@ -187,7 +186,7 @@ Fix version 10264, native sprint ID 171. Epic SDT1-78.
 SDT1-82 (PR #170) audited the SDT1-74 merge and confirmed the PR was clean. The scope creep that prompted the audit originated from SDT1-67 (PR #136), not SDT1-74. Going forward: always verify that files changed match only what the acceptance criteria require — nothing extra.
 
 ### 3. `deploy_railway_validated.py` blocks CI for 10+ minutes when Railway is slow
-The Railway health-check validation script introduced in SDT1-67 (PR #136) caused CI to hang when Railway was slow to respond. It was removed (PR #165) and the CI deploy step was restored to the simple GraphQL `serviceInstanceRedeploy` mutation per AD-21 (PR #172).
+The Railway health-check validation script introduced in SDT1-67 (PR #136) caused CI to hang when Railway was slow to respond. It was removed (PR #165); restoration of the simple GraphQL `serviceInstanceRedeploy` mutation per AD-21 was not completed in Sprint 8.
 
 ### 4. CLAUDE_HISTORY.md should only be updated at sprint closeout, not mid-sprint
 Partial in-progress updates to sprint tables (with `#TBD` PR numbers) create inconsistent history. Sprint history entries should be written once, completely, at closeout time.
