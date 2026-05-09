@@ -13,7 +13,7 @@ An AI-powered Virtual Development Team that automates the full software developm
 
 **Owner:** Johan Wessels — SynPro Consulting
 **Started:** April 21, 2025
-**Current state:** Sprints 1–8 complete and merged. Sprint 9 in progress.
+**Current state:** Sprints 1–9 complete and merged. Sprint 10 not yet planned.
 
 ---
 
@@ -612,3 +612,4 @@ python main.py --agent sprint
 
 - **Claude Code** — installed, no more manual script runs or file copying needed
 - **Atlassian Rovo MCP** — available to connect for direct Jira management from Claude chat
+
