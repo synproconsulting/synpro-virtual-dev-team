@@ -190,3 +190,36 @@ The Railway health-check validation script introduced in SDT1-67 (PR #136) cause
 
 ### 4. CLAUDE_HISTORY.md should only be updated at sprint closeout, not mid-sprint
 Partial in-progress updates to sprint tables (with `#TBD` PR numbers) create inconsistent history. Sprint history entries should be written once, completely, at closeout time.
+
+---
+
+### Sprint 9 — Multi-Product Support ✅ Complete
+Fix version 10297, native sprint ID 204.
+
+| Exec # | Ticket | Summary | Status | PR |
+|--------|--------|---------|--------|----|
+| 1 | SDT1-95 | Multi-product: configurable Jira, GitHub, Railway per product | ✅ Done | #176 |
+
+**Fix PRs opened during Sprint 9 (infrastructure, not sprint tickets):**
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #174 | fix/ci-restore-graphql-deploy | Restore simple GraphQL deploy mutation in CI per AD-21 |
+| #177 | fix/alembic-requirements | Add alembic to uat/backend/requirements.txt |
+| #178 | fix/alembic-migration-001-idempotent | Make initial Alembic migration idempotent with if_not_exists |
+
+---
+
+## Sprint 9 Lessons Learned
+
+### 1. Alembic must be in requirements.txt to be available in Railway pre-deploy commands
+The `alembic` package was missing from `uat/backend/requirements.txt`, causing the Railway pre-deploy `alembic upgrade head` command to fail with `ModuleNotFoundError`. Added in fix PR #177. Any tool that runs in the Railway build/deploy context must be an explicit dependency.
+
+### 2. Brownfield Alembic adoption requires `alembic stamp head` to initialise migration history on existing databases
+When Alembic is introduced to an existing database (tables already created by SQLAlchemy directly), running `alembic upgrade head` fails because the `alembic_version` table does not exist. The correct sequence is: `alembic stamp head` (marks existing schema as at the current revision without running DDL), then future migrations apply normally. This is a one-time operation per environment.
+
+### 3. All future migrations will run automatically via Railway pre-deploy command `alembic upgrade head`
+The Railway service pre-deploy command is set to `alembic upgrade head`. New migration files committed to the repo will be picked up and applied automatically on the next deploy — no manual intervention required.
+
+### 4. Migration files exist only on GitHub — no local equivalent needed, Claude Code reads them via API
+Alembic migration files live in `uat/backend/alembic/versions/` in the GitHub repo. Claude Code reads and modifies them via the GitHub Contents API (no local checkout required). This is consistent with AD-2 (no git CLI dependency).
