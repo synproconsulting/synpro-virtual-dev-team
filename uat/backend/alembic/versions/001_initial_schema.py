@@ -29,7 +29,8 @@ def upgrade() -> None:
         sa.Column('password_hash', sa.String(length=255), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('true')),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id'),
+        if_not_exists=True
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
 
@@ -43,7 +44,8 @@ def upgrade() -> None:
         sa.Column('used', sa.Boolean(), nullable=False, server_default=sa.text('false')),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id')
+        sa.PrimaryKeyConstraint('id'),
+        if_not_exists=True
     )
     op.create_index(op.f('ix_password_reset_tokens_token'), 'password_reset_tokens', ['token'], unique=True)
 
@@ -51,6 +53,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Revert migration."""
     op.drop_index(op.f('ix_password_reset_tokens_token'), table_name='password_reset_tokens')
-    op.drop_table('password_reset_tokens')
+    op.drop_table('password_reset_tokens', if_exists=True)
     op.drop_index(op.f('ix_users_email'), table_name='users')
-    op.drop_table('users')
+    op.drop_table('users', if_exists=True)
