@@ -9,13 +9,22 @@ const ghHeaders = () => ({
   ...(GH_TOKEN ? { "Authorization": `Bearer ${GH_TOKEN}` } : {}),
 });
 
-// Jira calls go through the backend proxy to avoid CORS
-export const fetchJiraIssues = async (status = null) => {
+// Use product config for GitHub repo when a product is selected
+const getGhRepo = (product) =>
+  product?.github_org && product?.github_repo
+    ? `${product.github_org}/${product.github_repo}`
+    : GH_REPO;
+
+// Jira calls go through the backend proxy to avoid CORS.
+// Pass product_id when a product is selected so the proxy uses product-specific config.
+export const fetchJiraIssues = async (status = null, productId = null) => {
   if (!API_URL) return [];
   try {
-    const url = status
-      ? `${API_URL}/proxy/jira/issues?status=${encodeURIComponent(status)}`
-      : `${API_URL}/proxy/jira/issues`;
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (productId) params.set("product_id", productId);
+    const qs = params.toString();
+    const url = `${API_URL}/proxy/jira/issues${qs ? "?" + qs : ""}`;
     const r = await fetch(url);
     if (!r.ok) return [];
     const data = await r.json();
@@ -26,12 +35,13 @@ export const fetchJiraIssues = async (status = null) => {
   }
 };
 
-export const fetchSprintData = async () => {
+export const fetchSprintData = async (product = null) => {
+  const repo = getGhRepo(product);
   try {
     const [prsRes, runsRes, jiraIssues] = await Promise.all([
-      fetch(`${GITHUB_API}/repos/${GH_REPO}/pulls?state=open&per_page=20`, { headers: ghHeaders() }),
-      fetch(`${GITHUB_API}/repos/${GH_REPO}/actions/runs?per_page=10`, { headers: ghHeaders() }),
-      fetchJiraIssues(),
+      fetch(`${GITHUB_API}/repos/${repo}/pulls?state=open&per_page=20`, { headers: ghHeaders() }),
+      fetch(`${GITHUB_API}/repos/${repo}/actions/runs?per_page=10`, { headers: ghHeaders() }),
+      fetchJiraIssues(null, product?.id),
     ]);
     const prs  = prsRes.ok  ? await prsRes.json() : [];
     const runs = runsRes.ok ? (await runsRes.json()).workflow_runs || [] : [];
@@ -92,24 +102,27 @@ export const triggerAutoReview = async (prNumber) => {
   return { success: r.status === 204 };
 };
 
-export const fetchOpenPRs = async () => {
-  const r = await fetch(`${GITHUB_API}/repos/${GH_REPO}/pulls?state=open&per_page=20`, { headers: ghHeaders() });
+export const fetchOpenPRs = async (product = null) => {
+  const repo = getGhRepo(product);
+  const r = await fetch(`${GITHUB_API}/repos/${repo}/pulls?state=open&per_page=20`, { headers: ghHeaders() });
   return r.ok ? r.json() : [];
 };
 
-export const fetchWorkflowRuns = async (perPage = 10) => {
-  const r = await fetch(`${GITHUB_API}/repos/${GH_REPO}/actions/runs?per_page=${perPage}`, { headers: ghHeaders() });
+export const fetchWorkflowRuns = async (perPage = 10, product = null) => {
+  const repo = getGhRepo(product);
+  const r = await fetch(`${GITHUB_API}/repos/${repo}/actions/runs?per_page=${perPage}`, { headers: ghHeaders() });
   return r.ok ? (await r.json()).workflow_runs || [] : [];
 };
 
 export const getSprintStatus = fetchSprintData;
 export const getOpenPRs = fetchOpenPRs;
 
-export const fetchSprints = async () => {
+export const fetchSprints = async (productId = null) => {
   const API_URL = import.meta.env.VITE_API_URL || "";
   if (!API_URL) return [];
   try {
-    const r = await fetch(`${API_URL}/proxy/jira/sprints`);
+    const params = productId ? `?product_id=${encodeURIComponent(productId)}` : "";
+    const r = await fetch(`${API_URL}/proxy/jira/sprints${params}`);
     if (!r.ok) return [];
     const data = await r.json();
     return data.sprints || [];
@@ -119,14 +132,15 @@ export const fetchSprints = async () => {
   }
 };
 
-export const fetchSprintIssues = async (sprint) => {
+export const fetchSprintIssues = async (sprint, productId = null) => {
   const API_URL = import.meta.env.VITE_API_URL || "";
   if (!API_URL || !sprint) return [];
   try {
     const sprintId = typeof sprint === "object" ? sprint.id : sprint;
     const nativeId = typeof sprint === "object" ? sprint.nativeId : null;
     const id = nativeId ? `${sprintId}|${nativeId}` : sprintId;
-    const r = await fetch(`${API_URL}/proxy/jira/sprint/${id}/issues`);
+    const params = productId ? `?product_id=${encodeURIComponent(productId)}` : "";
+    const r = await fetch(`${API_URL}/proxy/jira/sprint/${id}/issues${params}`);
     if (!r.ok) return [];
     const data = await r.json();
     return data.issues || [];
@@ -136,21 +150,19 @@ export const fetchSprintIssues = async (sprint) => {
   }
 };
 
-export const fetchMergedPRs = async () => {
+export const fetchMergedPRs = async (product = null) => {
+  const repo = getGhRepo(product);
   try {
-    // Fetch up to 100 closed PRs
     const r = await fetch(
-      `${GITHUB_API}/repos/${GH_REPO}/pulls?state=closed&per_page=100&sort=updated&direction=desc`,
+      `${GITHUB_API}/repos/${repo}/pulls?state=closed&per_page=100&sort=updated&direction=desc`,
       { headers: ghHeaders() }
     );
     if (!r.ok) return [];
     const prs = await r.json();
     return prs
-      .filter(pr => pr.merged_at) // only actually merged PRs
+      .filter(pr => pr.merged_at)
       .map(pr => {
-        // Try matching [SDT1-26] pattern in title
         const titleMatch = pr.title.match(/\[([A-Z][A-Z0-9]+-\d+)\]/i);
-        // Try matching feature/sdt1-26-... in branch name
         const branchMatch = pr.head?.ref?.match(/feature\/([a-zA-Z]+-\d+)[\-_]/i);
         const ticketKey = titleMatch
           ? titleMatch[1].toUpperCase()
