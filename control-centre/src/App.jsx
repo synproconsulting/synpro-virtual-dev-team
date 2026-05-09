@@ -1,4 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { ProductProvider } from "./contexts/ProductContext";
+import { fetchProducts } from "./api/productsApi";
+import ProductSelector from "./components/ProductSelector";
+import AddProductModal from "./components/AddProductModal";
 import DashboardMain from "./components/DashboardMain";
 import SprintDashboard from "./components/SprintDashboard";
 import GitHubWorkflowMonitor from "./components/GitHubWorkflowMonitor";
@@ -19,32 +23,55 @@ const TABS = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("sprint");
+  const [products, setProducts] = useState([]);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  useEffect(() => {
+    fetchProducts().then(setProducts);
+  }, []);
+
+  const handleProductAdded = (newProduct) => {
+    setProducts(prev =>
+      [...prev, newProduct].sort((a, b) => a.name.localeCompare(b.name))
+    );
+    setShowAddModal(false);
+  };
+
   const ActiveComponent = TABS.find(t => t.id === activeTab)?.component || SprintDashboard;
 
   return (
-    <div className="cc-app">
-      <header className="cc-header">
-        <div className="cc-header-inner">
-          <div className="cc-logo">
-            <span className="cc-logo-icon">⚡</span>
-            <span className="cc-logo-text">SynPro Control Centre</span>
+    <ProductProvider products={products}>
+      <div className="cc-app">
+        <header className="cc-header">
+          <div className="cc-header-inner">
+            <div className="cc-logo">
+              <span className="cc-logo-icon">&#x26A1;</span>
+              <span className="cc-logo-text">SynPro Control Centre</span>
+            </div>
+            <ProductSelector onAddProduct={() => setShowAddModal(true)} />
+            <nav className="cc-nav">
+              {TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  className={`cc-nav-btn ${activeTab === tab.id ? "active" : ""}`}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
           </div>
-          <nav className="cc-nav">
-            {TABS.map(tab => (
-              <button
-                key={tab.id}
-                className={`cc-nav-btn ${activeTab === tab.id ? "active" : ""}`}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </header>
-      <main className="cc-main">
-        <ActiveComponent />
-      </main>
-    </div>
+        </header>
+        <main className="cc-main">
+          <ActiveComponent />
+        </main>
+        {showAddModal && (
+          <AddProductModal
+            onClose={() => setShowAddModal(false)}
+            onAdded={handleProductAdded}
+          />
+        )}
+      </div>
+    </ProductProvider>
   );
 }
