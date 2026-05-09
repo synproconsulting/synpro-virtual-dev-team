@@ -102,10 +102,11 @@ class Message(Base):
 
 
 class Product(Base):
-    """Product configuration for virtual dev team multi-product support.
+    """Product configuration for virtual dev team multi-product support (SDT1-95).
 
     Each product maps a software project to its Jira project, GitHub repo,
-    and optional Railway and SonarCloud integrations.
+    and Railway deployment. The Jira proxy uses these values when a product_id
+    is supplied, falling back to environment variables for single-product deployments.
     """
 
     __tablename__ = "products"
@@ -118,8 +119,13 @@ class Product(Base):
     )
     name = Column(String(255), nullable=False, unique=True, index=True)
     jira_project_key = Column(String(50), nullable=False)
+    jira_base_url = Column(String(500), nullable=True)
+    github_org = Column(String(255), nullable=True)
     github_repo = Column(String(255), nullable=False)
     railway_service_id = Column(String(255), nullable=True)
+    railway_project_id = Column(String(255), nullable=True)
+    railway_backend_service_name = Column(String(255), nullable=True)
+    railway_frontend_service_name = Column(String(255), nullable=True)
     sonarcloud_key = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

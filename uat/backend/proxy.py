@@ -1,16 +1,24 @@
 """Jira proxy router - extracted from main.py (SDT1-47 refactor).
 
 Proxies Jira API calls from the browser to avoid CORS restrictions.
+Supports per-product Jira configuration via the product_id query parameter
+(SDT1-95). When product_id is supplied, the product's jira_base_url and
+jira_project_key are used; otherwise falls back to environment variables.
 """
 
 import os
 import re
 import base64
+import logging
+from typing import Optional
 
 import httpx
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # -- Config --------------------------------------------------------------------
 
@@ -18,6 +26,7 @@ JIRA_BASE_URL  = os.getenv("JIRA_BASE_URL", "")
 JIRA_EMAIL     = os.getenv("JIRA_EMAIL", "")
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
 JIRA_PROJECT   = os.getenv("JIRA_PROJECT_KEY", "SDT1")
+DATABASE_URL   = os.getenv("DATABASE_URL", "")
 
 
 def jira_auth():
@@ -28,6 +37,29 @@ def jira_auth():
             "Content-Type": "application/json"}
 
 
+def _get_product_jira_cfg(product_id: Optional[str]) -> tuple:
+    """Return (jira_base_url, jira_project_key) for a product.
+
+    Falls back to environment variables when product_id is None, DATABASE_URL
+    is not configured, or the product record is not found.
+    """
+    if product_id and DATABASE_URL:
+        try:
+            conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+            cur  = conn.cursor()
+            cur.execute(
+                "SELECT jira_base_url, jira_project_key FROM products WHERE id = %s",
+                (product_id,)
+            )
+            row = cur.fetchone()
+            conn.close()
+            if row and row.get("jira_base_url") and row.get("jira_project_key"):
+                return row["jira_base_url"], row["jira_project_key"]
+        except Exception as exc:
+            logger.warning("Product Jira config lookup failed for %s: %s", product_id, exc)
+    return JIRA_BASE_URL, JIRA_PROJECT
+
+
 # -- Router --------------------------------------------------------------------
 
 router = APIRouter(prefix="/proxy/jira", tags=["proxy"])
@@ -36,18 +68,20 @@ router = APIRouter(prefix="/proxy/jira", tags=["proxy"])
 @router.get("/issues")
 async def proxy_jira_issues(
     status: str = Query(None, description="Filter by status e.g. 'To Do', 'Done'"),
-    max_results: int = Query(100)
+    max_results: int = Query(100),
+    product_id: Optional[str] = Query(None, description="Product ID for per-product Jira config"),
 ):
     """Proxy Jira issues to avoid CORS issues in the browser."""
-    if not JIRA_BASE_URL:
+    base_url, project = _get_product_jira_cfg(product_id)
+    if not base_url:
         return {"issues": [], "error": "JIRA_BASE_URL not configured"}
 
-    jql = f"project = {JIRA_PROJECT} ORDER BY updated DESC"
+    jql = f"project = {project} ORDER BY updated DESC"
     if status:
-        jql = f'project = {JIRA_PROJECT} AND status = "{status}" ORDER BY updated DESC'
+        jql = f'project = {project} AND status = "{status}" ORDER BY updated DESC'
 
     fields = "summary,status,priority,issuetype,assignee,customfield_10016,customfield_10071"
-    url    = f"{JIRA_BASE_URL}/rest/api/3/search/jql"
+    url    = f"{base_url}/rest/api/3/search/jql"
 
     async with httpx.AsyncClient() as client:
         try:
@@ -77,49 +111,61 @@ async def proxy_jira_issues(
 
 
 @router.get("/issue/{issue_key}/transitions")
-async def proxy_jira_transitions(issue_key: str):
+async def proxy_jira_transitions(
+    issue_key: str,
+    product_id: Optional[str] = Query(None),
+):
     """Get available transitions for a Jira issue."""
-    if not JIRA_BASE_URL:
+    base_url, _ = _get_product_jira_cfg(product_id)
+    if not base_url:
         return {"transitions": []}
     async with httpx.AsyncClient() as client:
         r = await client.get(
-            f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions",
+            f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
             headers=jira_auth(), timeout=10.0
         )
         return r.json() if r.status_code == 200 else {"transitions": []}
 
 
 @router.post("/issue/{issue_key}/transition")
-async def proxy_jira_transition(issue_key: str, body: dict):
+async def proxy_jira_transition(
+    issue_key: str,
+    body: dict,
+    product_id: Optional[str] = Query(None),
+):
     """Transition a Jira issue to a new status."""
-    if not JIRA_BASE_URL:
+    base_url, _ = _get_product_jira_cfg(product_id)
+    if not base_url:
         return {"success": False, "error": "JIRA not configured"}
     async with httpx.AsyncClient() as client:
         r = await client.post(
-            f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/transitions",
+            f"{base_url}/rest/api/3/issue/{issue_key}/transitions",
             headers=jira_auth(), json=body, timeout=10.0
         )
         return {"success": r.status_code in (200, 204)}
 
 
 @router.get("/sprints")
-async def proxy_jira_sprints():
+async def proxy_jira_sprints(
+    product_id: Optional[str] = Query(None),
+):
     """Get all sprints - combines fix versions and native sprints.
 
     Each sprint object includes state (active/closed/future), startDate, and
     endDate sourced from the Jira Agile API so the Control Centre can display
     sprint health without a separate API call (SDT1-74).
     """
-    if not JIRA_BASE_URL:
+    base_url, project = _get_product_jira_cfg(product_id)
+    if not base_url:
         return {"sprints": [], "error": "JIRA_BASE_URL not configured"}
     async with httpx.AsyncClient() as client:
         try:
             versions_r = await client.get(
-                f"{JIRA_BASE_URL}/rest/api/3/project/{JIRA_PROJECT}/versions",
+                f"{base_url}/rest/api/3/project/{project}/versions",
                 headers=jira_auth(), timeout=10.0
             )
             sprints_r = await client.get(
-                f"{JIRA_BASE_URL}/rest/agile/1.0/board/34/sprint",
+                f"{base_url}/rest/agile/1.0/board/34/sprint",
                 headers=jira_auth(), timeout=10.0,
                 params={"maxResults": 50}
             )
@@ -188,16 +234,20 @@ async def proxy_jira_sprints():
 
 
 @router.get("/sprint/{version_id}/issues")
-async def proxy_sprint_issues(version_id: str):
+async def proxy_sprint_issues(
+    version_id: str,
+    product_id: Optional[str] = Query(None),
+):
     """Get issues for a specific sprint (version or native sprint ID)."""
-    if not JIRA_BASE_URL:
+    base_url, project = _get_product_jira_cfg(product_id)
+    if not base_url:
         return {"issues": [], "error": "JIRA_BASE_URL not configured"}
 
     parts     = version_id.split("|")
     fix_id    = parts[0]
     native_id = parts[1] if len(parts) > 1 else fix_id
     jql = (
-        f"project = {JIRA_PROJECT} AND ("
+        f"project = {project} AND ("
         f"fixVersion = {fix_id} OR sprint = {native_id}"
         f") ORDER BY priority DESC"
     )
@@ -206,7 +256,7 @@ async def proxy_sprint_issues(version_id: str):
     async with httpx.AsyncClient() as client:
         try:
             r = await client.get(
-                f"{JIRA_BASE_URL}/rest/api/3/search/jql",
+                f"{base_url}/rest/api/3/search/jql",
                 headers=jira_auth(),
                 params={"jql": jql, "maxResults": 100, "fields": fields},
                 timeout=15.0
@@ -244,20 +294,25 @@ class CompleteSprintRequest(BaseModel):
 
 
 @router.post("/sprint/{sprint_id}/complete")
-async def proxy_complete_sprint(sprint_id: str, body: CompleteSprintRequest):
+async def proxy_complete_sprint(
+    sprint_id: str,
+    body: CompleteSprintRequest,
+    product_id: Optional[str] = Query(None),
+):
     """Complete (close) a Jira sprint and optionally move incomplete issues.
 
     sprint_id must be the native Jira sprint ID (not the fix-version ID).
     moveIncompleteTo: "backlog" (default) | "nextSprint"
     nextSprintId: required when moveIncompleteTo == "nextSprint"
     """
-    if not JIRA_BASE_URL:
+    base_url, project = _get_product_jira_cfg(product_id)
+    if not base_url:
         return {"success": False, "error": "JIRA not configured"}
 
     async with httpx.AsyncClient() as client:
-        jql = f"project = {JIRA_PROJECT} AND sprint = {sprint_id} AND status != Done"
+        jql = f"project = {project} AND sprint = {sprint_id} AND status != Done"
         r   = await client.get(
-            f"{JIRA_BASE_URL}/rest/api/3/search/jql",
+            f"{base_url}/rest/api/3/search/jql",
             headers=jira_auth(),
             params={"jql": jql, "maxResults": 100, "fields": "summary,status"},
             timeout=15.0
@@ -269,14 +324,14 @@ async def proxy_complete_sprint(sprint_id: str, body: CompleteSprintRequest):
         if incomplete_keys:
             if body.moveIncompleteTo == "backlog":
                 await client.post(
-                    f"{JIRA_BASE_URL}/rest/agile/1.0/backlog/issue",
+                    f"{base_url}/rest/agile/1.0/backlog/issue",
                     headers=jira_auth(),
                     json={"issues": incomplete_keys},
                     timeout=10.0
                 )
             elif body.moveIncompleteTo == "nextSprint" and body.nextSprintId:
                 await client.post(
-                    f"{JIRA_BASE_URL}/rest/agile/1.0/sprint/{body.nextSprintId}/issue",
+                    f"{base_url}/rest/agile/1.0/sprint/{body.nextSprintId}/issue",
                     headers=jira_auth(),
                     json={"issues": incomplete_keys},
                     timeout=10.0
@@ -286,7 +341,7 @@ async def proxy_complete_sprint(sprint_id: str, body: CompleteSprintRequest):
         # PUT requires ALL sprint fields (name, startDate, endDate, state) and returns
         # 400 "Sprint name is required" when only state is sent.
         close_r = await client.post(
-            f"{JIRA_BASE_URL}/rest/agile/1.0/sprint/{sprint_id}",
+            f"{base_url}/rest/agile/1.0/sprint/{sprint_id}",
             headers=jira_auth(),
             json={"state": "closed"},
             timeout=10.0
