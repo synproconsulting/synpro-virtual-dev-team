@@ -1,7 +1,7 @@
-# PROJECT_CONTEXT.md — Virtual Dev Team
+# PROJECT_CONTEXT.md - Virtual Dev Team
 
 > Deep implementation reference for Claude Code sessions.
-> Supplements CLAUDE.md — read CLAUDE.md first for project overview, sprint history, and environment setup.
+> Supplements CLAUDE.md - read CLAUDE.md first for project overview, sprint history, and environment setup.
 > Last updated: 2026-05-05 (Sprint 6 complete)
 
 ---
@@ -28,21 +28,21 @@
 **Framework:** CrewAI + Claude Sonnet 4.5 (Anthropic SDK)
 
 **Two task modes:**
-- `groom` — Cleans up backlog: adds descriptions, story points, priorities; no brief needed
-- `plan --brief "..."` — Creates Epic + 4-6 Stories, creates Sprint 1, assigns stories to sprint
+- `groom` - Cleans up backlog: adds descriptions, story points, priorities; no brief needed
+- `plan --brief "..."` - Creates Epic + 4-6 Stories, creates Sprint 1, assigns stories to sprint
 
 **Tool groups (split to avoid CrewAI schema limits):**
-- `BACKLOG_TOOLS` — List backlog, list all issues, create Epic/Story, update issue
-- `SPRINT_TOOLS` — List sprints, create sprint, add to sprint, post comment, transition issue
-- `ALL_PM_TOOLS` — Both combined
+- `BACKLOG_TOOLS` - List backlog, list all issues, create Epic/Story, update issue
+- `SPRINT_TOOLS` - List sprints, create sprint, add to sprint, post comment, transition issue
+- `ALL_PM_TOOLS` - Both combined
 
 **Hard rules baked into system prompt:**
-- Never invent Jira issue keys — always retrieve from API first
+- Never invent Jira issue keys - always retrieve from API first
 - Check for duplicates before creating new issues
 - Story summaries must be under 100 characters
 - Story points must be Fibonacci: 1, 2, 3, 5, 8, 13 (max 8 per story)
 - Stories over 8 points get a FLAGGED Jira comment recommending split
-- Target 20–40 story points per sprint
+- Target 20-40 story points per sprint
 - Always link Stories to their parent Epic
 - Priorities: Highest, High, Medium, Low (never invent others)
 - `customfield_10071` = execution order (integer, determines implementation sequence)
@@ -60,11 +60,11 @@
 **Framework:** CrewAI + Claude Sonnet 4.5
 
 **Workflow (in order):**
-1. Call `EnsureRepoTool` — creates repo if missing
-2. Call `ListBranchesTool` — check for existing feature branch
-3. Call `CreateBranchTool` — create `feature/<ticket-id>-<slug>` from main
+1. Call `EnsureRepoTool` - creates repo if missing
+2. Call `ListBranchesTool` - check for existing feature branch
+3. Call `CreateBranchTool` - create `feature/<ticket-id>-<slug>` from main
 4. Write implementation files one by one using `CommitFileTool`
-5. Call `CreatePRTool` — opens PR (returns existing if already open for branch)
+5. Call `CreatePRTool` - opens PR (returns existing if already open for branch)
 
 **Branch naming:**
 - Pattern: `feature/<ticket-id>-<slug>`
@@ -88,25 +88,25 @@
 **Framework:** CrewAI + Claude Sonnet 4.5
 
 **Review process (sequential steps):**
-1. `ListOpenPRsTool` — find open PRs
-2. `GetPRDetailsTool(pr_number)` — title, description, files changed
-3. `GetCIStatusTool(pr_number)` — check all CI check-runs
-4. `GetPRDiffTool(pr_number)` — read code diff (truncated to 8000 chars)
-5. Decide: APPROVE → `ApprovePRTool` then `MergePRTool`, or REQUEST_CHANGES → `RequestChangesTool`
+1. `ListOpenPRsTool` - find open PRs
+2. `GetPRDetailsTool(pr_number)` - title, description, files changed
+3. `GetCIStatusTool(pr_number)` - check all CI check-runs
+4. `GetPRDiffTool(pr_number)` - read code diff (truncated to 8000 chars)
+5. Decide: APPROVE ? `ApprovePRTool` then `MergePRTool`, or REQUEST_CHANGES ? `RequestChangesTool`
 
 **Merge conditions (all must pass):**
 - All blocking CI jobs passing: `test` matrix (Python 3.11 + 3.12) and `security` (bandit)
-- SonarCloud, Playwright E2E, and Railway deploy are **not** blocking — see Section 8
+- SonarCloud, Playwright E2E, and Railway deploy are **not** blocking - see Section 8
 - No merge conflicts (`pr.mergeable` must be True)
 - Code has proper structure, type hints, docstrings
 - No hardcoded secrets detected in diff
 
 **Why `ApprovePRTool` posts a comment instead of a review approval:**
-GitHub blocks self-approval on repositories — the GITHUB_TOKEN belongs to the same account that owns the repo, so submitting a formal "APPROVED" review is rejected. The workaround is posting an approval comment, then immediately calling `MergePRTool`.
+GitHub blocks self-approval on repositories - the GITHUB_TOKEN belongs to the same account that owns the repo, so submitting a formal "APPROVED" review is rejected. The workaround is posting an approval comment, then immediately calling `MergePRTool`.
 
 **Post-merge actions (always done):**
-1. `UpdateJiraStatusTool(issue_key, "Done")` — transitions Jira ticket
-2. `PostJiraCommentTool(issue_key, body)` — posts PR reference + summary to Jira
+1. `UpdateJiraStatusTool(issue_key, "Done")` - transitions Jira ticket
+2. `PostJiraCommentTool(issue_key, body)` - posts PR reference + summary to Jira
 
 **Ticket key extraction from PR:**
 1. Try PR title regex: `\[([A-Z]+-\d+)\]` (e.g., `[SDT1-31]`)
@@ -153,8 +153,8 @@ GitHub blocks self-approval on repositories — the GITHUB_TOKEN belongs to the 
 **Purpose:** Standalone Manager Agent for GitHub Actions.
 
 **Entry modes:**
-- `--auto` — reads environment: `PR_NUMBER`, `EVENT_NAME`, `MANUAL_PR`, `HEAD_SHA`
-- `--pr <N>` — explicit PR number for manual runs
+- `--auto` - reads environment: `PR_NUMBER`, `EVENT_NAME`, `MANUAL_PR`, `HEAD_SHA`
+- `--pr <N>` - explicit PR number for manual runs
 
 **CI waiting logic:**
 - Polls `/repos/{owner}/{repo}/commits/{sha}/check-runs` every 10 seconds
@@ -165,14 +165,14 @@ GitHub blocks self-approval on repositories — the GITHUB_TOKEN belongs to the 
 
 **Merge conflict handling:**
 - Checks `pr.mergeable` field from GitHub API
-- If False: posts comment on the PR explaining the conflict, closes PR, posts Jira comment, triggers `auto-implement` workflow via `DISPATCH_HEADERS` (PAT_TOKEN — GITHUB_TOKEN cannot dispatch workflows)
+- If False: posts comment on the PR explaining the conflict, closes PR, posts Jira comment, triggers `auto-implement` workflow via `DISPATCH_HEADERS` (PAT_TOKEN - GITHUB_TOKEN cannot dispatch workflows)
 - Retrigger failure is not silent: if dispatch returns non-2xx, posts a PR comment saying manual intervention required
 - The `trigger_auto_implement()` helper centralises all three retrigger call sites
 
-**Merge method:** Always squash merge — produces a single clean commit on `main`.
+**Merge method:** Always squash merge - produces a single clean commit on `main`.
 
 **Jira status transition aliases handled:**
-`"Closed"`, `"Complete"`, `"Completed"`, `"Finished"` → all mapped to `"Done"`
+`"Closed"`, `"Complete"`, `"Completed"`, `"Finished"` ? all mapped to `"Done"`
 
 ---
 
@@ -182,18 +182,18 @@ GitHub blocks self-approval on repositories — the GITHUB_TOKEN belongs to the 
 
 ```
 python main.py --agent sprint
-          │
-          ▼
+          ?
+          ?
     orchestrator.py
-          │
-          ├─ Fetches To Do tickets sorted by customfield_10071
-          │
-          └─ For each ticket (serial):
-               ├─ Triggers auto-implement workflow (GitHub Actions API)
-               ├─ Polls for PR (max 5 min, every 10 sec)
-               ├─ Polls for CI passing (max 15 min)
-               ├─ Triggers auto-review workflow (GitHub Actions API)
-               └─ Polls for merge (max 10 min)
+          ?
+          ?? Fetches To Do tickets sorted by customfield_10071
+          ?
+          ?? For each ticket (serial):
+               ?? Triggers auto-implement workflow (GitHub Actions API)
+               ?? Polls for PR (max 5 min, every 10 sec)
+               ?? Polls for CI passing (max 15 min)
+               ?? Triggers auto-review workflow (GitHub Actions API)
+               ?? Polls for merge (max 10 min)
 ```
 
 **Predefined execution order fallback (Sprint 4):**
@@ -203,78 +203,78 @@ EXECUTION_ORDER = ["SDT1-31", "SDT1-36", "SDT1-33", "SDT1-29", "SDT1-30", "SDT1-
 Primary sort is `customfield_10071`; this list is fallback when field is missing.
 
 **Orchestrator loop model (while-loop, re-queries Jira per iteration):**
-`run_sprint()` calls `get_open_sprint_tickets()` at the top of every iteration and processes `tickets[0]` — always the lowest execution-order To Do ticket. Loop exits when Jira returns an empty list. This means:
+`run_sprint()` calls `get_open_sprint_tickets()` at the top of every iteration and processes `tickets[0]` - always the lowest execution-order To Do ticket. Loop exits when Jira returns an empty list. This means:
 - A ticket moved to Done mid-run is never revisited
 - A ticket that fails but remains To Do is automatically retried on the next iteration
-- Restarting the Orchestrator mid-sprint is always safe — already-Done tickets are never picked up
+- Restarting the Orchestrator mid-sprint is always safe - already-Done tickets are never picked up
 
 ### Automated Mode (GitHub Actions)
 
 ```
 Push to feature/* branch
-          │
-          ▼
+          ?
+          ?
    ci.yml triggers
    (test, security, sonar, e2e, deploy)
-          │
-          ▼
+          ?
+          ?
    auto-review.yml triggers
    (on pull_request: opened/synchronize/reopened)
-          │
-          ▼
+          ?
+          ?
    ci_manager_agent.py --auto
-          │
-          ├─ Wait for all CI checks on HEAD_SHA
-          ├─ Check mergeable state
-          ├─ Call Claude to review diff
-          │
-          ├─ APPROVE → squash merge → update Jira → post comment
-          └─ REQUEST_CHANGES → post comment only
+          ?
+          ?? Wait for all CI checks on HEAD_SHA
+          ?? Check mergeable state
+          ?? Call Claude to review diff
+          ?
+          ?? APPROVE ? squash merge ? update Jira ? post comment
+          ?? REQUEST_CHANGES ? post comment only
 ```
 
 ### Conflict Recovery Flow
 
 ```
 ci_manager_agent detects merge conflict
-          │
-          ├─ post_comment() on PR: explains conflict, says retrigger incoming
-          ├─ Closes PR via GitHub API
-          ├─ Posts Jira comment: "Merge conflict — PR closed"
-          └─ trigger_auto_implement() using DISPATCH_HEADERS (PAT_TOKEN)
-               ├─ Success (204): Auto Implement fires for the ticket
-               └─ Failure (4xx): posts PR comment "retrigger failed — manual intervention required"
+          ?
+          ?? post_comment() on PR: explains conflict, says retrigger incoming
+          ?? Closes PR via GitHub API
+          ?? Posts Jira comment: "Merge conflict - PR closed"
+          ?? trigger_auto_implement() using DISPATCH_HEADERS (PAT_TOKEN)
+               ?? Success (204): Auto Implement fires for the ticket
+               ?? Failure (4xx): posts PR comment "retrigger failed - manual intervention required"
 
 ci_dev_agent receives feedback
-          │
-          └─ Deletes existing branch, recreates from latest main SHA
+          ?
+          ?? Deletes existing branch, recreates from latest main SHA
                (feedback string included in system prompt context)
 ```
 
-**Why PAT_TOKEN:** GITHUB_TOKEN is blocked by GitHub from triggering `workflow_dispatch` on other workflows (recursive loop prevention). Using GITHUB_TOKEN caused all retriggering to silently fail — confirmed on PR #98 (SDT1-46 stranded). Fixed in PR #101.
+**Why PAT_TOKEN:** GITHUB_TOKEN is blocked by GitHub from triggering `workflow_dispatch` on other workflows (recursive loop prevention). Using GITHUB_TOKEN caused all retriggering to silently fail - confirmed on PR #98 (SDT1-46 stranded). Fixed in PR #101.
 
 ### Agent Communication (no shared state)
 
 Agents do not share memory or communicate directly. Coordination happens through:
-- **GitHub API** — PR state, CI check status, merge status
-- **Jira API** — ticket status transitions, comments
-- **GitHub Actions** — workflow dispatch events carrying `ticket`, `summary`, `feedback` inputs
+- **GitHub API** - PR state, CI check status, merge status
+- **Jira API** - ticket status transitions, comments
+- **GitHub Actions** - workflow dispatch events carrying `ticket`, `summary`, `feedback` inputs
 
 ---
 
 ## 3. API Endpoints (UAT Backend)
 
 **Base URL:** `https://synpro-virtual-dev-team-production.up.railway.app`  
-**Source:** `uat/backend/main.py` (router split — SDT1-47)  
+**Source:** `uat/backend/main.py` (router split - SDT1-47)  
 **Framework:** FastAPI (Python)  
-**CORS:** Configured via `FRONTEND_URL` env var (default: `*`). Must be `*` or explicitly include the Control Centre URL (`https://control-centre-service-production.up.railway.app`). If set to the UAT frontend URL only, all Control Centre proxy calls fail — browser receives no `Access-Control-Allow-Origin` header. Set `FRONTEND_URL=*` in Railway backend service variables for UAT.
+**CORS:** Configured via `FRONTEND_URL` env var (default: `*`). Must be `*` or explicitly include the Control Centre URL (`https://control-centre-service-production.up.railway.app`). If set to the UAT frontend URL only, all Control Centre proxy calls fail - browser receives no `Access-Control-Allow-Origin` header. Set `FRONTEND_URL=*` in Railway backend service variables for UAT.
 
 **Backend router modules** (`uat/backend/`):
-- `auth.py` — registration, login, JWT, password reset
-- `profile.py` — profile read/update
-- `notifications.py` — notification system
-- `proxy.py` — Jira proxy endpoints (avoids CORS)
-- `pm_agent.py` — PM Agent chat and sprint generation
-- `manager_agent_router.py` — Jira transition endpoints with exponential backoff retry (self-contained, no imports from `agents/`)
+- `auth.py` - registration, login, JWT, password reset
+- `profile.py` - profile read/update
+- `notifications.py` - notification system
+- `proxy.py` - Jira proxy endpoints (avoids CORS)
+- `pm_agent.py` - PM Agent chat and sprint generation
+- `manager_agent_router.py` - Jira transition endpoints with exponential backoff retry (self-contained, no imports from `agents/`)
 
 ### Auth Endpoints
 
@@ -287,7 +287,7 @@ Agents do not share memory or communicate directly. Coordination happens through
 | GET | `/auth/me` | Bearer JWT | Get current user info |
 | GET | `/health` | No | Health check |
 
-**`POST /auth/register` — Request/Response:**
+**`POST /auth/register` - Request/Response:**
 ```json
 // Request
 { "email": "...", "password": "...", "username": "..." }
@@ -298,8 +298,8 @@ Agents do not share memory or communicate directly. Coordination happens through
 ```
 Password validation: min 8 chars, at least one uppercase, lowercase, digit, special character.
 
-**`POST /auth/password-reset/request` — UAT behaviour:**
-Always returns HTTP 200 (prevents email enumeration). In UAT mode, returns `reset_token` directly in response body instead of sending email. This is **UAT Finding #1** — to be fixed in Sprint 5 (S5-14).
+**`POST /auth/password-reset/request` - UAT behaviour:**
+Always returns HTTP 200 (prevents email enumeration). In UAT mode, returns `reset_token` directly in response body instead of sending email. This is **UAT Finding #1** - to be fixed in Sprint 5 (S5-14).
 
 **JWT config:**
 - Algorithm: HS256
@@ -309,7 +309,7 @@ Always returns HTTP 200 (prevents email enumeration). In UAT mode, returns `rese
 
 ### Jira Proxy Endpoints
 
-Exist because Jira Cloud blocks CORS from browser — all Jira calls from Control Centre go through these.
+Exist because Jira Cloud blocks CORS from browser - all Jira calls from Control Centre go through these.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -326,7 +326,7 @@ Exist because Jira Cloud blocks CORS from browser — all Jira calls from Contro
 | POST | `/api/pm-agent/chat` | Stateless chat with PM Agent (Claude Sonnet 4.5) |
 | POST | `/api/pm-agent/generate-sprint` | Generate sprint plan from brief |
 
-**`POST /api/pm-agent/generate-sprint` — Response shape:**
+**`POST /api/pm-agent/generate-sprint` - Response shape:**
 ```json
 {
   "epic": { "title": "...", "description": "..." },
@@ -338,7 +338,7 @@ Exist because Jira Cloud blocks CORS from browser — all Jira calls from Contro
   "risks": ["..."]
 }
 ```
-Note: This endpoint generates JSON but does **not** push to Jira. The Control Centre "Generate Sprint Plan" button calls this but the approve-to-Jira flow is not wired (Sprint 5 — S5-11).
+Note: This endpoint generates JSON but does **not** push to Jira. The Control Centre "Generate Sprint Plan" button calls this but the approve-to-Jira flow is not wired (Sprint 5 - S5-11).
 
 ### Database Schema
 
@@ -366,9 +366,9 @@ CREATE TABLE password_reset_tokens (
 
 ### New Endpoints Added in Sprint 6
 
-**Orchestrator API** (`/api/orchestrator/*` — SDT1-66): start/resume/pause/cancel sprint execution, query progress, list resumable states. State persisted in `orchestrator_states` table (UUID id, sprint_id, ticket_queue JSON, completed_tickets JSON, failed_tickets JSON, status enum PENDING/RUNNING/PAUSED/COMPLETED/FAILED/CANCELLED).
+**Orchestrator API** (`/api/orchestrator/*` - SDT1-66): start/resume/pause/cancel sprint execution, query progress, list resumable states. State persisted in `orchestrator_states` table (UUID id, sprint_id, ticket_queue JSON, completed_tickets JSON, failed_tickets JSON, status enum PENDING/RUNNING/PAUSED/COMPLETED/FAILED/CANCELLED).
 
-**Railway API** (`/api/railway/*` — SDT1-58): list projects/services/environments, trigger deployments, query deployment status. Uses `RailwayClient` in `railway_api.py` with `RAILWAY_API_TOKEN` env var.
+**Railway API** (`/api/railway/*` - SDT1-58): list projects/services/environments, trigger deployments, query deployment status. Uses `RailwayClient` in `railway_api.py` with `RAILWAY_API_TOKEN` env var.
 
 > **Token naming:** `RAILWAY_TOKEN` = CI deploy token (GitHub Secret). `RAILWAY_API_TOKEN` = backend runtime token (Railway service variable). Both required but for different purposes.
 
@@ -380,14 +380,14 @@ CREATE TABLE password_reset_tokens (
 
 ```
 src/
-├── App.jsx          — Router, auth state, localStorage
-├── api.js           — Axios instance, all API call wrappers
-└── pages/
-    ├── LoginPage.jsx         — Email/password form → /auth/login
-    ├── RegisterPage.jsx      — Email/username/password → /auth/register
-    ├── DashboardPage.jsx     — Protected: user info display + sign out
-    ├── ResetRequestPage.jsx  — Email → /auth/password-reset/request
-    └── ResetCompletePage.jsx — Token + new password → /auth/password-reset/complete
+??? App.jsx          - Router, auth state, localStorage
+??? api.js           - Axios instance, all API call wrappers
+??? pages/
+    ??? LoginPage.jsx         - Email/password form ? /auth/login
+    ??? RegisterPage.jsx      - Email/username/password ? /auth/register
+    ??? DashboardPage.jsx     - Protected: user info display + sign out
+    ??? ResetRequestPage.jsx  - Email ? /auth/password-reset/request
+    ??? ResetCompletePage.jsx - Token + new password ? /auth/password-reset/complete
 ```
 
 **Auth state management:**
@@ -403,7 +403,7 @@ src/
 **API client (`api.js`):**
 - Base URL: `VITE_API_URL` environment variable (empty string = same origin)
 - `Content-Type: application/json` header on all requests
-- `getErrorMessage(error)` — extracts `error.response.data.detail` for display
+- `getErrorMessage(error)` - extracts `error.response.data.detail` for display
 
 ### Control Centre (deployed separately)
 
@@ -412,28 +412,28 @@ src/
 
 **Architecture:**
 ```
-Browser → GitHub API (direct — CORS allowed by GitHub)
-Browser → FastAPI backend (proxy — /proxy/jira/*)
-Browser → Anthropic API (via /api/pm-agent/* — API key never in browser)
+Browser ? GitHub API (direct - CORS allowed by GitHub)
+Browser ? FastAPI backend (proxy - /proxy/jira/*)
+Browser ? Anthropic API (via /api/pm-agent/* - API key never in browser)
 ```
 
 **Tab status:**
 
 | Tab | Working | Notes |
 |-----|---------|-------|
-| Overview | Yes | Redesigned (Sprint 6 — SDT1-59, PR #147) |
+| Overview | Yes | Redesigned (Sprint 6 - SDT1-59, PR #147) |
 | Sprint Status | Yes | Sprint selector, per-ticket PR refs, CI runs |
 | Workflows | Yes | GitHub Actions monitor, auto-refresh every 30s |
-| UAT Deploy | Yes | Wired to Railway GraphQL API (Sprint 6 — SDT1-58, PR #125) |
-| SonarCloud | Yes | Results view added (Sprint 6 — SDT1-61, PR #135) |
+| UAT Deploy | Yes | Wired to Railway GraphQL API (Sprint 6 - SDT1-58, PR #125) |
+| SonarCloud | Yes | Results view added (Sprint 6 - SDT1-61, PR #135) |
 | PM Agent | Partial | Chat works; history not persisted (S5-10); approve not wired to Jira (S5-11) |
 
-**Data flow — Sprint Status tab:**
+**Data flow - Sprint Status tab:**
 ```
-Control Centre → GET github.com/api.v3/repos/.../actions/runs
-               → GET /proxy/jira/sprint/{id}/issues
-               → GET /proxy/jira/issues?status=...
-               → Renders ticket list with PR links + CI badge
+Control Centre ? GET github.com/api.v3/repos/.../actions/runs
+               ? GET /proxy/jira/sprint/{id}/issues
+               ? GET /proxy/jira/issues?status=...
+               ? Renders ticket list with PR links + CI badge
 ```
 
 ---
@@ -449,11 +449,11 @@ Low-level GitHub REST API v3 wrapper. All methods raise `Exception` on non-2xx r
 | Method | Notes |
 |--------|-------|
 | `ensure_repo_exists()` | Creates repo if missing; idempotent |
-| `get_branch_sha(branch)` | Returns latest commit SHA — required for all write ops |
+| `get_branch_sha(branch)` | Returns latest commit SHA - required for all write ops |
 | `commit_file(path, content, message, branch)` | Handles both new files (no SHA) and updates (fetches existing SHA first) |
-| `commit_multiple_files(files, message, branch)` | Git Trees API — creates tree + commit in one call; clean single commit |
+| `commit_multiple_files(files, message, branch)` | Git Trees API - creates tree + commit in one call; clean single commit |
 | `create_pull_request(title, body, head, base)` | Returns existing PR if branch already has one open |
-| `list_tree(branch, path_prefix)` | Recursive tree of blobs — used by CI Dev Agent to read existing files |
+| `list_tree(branch, path_prefix)` | Recursive tree of blobs - used by CI Dev Agent to read existing files |
 
 **Why single-file commits in CrewAI mode:**
 Each `commit_file` call is a separate tool invocation. CrewAI agents call tools one at a time; the `commit_multiple_files` tool exists for CI mode where Claude returns a JSON array of files in one response.
@@ -491,7 +491,7 @@ def _adf(text: str) -> dict:
 
 All tools in `tools/pm_tools.py`, `tools/dev_tools.py`, `tools/manager_tools.py` follow this pattern:
 - Subclass `BaseTool` from CrewAI
-- `_run(self, ...)` returns a formatted string (never raises — agent sees failure message)
+- `_run(self, ...)` returns a formatted string (never raises - agent sees failure message)
 - Field aliases handled for flexibility (e.g., `CommitMultipleFilesTool` accepts `filename`, `file_path`, `code`, `text` as alternatives to `path`, `content`)
 
 **Manager tools split (REVIEW_TOOLS / MERGE_TOOLS):**
@@ -504,7 +504,7 @@ CrewAI has a schema size limit per agent. Manager tools are split into two group
 ### `auto-implement.yml`
 
 **Trigger:** `workflow_dispatch` (manual or API-triggered)  
-**Inputs:** `ticket` (required), `summary` (required), `feedback` (optional — for conflict recovery)  
+**Inputs:** `ticket` (required), `summary` (required), `feedback` (optional - for conflict recovery)  
 **Runner:** `ubuntu-latest`  
 **Permissions:** `contents:write`, `pull-requests:write`  
 **Python deps installed:** `anthropic`, `requests`, `python-dotenv`  
@@ -522,11 +522,11 @@ CrewAI has a schema size limit per agent. Manager tools are split into two group
 **Command:** `python ci_manager_agent.py --auto`  
 
 **Environment variables passed:**
-- `PR_NUMBER` — from PR event context or dispatch input
-- `MANUAL_PR` — the dispatch input value (if manually triggered)
-- `EVENT_NAME` — `github.event_name`
-- `HEAD_SHA` — `github.event.pull_request.head.sha` or `github.sha`
-- `PAT_TOKEN` — `${{ secrets.PAT_TOKEN }}` — used by `ci_manager_agent.py` for `workflow_dispatch` retriggers (GITHUB_TOKEN cannot dispatch workflows)
+- `PR_NUMBER` - from PR event context or dispatch input
+- `MANUAL_PR` - the dispatch input value (if manually triggered)
+- `EVENT_NAME` - `github.event_name`
+- `HEAD_SHA` - `github.event.pull_request.head.sha` or `github.sha`
+- `PAT_TOKEN` - `${{ secrets.PAT_TOKEN }}` - used by `ci_manager_agent.py` for `workflow_dispatch` retriggers (GITHUB_TOKEN cannot dispatch workflows)
 
 ### `ci.yml`
 
@@ -541,7 +541,7 @@ CrewAI has a schema size limit per agent. Manager tools are split into two group
 | sonarcloud | main push only | No (continue-on-error) | Full code analysis |
 | quality-gate | After sonarcloud | No | Reads SonarCloud gate result |
 | playwright | main push only | No (continue-on-error) | E2E against live UAT backend |
-| deploy | main push only | No | Railway GraphQL API `serviceInstanceRedeploy` mutation via `curl` + `jq` — no CLI install required |
+| deploy | main push only | No | Railway GraphQL API `serviceInstanceRedeploy` mutation via `curl` + `jq` - no CLI install required |
 
 **Graceful skip:** If `src/` or `tests/` directories don't exist, test jobs skip without failing.
 
@@ -559,7 +559,7 @@ CrewAI has a schema size limit per agent. Manager tools are split into two group
 ### Story Points
 Fibonacci only: `1, 2, 3, 5, 8, 13`  
 Maximum per story: **8** (stories with 13 points get a FLAGGED Jira comment)  
-Target per sprint: **20–40 points**
+Target per sprint: **20-40 points**
 
 ### Jira Sprint IDs
 
@@ -573,6 +573,7 @@ Target per sprint: **20–40 points**
 | Sprint 6 | 10198 | 105 |
 | Sprint 7 | 10231 | 138 |
 | Sprint 8 | 10264 | 171 |
+| Sprint 9 | 10297 | 204 |
 
 ### CI Timeout Values (orchestrator)
 
@@ -607,7 +608,7 @@ When waiting for CI, the CI Manager Agent skips these check-run names:
 
 This prevents the agent from waiting on its own review job or on manual-trigger-only jobs.
 
-### Non-Blocking CI Jobs — Excluded from Merge Gate by Design
+### Non-Blocking CI Jobs - Excluded from Merge Gate by Design
 
 These jobs run with `continue-on-error: true` or `--exit-zero` in `ci.yml`. They are **deliberately excluded** from the Manager Agent's merge gate and must never be added as blocking conditions:
 
@@ -647,7 +648,7 @@ When detected: files go to `control-centre/`, shared files (`README.md`, `requir
 
 ### GitHub Client
 - Non-2xx responses: `raise Exception(f"GitHub API error {status}: {text[:400]}")`
-- File updates: Always fetches current SHA first via `get_file()` before `commit_file()` — avoids SHA mismatch errors
+- File updates: Always fetches current SHA first via `get_file()` before `commit_file()` - avoids SHA mismatch errors
 
 ### Jira Client
 - Transition failures: `raise ValueError(f"Status '{name}' not found. Available: {list}")`
@@ -656,7 +657,7 @@ When detected: files go to `control-centre/`, shared files (`README.md`, `requir
 ### CrewAI Tools
 - All `_run()` methods catch exceptions and return error strings
 - Agent sees: `"Error: <message>"` in tool result and can decide next step
-- Never raises — raising inside a tool crashes the CrewAI task
+- Never raises - raising inside a tool crashes the CrewAI task
 
 ### CI Dev Agent (JSON salvage)
 ```python
@@ -671,16 +672,16 @@ else:
 ### Orchestrator Timeout Handling
 - Each polling loop has a hard timeout; on timeout, orchestrator logs warning and moves to next ticket
 - Failed tickets (no PR opened, CI failure) are automatically retried on the next while-loop iteration if they remain To Do in Jira
-- A ticket that is permanently broken will loop indefinitely — move it to Done or out of To Do in Jira to unblock the sprint
+- A ticket that is permanently broken will loop indefinitely - move it to Done or out of To Do in Jira to unblock the sprint
 
-### CI Dev Agent — Directory Path Guard
+### CI Dev Agent - Directory Path Guard
 `gh_read_file` checks `isinstance(data, list)` after parsing the GitHub API response. The Contents API returns a JSON array (not a file dict) when the requested path is a directory. Without this guard, `data["content"]` raises `TypeError` and crashes the entire run. The guard returns `None` (same as 404), letting the agent try a different path.
 
 ---
 
 ## 10. Utility & Maintenance Scripts
 
-Scripts that have accumulated at the project root from prior sprints. These are not part of the agent pipeline — they're one-off helpers.
+Scripts that have accumulated at the project root from prior sprints. These are not part of the agent pipeline - they're one-off helpers.
 
 | Script | Purpose |
 |--------|---------|
@@ -694,11 +695,11 @@ Scripts that have accumulated at the project root from prior sprints. These are 
 | `push_ci_update.py` | Push CI workflow changes to main |
 | `push_ci_to_branch.py` | Push CI workflow changes to a feature branch |
 
-**Note:** These scripts do not use the agent framework — they call the Jira/GitHub clients directly.
+**Note:** These scripts do not use the agent framework - they call the Jira/GitHub clients directly.
 
 ---
 
-## Appendix — Environment Variables
+## Appendix - Environment Variables
 
 ### Required for Agents
 
@@ -719,7 +720,7 @@ Scripts that have accumulated at the project root from prior sprints. These are 
 |----------|---------|-------------|
 | `DATABASE_URL` | None | PostgreSQL connection string |
 | `JWT_SECRET` | `"dev-secret-change-in-production"` | JWT signing secret |
-| `FRONTEND_URL` | `"*"` | CORS allowed origins — must be `*` or include Control Centre URL; set in Railway service variables |
+| `FRONTEND_URL` | `"*"` | CORS allowed origins - must be `*` or include Control Centre URL; set in Railway service variables |
 
 ### Optional
 
@@ -729,16 +730,16 @@ Scripts that have accumulated at the project root from prior sprints. These are 
 | `RAILWAY_PROJECT_ID` | CI deploy | Railway project UUID |
 | `SONAR_TOKEN` | CI SonarCloud | SonarCloud analysis token |
 | `JWT_EXPIRY_HOURS` | UAT backend | Token lifetime (default: 24) |
-| `OPENAI_API_KEY` | CrewAI | Set to `"sk-no-openai-needed"` — required by CrewAI framework even though Claude is used |
+| `OPENAI_API_KEY` | CrewAI | Set to `"sk-no-openai-needed"` - required by CrewAI framework even though Claude is used |
 
 
 ---
 
 ## 11. CI Dev Agent System Prompt Rules
 
-Source: `ci_dev_agent.py` — `SYSTEM_PROMPT` constant and `TOOLS` list.
+Source: `ci_dev_agent.py` - `SYSTEM_PROMPT` constant and `TOOLS` list.
 
-This section documents the full ruleset baked into the CI Dev Agent's system prompt and tool schema. Every Auto Implement run triggered by GitHub Actions (`auto-implement.yml`) operates under these rules. The CrewAI Dev Agent (`agents/dev_agent.py`) enforces the same rules via its backstory — any change must be applied to both (AD-4).
+This section documents the full ruleset baked into the CI Dev Agent's system prompt and tool schema. Every Auto Implement run triggered by GitHub Actions (`auto-implement.yml`) operates under these rules. The CrewAI Dev Agent (`agents/dev_agent.py`) enforces the same rules via its backstory - any change must be applied to both (AD-4).
 
 ---
 
@@ -751,7 +752,7 @@ This section documents the full ruleset baked into the CI Dev Agent's system pro
 | Max tokens per turn | 16 000 |
 | Max tool-loop iterations | 40 |
 | Stop condition | `stop_reason == "end_turn"` or no tool calls returned |
-| Exit on no PR | `sys.exit(1)` — CI step fails and blocks the ticket |
+| Exit on no PR | `sys.exit(1)` - CI step fails and blocks the ticket |
 
 ---
 
@@ -761,10 +762,10 @@ The agent must call four tools in this exact sequence. Calling `stage_file` or `
 
 | Step | Tool | When |
 |------|------|------|
-| 1 | `create_branch` | First call — always, before reading or staging anything |
-| 2 | `read_file` | Before every file that may already exist — existing content must be merged in, never overwritten |
-| 3 | `stage_file` | Once per file — supply complete final content |
-| 4 | `create_pr` | Once, after all files are staged — commits and opens the PR atomically |
+| 1 | `create_branch` | First call - always, before reading or staging anything |
+| 2 | `read_file` | Before every file that may already exist - existing content must be merged in, never overwritten |
+| 3 | `stage_file` | Once per file - supply complete final content |
+| 4 | `create_pr` | Once, after all files are staged - commits and opens the PR atomically |
 
 ---
 
@@ -772,7 +773,7 @@ The agent must call four tools in this exact sequence. Calling `stage_file` or `
 
 | Path | Rule |
 |------|------|
-| `uat/backend/` | **Flat layout** — all Python files sit directly in `uat/backend/`. No `src/` subdirectory, no `__init__.py` files. Tests go in `uat/backend/tests/`. Imports are flat: `from models import ...` |
+| `uat/backend/` | **Flat layout** - all Python files sit directly in `uat/backend/`. No `src/` subdirectory, no `__init__.py` files. Tests go in `uat/backend/tests/`. Imports are flat: `from models import ...` |
 | `control-centre/src/components/` | React components |
 | `control-centre/src/api/` | API helper modules |
 | `agents/`, `tools/` (repo root) | Agent and orchestration code |
@@ -793,23 +794,23 @@ The agent must call four tools in this exact sequence. Calling `stage_file` or `
 - **Python version:** 3.11+
 - **Type hints:** Required on all functions
 - **Docstrings:** Required on all public functions and classes
-- **Secrets:** Never hardcoded — environment variables only
+- **Secrets:** Never hardcoded - environment variables only
 - **Tests:** Write meaningful pytest tests for all new backend logic
 - **File size:** Keep files focused; split across multiple files rather than one large file
 
 ---
 
-### Merge Rule (Critical — from system prompt)
+### Merge Rule (Critical - from system prompt)
 
-> "If `read_file` returns content, you MUST incorporate the existing content into your staged version — never discard existing code when extending a file."
+> "If `read_file` returns content, you MUST incorporate the existing content into your staged version - never discard existing code when extending a file."
 
 The agent calls `read_file` before touching any shared file (e.g. `models.py`, `main.py`, `requirements.txt`). The returned content is merged with the new changes before staging. Discarding existing code would silently delete all prior work in that file.
 
 ---
 
-### Dependency Rule (Critical — from system prompt)
+### Dependency Rule (Critical - from system prompt)
 
-> "`requirements.txt` is a critical file — always read its existing content before writing, never remove existing dependencies, only append new ones. Removing a dependency will break the deployed service for every feature that depends on it."
+> "`requirements.txt` is a critical file - always read its existing content before writing, never remove existing dependencies, only append new ones. Removing a dependency will break the deployed service for every feature that depends on it."
 
 Applies to `uat/backend/requirements.txt`. This rule is also a Hard Rule in CLAUDE.md and is enforced in the CrewAI Dev Agent backstory (see AD-4).
 
@@ -831,7 +832,7 @@ Example: `[SDT1-74] Control Centre shows current sprint status`
 
 #### `create_branch`
 - Creates `feature/{ticket}-{slug}` from the latest main SHA
-- Deletes any existing branch with the same name first — guarantees a clean diff with no stale commits (AD-3)
+- Deletes any existing branch with the same name first - guarantees a clean diff with no stale commits (AD-3)
 - Sets `state["branch"]`; `create_pr` will error if this is unset
 
 #### `read_file`
@@ -847,7 +848,7 @@ Example: `[SDT1-74] Control Centre shows current sprint status`
 #### `create_pr`
 - Idempotent: checks for an existing open PR on the branch first; returns early with the existing PR number if found
 - Constructs commit message: `feat({ticket.lower()}): {summary[:60].lower()}`
-- Delegates to `gh_commit_files()` which uses the Git Trees API — one clean commit regardless of how many files were staged
+- Delegates to `gh_commit_files()` which uses the Git Trees API - one clean commit regardless of how many files were staged
 - Guards against double-call: returns an error if `state["pr_number"]` is already set
 - Calls `sys.exit(1)` if the PR cannot be created (fails the CI step)
 
@@ -879,7 +880,7 @@ slug        = re.sub(r'[^a-z0-9-]', '-', summary.lower())[:40].rstrip('-')
 branch_name = f"feature/{ticket.lower()}-{slug}"
 ```
 
-Example: `SDT1-74` + `"Control Centre shows current sprint status"` → `feature/sdt1-74-control-centre-shows-current-sprint`
+Example: `SDT1-74` + `"Control Centre shows current sprint status"` ? `feature/sdt1-74-control-centre-shows-current-sprint`
 
 ---
 
