@@ -7,7 +7,7 @@ Provides endpoints for managing Railway deployments via GraphQL API.
 
 import os
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel, Field
 from datetime import datetime
@@ -88,11 +88,7 @@ def _format_deployment(deployment: Dict) -> DeploymentStatusResponse:
 
 @router.get("/projects", response_model=List[ProjectInfo])
 async def get_projects(current_user: Dict = Depends(get_current_user)):
-    """
-    Get all Railway projects accessible by the configured API token.
-    
-    Requires authentication.
-    """
+    """Get all Railway projects accessible by the configured API token."""
     try:
         client = await get_railway_client()
         projects = await client.get_projects()
@@ -126,14 +122,7 @@ async def get_project_services(
     project_id: str,
     current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Get all services for a specific Railway project.
-    
-    Args:
-        project_id: Railway project ID
-        
-    Requires authentication.
-    """
+    """Get all services for a specific Railway project."""
     try:
         client = await get_railway_client()
         services = await client.get_project_services(project_id)
@@ -167,14 +156,7 @@ async def get_project_environments(
     project_id: str,
     current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Get all environments for a specific Railway project.
-    
-    Args:
-        project_id: Railway project ID
-        
-    Requires authentication.
-    """
+    """Get all environments for a specific Railway project."""
     try:
         client = await get_railway_client()
         environments = await client.get_project_environments(project_id)
@@ -208,15 +190,7 @@ async def get_service_deployments(
     limit: int = 10,
     current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Get recent deployments for a specific service.
-    
-    Args:
-        service_id: Railway service ID
-        limit: Maximum number of deployments to return (default: 10)
-        
-    Requires authentication.
-    """
+    """Get recent deployments for a specific service."""
     try:
         client = await get_railway_client()
         deployments = await client.get_service_deployments(service_id, limit)
@@ -242,14 +216,7 @@ async def trigger_deployment(
     request: DeploymentTriggerRequest,
     current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Trigger a new deployment for a service in a specific environment.
-    
-    Args:
-        request: Deployment trigger request with service_id and environment_id
-        
-    Requires authentication.
-    """
+    """Trigger a new deployment for a service in a specific environment."""
     try:
         client = await get_railway_client()
         deployment = await client.trigger_deployment(
@@ -283,20 +250,7 @@ async def redeploy_service(
     request: RedeployRequest,
     current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Trigger a redeployment for a service in a specific environment.
-    
-    This is a convenience endpoint that triggers a new deployment,
-    effectively redeploying the service with the current configuration.
-    
-    Args:
-        request: Redeploy request with service_id and environment_id
-        
-    Requires authentication.
-    
-    Returns:
-        DeploymentStatusResponse: New deployment information
-    """
+    """Trigger a redeployment for a service in a specific environment."""
     try:
         client = await get_railway_client()
         deployment = await client.trigger_deployment(
@@ -330,14 +284,7 @@ async def get_deployment_status(
     deployment_id: str,
     current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Get the current status of a specific deployment.
-    
-    Args:
-        deployment_id: Railway deployment ID
-        
-    Requires authentication.
-    """
+    """Get the current status of a specific deployment."""
     try:
         client = await get_railway_client()
         deployment = await client.get_deployment_status(deployment_id)
@@ -364,17 +311,7 @@ async def get_service_variables(
     environment_id: str,
     current_user: Dict = Depends(get_current_user)
 ):
-    """
-    Get environment variables for a service in a specific environment.
-    
-    Args:
-        service_id: Railway service ID
-        environment_id: Railway environment ID
-        
-    Requires authentication.
-    
-    Note: Variable values may be redacted based on Railway's visibility settings.
-    """
+    """Get environment variables for a service in a specific environment."""
     try:
         client = await get_railway_client()
         variables = await client.get_service_variables(service_id, environment_id)
@@ -397,10 +334,7 @@ async def get_service_variables(
 
 @router.get("/health")
 async def railway_health():
-    """
-    Health check endpoint for Railway integration.
-    Verifies that Railway API token is configured.
-    """
+    """Health check endpoint for Railway integration."""
     api_token = os.environ.get("RAILWAY_API_TOKEN")
     
     if not api_token:
@@ -413,3 +347,225 @@ async def railway_health():
         "status": "healthy",
         "message": "Railway API configured"
     }
+
+
+# ── Pipeline (DEV / TEST / PROD) ──────────────────────────────────────────────
+
+_PIPELINE_STAGES = ["dev", "test", "prod"]
+
+
+def _pipeline_service_name(stage: str) -> Optional[str]:
+    """Return the Railway service name for the given pipeline stage from env vars."""
+    defaults: Dict[str, str] = {"dev": "synpro-virtual-dev-team"}
+    return os.environ.get(f"RAILWAY_{stage.upper()}_SERVICE_NAME", defaults.get(stage))
+
+
+def _railway_env_name() -> str:
+    return os.environ.get("RAILWAY_ENVIRONMENT_NAME", "production")
+
+
+async def _find_service_and_env(
+    client: RailwayClient,
+    project_id: str,
+    service_name: str,
+    env_name: str,
+) -> tuple:
+    """Resolve service ID and environment ID by name within a project."""
+    services = await client.get_project_services(project_id)
+    service = next((s for s in services if s["name"].lower() == service_name.lower()), None)
+    if not service:
+        raise RailwayAPIError(f"Service '{service_name}' not found in Railway project")
+
+    envs = await client.get_project_environments(project_id)
+    env = next((e for e in envs if e["name"].lower() == env_name.lower()), None)
+    if not env:
+        raise RailwayAPIError(f"Railway environment '{env_name}' not found")
+
+    return service["id"], env["id"]
+
+
+@router.get("/pipeline/status")
+async def get_pipeline_status(current_user: Dict = Depends(get_current_user)):
+    """Return deployment status for DEV, TEST, and PROD pipeline stages."""
+    project_id = os.environ.get("RAILWAY_PROJECT_ID")
+    if not project_id:
+        raise HTTPException(status_code=503, detail="RAILWAY_PROJECT_ID not configured")
+
+    env_name = _railway_env_name()
+    try:
+        client = await get_railway_client()
+        services = await client.get_project_services(project_id)
+        services_by_name = {s["name"].lower(): s for s in services}
+
+        envs = await client.get_project_environments(project_id)
+        env = next((e for e in envs if e["name"].lower() == env_name.lower()), None)
+        env_id = env["id"] if env else None
+
+        result: Dict[str, Any] = {}
+        for stage in _PIPELINE_STAGES:
+            svc_name = _pipeline_service_name(stage)
+            if not svc_name:
+                result[stage] = {
+                    "configured": False,
+                    "service_name": None,
+                    "service_id": None,
+                    "environment_id": env_id,
+                    "last_deployment": None,
+                    "error": f"RAILWAY_{stage.upper()}_SERVICE_NAME not configured",
+                }
+                continue
+
+            svc = services_by_name.get(svc_name.lower())
+            if not svc:
+                result[stage] = {
+                    "configured": True,
+                    "service_name": svc_name,
+                    "service_id": None,
+                    "environment_id": env_id,
+                    "last_deployment": None,
+                    "error": f"Service '{svc_name}' not found in Railway project",
+                }
+                continue
+
+            try:
+                deployments = await client.get_service_deployments(svc["id"], limit=1)
+                last = deployments[0] if deployments else None
+                last_deployment = (
+                    {
+                        "id": last["id"],
+                        "status": last["status"],
+                        "created_at": last.get("createdAt", ""),
+                    }
+                    if last
+                    else None
+                )
+            except Exception:
+                last_deployment = None
+
+            result[stage] = {
+                "configured": True,
+                "service_name": svc_name,
+                "service_id": svc["id"],
+                "environment_id": env_id,
+                "last_deployment": last_deployment,
+                "error": None,
+            }
+
+        return {"environments": result}
+
+    except RailwayAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/pipeline/{target_stage}/promote")
+async def promote_pipeline_stage(
+    target_stage: str,
+    current_user: Dict = Depends(get_current_user),
+):
+    """Promote to a pipeline stage by triggering a redeploy of its Railway service.
+
+    Only 'test' and 'prod' are valid promotion targets.
+    """
+    if target_stage not in ("test", "prod"):
+        raise HTTPException(status_code=400, detail="Can only promote to 'test' or 'prod'")
+
+    project_id = os.environ.get("RAILWAY_PROJECT_ID")
+    if not project_id:
+        raise HTTPException(status_code=503, detail="RAILWAY_PROJECT_ID not configured")
+
+    svc_name = _pipeline_service_name(target_stage)
+    if not svc_name:
+        raise HTTPException(
+            status_code=503,
+            detail=f"RAILWAY_{target_stage.upper()}_SERVICE_NAME not configured",
+        )
+
+    try:
+        client = await get_railway_client()
+        svc_id, env_id = await _find_service_and_env(
+            client, project_id, svc_name, _railway_env_name()
+        )
+        deployment = await client.trigger_deployment(svc_id, env_id)
+
+        logger.info(
+            "User %s promoted to %s: service=%s deployment=%s",
+            current_user.get("email", "unknown"),
+            target_stage,
+            svc_name,
+            deployment.get("id"),
+        )
+
+        return {
+            "environment": target_stage,
+            "service_name": svc_name,
+            "deployment": {
+                "id": deployment.get("id"),
+                "status": deployment.get("status"),
+                "created_at": deployment.get("createdAt", ""),
+            },
+        }
+
+    except RailwayAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/pipeline/{stage}/rollback")
+async def rollback_pipeline_stage(
+    stage: str,
+    current_user: Dict = Depends(get_current_user),
+):
+    """Roll back a pipeline stage to its previous successful deployment."""
+    if stage not in _PIPELINE_STAGES:
+        raise HTTPException(status_code=400, detail=f"Unknown pipeline stage: {stage}")
+
+    project_id = os.environ.get("RAILWAY_PROJECT_ID")
+    if not project_id:
+        raise HTTPException(status_code=503, detail="RAILWAY_PROJECT_ID not configured")
+
+    svc_name = _pipeline_service_name(stage)
+    if not svc_name:
+        raise HTTPException(
+            status_code=503,
+            detail=f"RAILWAY_{stage.upper()}_SERVICE_NAME not configured",
+        )
+
+    try:
+        client = await get_railway_client()
+        svc_id, _ = await _find_service_and_env(
+            client, project_id, svc_name, _railway_env_name()
+        )
+
+        deployments = await client.get_service_deployments(svc_id, limit=10)
+        successful = [d for d in deployments if d.get("status") in ("SUCCESS", "ACTIVE")]
+
+        if len(successful) < 2:
+            raise HTTPException(
+                status_code=409,
+                detail="No previous successful deployment found to roll back to",
+            )
+
+        # successful[0] is current, successful[1] is the previous
+        target = successful[1]
+        new_deployment = await client.redeploy_deployment(target["id"])
+
+        logger.info(
+            "User %s rolled back %s: service=%s redeploying=%s",
+            current_user.get("email", "unknown"),
+            stage,
+            svc_name,
+            target["id"],
+        )
+
+        return {
+            "environment": stage,
+            "service_name": svc_name,
+            "rolled_back_to": target["id"],
+            "deployment": {
+                "id": new_deployment.get("id"),
+                "status": new_deployment.get("status"),
+                "created_at": new_deployment.get("createdAt", ""),
+            },
+        }
+
+    except RailwayAPIError as e:
+        raise HTTPException(status_code=502, detail=str(e))

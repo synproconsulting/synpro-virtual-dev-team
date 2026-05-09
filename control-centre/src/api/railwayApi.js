@@ -221,3 +221,59 @@ export const checkRailwayHealth = async () => {
     return { status: 'unhealthy', message: error.message };
   }
 };
+
+// ── Pipeline API (DEV / TEST / PROD) ─────────────────────────────────────────
+
+/**
+ * Get deployment status for all pipeline stages (DEV/TEST/PROD)
+ */
+export const getPipelineStatus = async () => {
+  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/status`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${getAuthToken()}`,
+    },
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to fetch pipeline status: ${response.status}`);
+  }
+  return response.json();
+};
+
+/**
+ * Promote to a pipeline stage (test or prod)
+ */
+export const promoteEnvironment = async (targetStage) => {
+  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/${targetStage}/promote`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${getAuthToken()}`,
+    },
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to promote to ${targetStage}: ${response.status}`);
+  }
+  return response.json();
+};
+
+/**
+ * Roll back a pipeline stage to its previous successful deployment
+ */
+export const rollbackEnvironment = async (stage) => {
+  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/${stage}/rollback`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${getAuthToken()}`,
+    },
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Failed to roll back ${stage}: ${response.status}`);
+  }
+  return response.json();
+};
