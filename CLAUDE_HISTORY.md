@@ -223,3 +223,32 @@ The Railway service pre-deploy command is set to `alembic upgrade head`. New mig
 
 ### 4. Migration files exist only on GitHub — no local equivalent needed, Claude Code reads them via API
 Alembic migration files live in `uat/backend/alembic/versions/` in the GitHub repo. Claude Code reads and modifies them via the GitHub Contents API (no local checkout required). This is consistent with AD-2 (no git CLI dependency).
+
+---
+
+### Sprint 10 — Multi-Product Control Centre & Environment Pipeline ✅ Complete
+Fix version 10330, native sprint ID 237.
+
+| Exec # | Ticket | Summary | Status | PR |
+|--------|--------|---------|--------|----|
+| 1 | SDT1-96 | Multi-product: product selector in Control Centre | ✅ Done | #181 |
+| 2 | SDT1-97 | Environments: three-environment pipeline DEV/TEST/PROD | ✅ Done | #182 |
+
+**Fix PRs opened during Sprint 10 (infrastructure, not sprint tickets):**
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #180 | fix/add-sprint10-jira-ids | Add Sprint 10 Jira IDs to CLAUDE.md and PROJECT_CONTEXT.md |
+
+---
+
+## Sprint 10 Lessons Learned
+
+### 1. New Control Centre components live in control-centre/src/components/ and control-centre/src/contexts/
+Claude Code reads Control Centre source from GitHub via the Contents API when the `control-centre/` directory is not present locally. Any new component or context provider must be placed in these directories — the CI Dev Agent's `CC_KEYWORDS` detection targets `control-centre/` as the output root.
+
+### 2. Environment pipeline requires Railway env vars set manually before TEST/PROD stages activate
+SDT1-97 introduced `RAILWAY_TEST_SERVICE_NAME` and `RAILWAY_PROD_SERVICE_NAME` environment variables. The pipeline code is correct immediately after merge, but TEST and PROD stage buttons in the Control Centre remain inactive until these variables are set in the Railway dashboard for the backend service. Document new Railway variables in acceptance criteria (per Hard Rule on security hardening tickets).
+
+### 3. Product selector uses localStorage for persistence — no backend session required
+SDT1-96 stores the selected product in `localStorage` on the browser. No backend endpoint or database table is needed to remember the selection across page loads. This keeps the feature self-contained in the Control Centre frontend and avoids a new API dependency.
