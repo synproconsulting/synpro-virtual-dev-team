@@ -13,7 +13,7 @@ An AI-powered Virtual Development Team that automates the full software developm
 
 **Owner:** Johan Wessels — SynPro Consulting
 **Started:** April 21, 2025
-**Current state:** Sprints 1–8 complete and merged. Sprint 9 not yet planned.
+**Current state:** Sprints 1–8 complete and merged. Sprint 9 in progress.
 
 ---
 
@@ -467,8 +467,8 @@ Every sprint story **must** have `customfield_10071` set by the PM Agent at plan
 |---|---|
 | Site | `synproconsulting.atlassian.net` |
 | Project key | `SDT1` |
-| Sprint IDs (native) | Sprint 1: 35, Sprint 2: 69, Sprint 3: 70, Sprint 4: 71, Sprint 5: 72, Sprint 6: 105, Sprint 7: 138, Sprint 8: 171 |
-| Sprint fix version IDs | Sprint 1: 10000, Sprint 2: 10033, Sprint 3: 10066, Sprint 4: 10099, Sprint 5: 10132, Sprint 6: 10198, Sprint 7: 10231, Sprint 8: 10264 |
+| Sprint IDs (native) | Sprint 1: 35, Sprint 2: 69, Sprint 3: 70, Sprint 4: 71, Sprint 5: 72, Sprint 6: 105, Sprint 7: 138, Sprint 8: 171, Sprint 9: 204 |
+| Sprint fix version IDs | Sprint 1: 10000, Sprint 2: 10033, Sprint 3: 10066, Sprint 4: 10099, Sprint 5: 10132, Sprint 6: 10198, Sprint 7: 10231, Sprint 8: 10264, Sprint 9: 10297 |
 | Execution order field | `customfield_10071` |
 | Story points field | `customfield_10016` |
 
