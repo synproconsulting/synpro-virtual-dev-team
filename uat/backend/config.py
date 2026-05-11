@@ -147,6 +147,10 @@ def get_cors_origins() -> List[str]:
     if not origins:
         raise CORSConfigError("FRONTEND_URL is empty after parsing")
     
+    # When FRONTEND_URL=*, the operator has explicitly chosen wildcard -- allow automatically.
+    if origins == ["*"]:
+        allow_wildcard = True
+    
     # Validate origins
     _validate_cors_origins(origins, allow_wildcard=allow_wildcard)
     
@@ -166,9 +170,13 @@ def get_cors_config() -> dict:
     """
     origins = get_cors_origins()
     
+    # Wildcard origins are incompatible with credentials per CORS spec.
+    # Bearer-token auth works correctly without allow_credentials when wildcard is used.
+    allow_credentials = "*" not in origins
+    
     return {
         "allow_origins": origins,
-        "allow_credentials": True,
+        "allow_credentials": allow_credentials,
         "allow_methods": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         "allow_headers": ["*"],
         "expose_headers": ["*"],
