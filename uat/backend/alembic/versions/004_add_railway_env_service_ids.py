@@ -16,12 +16,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('products', sa.Column('railway_dev_service_id', sa.String(255), nullable=True))
-    op.add_column('products', sa.Column('railway_test_service_id', sa.String(255), nullable=True))
-    op.add_column('products', sa.Column('railway_prod_service_id', sa.String(255), nullable=True))
+    op.execute('ALTER TABLE products ADD COLUMN IF NOT EXISTS railway_dev_service_id VARCHAR(255)')
+    op.execute('ALTER TABLE products ADD COLUMN IF NOT EXISTS railway_test_service_id VARCHAR(255)')
+    op.execute('ALTER TABLE products ADD COLUMN IF NOT EXISTS railway_prod_service_id VARCHAR(255)')
 
 
 def downgrade() -> None:
-    op.drop_column('products', 'railway_prod_service_id')
-    op.drop_column('products', 'railway_test_service_id')
-    op.drop_column('products', 'railway_dev_service_id')
+    op.execute('ALTER TABLE products DROP COLUMN IF EXISTS railway_prod_service_id')
+    op.execute('ALTER TABLE products DROP COLUMN IF EXISTS railway_test_service_id')
+    op.execute('ALTER TABLE products DROP COLUMN IF EXISTS railway_dev_service_id')
