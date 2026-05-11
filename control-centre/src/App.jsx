@@ -9,16 +9,14 @@ import GitHubWorkflowMonitor from "./components/GitHubWorkflowMonitor";
 import UATDeployment from "./components/UATDeployment";
 import SonarCloudTrigger from "./components/SonarCloudTrigger";
 import PMAgentChat from "./components/PMAgentChat";
-import OrchestratorControl from "./components/OrchestratorControl";
 
 const TABS = [
-  { id: "overview",      label: "Overview",      component: DashboardMain },
-  { id: "sprint",        label: "Sprint Status", component: SprintDashboard },
-  { id: "orchestrator",  label: "Orchestrator",  component: OrchestratorControl },
-  { id: "workflows",     label: "Workflows",     component: GitHubWorkflowMonitor },
-  { id: "deploy",        label: "UAT Deploy",    component: UATDeployment },
-  { id: "sonarcloud",    label: "SonarCloud",    component: SonarCloudTrigger },
-  { id: "pm-agent",      label: "PM Agent",      component: PMAgentChat },
+  { id: "overview",   label: "Overview",      component: DashboardMain },
+  { id: "sprint",     label: "Sprint Status", component: SprintDashboard },
+  { id: "workflows",  label: "Workflows",     component: GitHubWorkflowMonitor },
+  { id: "deploy",     label: "UAT Deploy",    component: UATDeployment },
+  { id: "sonarcloud", label: "SonarCloud",    component: SonarCloudTrigger },
+  { id: "pm-agent",   label: "PM Agent",      component: PMAgentChat },
 ];
 
 export default function App() {

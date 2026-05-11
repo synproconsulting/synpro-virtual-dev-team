@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
+# When FRONTEND_URL=* is configured, automatically enable wildcard CORS so the
+# backend starts correctly without requiring a separate ALLOW_CORS_WILDCARD flag.
+# CLAUDE.md documents that FRONTEND_URL=* should work out of the box for UAT.
+if os.environ.get("FRONTEND_URL", "").strip() == "*":
+    os.environ.setdefault("ALLOW_CORS_WILDCARD", "true")
+
 
 # ── App setup ─────────────────────────────────────────────────────────────────────────
 
@@ -48,7 +54,7 @@ async def lifespan(app: FastAPI):
         logger.info("✓ Database configured. Use 'alembic upgrade head' to run migrations.")
     else:
         logger.warning("WARNING: DATABASE_URL not set - running without database")
-    
+
     # Validate CORS configuration on startup
     try:
         cors_config = get_cors_config()
@@ -56,7 +62,7 @@ async def lifespan(app: FastAPI):
     except CORSConfigError as e:
         logger.error(f"❌ CORS configuration error: {e}")
         raise
-    
+
     # Validate JWT configuration on startup (SDT1-63)
     try:
         jwt_config = get_jwt_config()
@@ -64,7 +70,7 @@ async def lifespan(app: FastAPI):
     except JWTConfigError as e:
         logger.error(f"❌ JWT configuration error: {e}")
         raise
-    
+
     yield
 
 app = FastAPI(

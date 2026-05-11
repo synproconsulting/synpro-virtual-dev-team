@@ -6,7 +6,7 @@
  * SDT1-98: Per-environment Railway service IDs per product
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 /**
  * Get authentication token from localStorage
