@@ -8,12 +8,15 @@ Provides endpoints for managing Railway deployments via GraphQL API.
 import os
 import logging
 from typing import Dict, List, Optional, Any
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
 from datetime import datetime
+from sqlalchemy.orm import Session
 
 from railway_api import get_railway_client, RailwayClient, RailwayAPIError
 from auth import get_current_user
+from database import get_db
+from models import Product
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +86,16 @@ def _format_deployment(deployment: Dict) -> DeploymentStatusResponse:
     )
 
 
+def _product_service_id(product: Product, stage: str) -> Optional[str]:
+    """Return the Railway service ID for the given pipeline stage from the product."""
+    mapping = {
+        "dev": product.railway_dev_service_id,
+        "test": product.railway_test_service_id,
+        "prod": product.railway_prod_service_id,
+    }
+    return mapping.get(stage)
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
@@ -92,7 +105,7 @@ async def get_projects(current_user: Dict = Depends(get_current_user)):
     try:
         client = await get_railway_client()
         projects = await client.get_projects()
-        
+
         return [
             ProjectInfo(
                 id=p["id"],
@@ -102,7 +115,7 @@ async def get_projects(current_user: Dict = Depends(get_current_user)):
             )
             for p in projects
         ]
-    
+
     except RailwayAPIError as e:
         logger.error(f"Railway API error: {e}")
         raise HTTPException(
@@ -126,7 +139,7 @@ async def get_project_services(
     try:
         client = await get_railway_client()
         services = await client.get_project_services(project_id)
-        
+
         return [
             ServiceInfo(
                 id=s["id"],
@@ -136,7 +149,7 @@ async def get_project_services(
             )
             for s in services
         ]
-    
+
     except RailwayAPIError as e:
         logger.error(f"Railway API error: {e}")
         raise HTTPException(
@@ -160,7 +173,7 @@ async def get_project_environments(
     try:
         client = await get_railway_client()
         environments = await client.get_project_environments(project_id)
-        
+
         return [
             EnvironmentInfo(
                 id=e["id"],
@@ -169,7 +182,7 @@ async def get_project_environments(
             )
             for e in environments
         ]
-    
+
     except RailwayAPIError as e:
         logger.error(f"Railway API error: {e}")
         raise HTTPException(
@@ -194,9 +207,9 @@ async def get_service_deployments(
     try:
         client = await get_railway_client()
         deployments = await client.get_service_deployments(service_id, limit)
-        
+
         return [_format_deployment(d) for d in deployments]
-    
+
     except RailwayAPIError as e:
         logger.error(f"Railway API error: {e}")
         raise HTTPException(
@@ -223,14 +236,14 @@ async def trigger_deployment(
             request.service_id,
             request.environment_id
         )
-        
+
         logger.info(
             f"User {current_user.get('email', 'unknown')} triggered deployment "
             f"{deployment.get('id')} for service {request.service_id}"
         )
-        
+
         return _format_deployment(deployment)
-    
+
     except RailwayAPIError as e:
         logger.error(f"Railway API error: {e}")
         raise HTTPException(
@@ -257,14 +270,14 @@ async def redeploy_service(
             request.service_id,
             request.environment_id
         )
-        
+
         logger.info(
             f"User {current_user.get('email', 'unknown')} triggered redeploy "
             f"{deployment.get('id')} for service {request.service_id}"
         )
-        
+
         return _format_deployment(deployment)
-    
+
     except RailwayAPIError as e:
         logger.error(f"Railway API error during redeploy: {e}")
         raise HTTPException(
@@ -288,9 +301,9 @@ async def get_deployment_status(
     try:
         client = await get_railway_client()
         deployment = await client.get_deployment_status(deployment_id)
-        
+
         return _format_deployment(deployment)
-    
+
     except RailwayAPIError as e:
         logger.error(f"Railway API error: {e}")
         raise HTTPException(
@@ -315,9 +328,9 @@ async def get_service_variables(
     try:
         client = await get_railway_client()
         variables = await client.get_service_variables(service_id, environment_id)
-        
+
         return {"variables": variables}
-    
+
     except RailwayAPIError as e:
         logger.error(f"Railway API error: {e}")
         raise HTTPException(
@@ -336,13 +349,13 @@ async def get_service_variables(
 async def railway_health():
     """Health check endpoint for Railway integration."""
     api_token = os.environ.get("RAILWAY_API_TOKEN")
-    
+
     if not api_token:
         return {
             "status": "unhealthy",
             "message": "RAILWAY_API_TOKEN not configured"
         }
-    
+
     return {
         "status": "healthy",
         "message": "Railway API configured"
@@ -385,9 +398,26 @@ async def _find_service_and_env(
 
 
 @router.get("/pipeline/status")
-async def get_pipeline_status(current_user: Dict = Depends(get_current_user)):
-    """Return deployment status for DEV, TEST, and PROD pipeline stages."""
-    project_id = os.environ.get("RAILWAY_PROJECT_ID")
+async def get_pipeline_status(
+    product_id: Optional[str] = Query(None),
+    current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return deployment status for DEV, TEST, and PROD pipeline stages.
+
+    When product_id is provided, uses that product's per-environment Railway service IDs.
+    Falls back to RAILWAY_*_SERVICE_NAME env vars for stages without a configured service ID.
+    """
+    product = None
+    if product_id:
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+    project_id = (
+        (product.railway_project_id if product and product.railway_project_id else None)
+        or os.environ.get("RAILWAY_PROJECT_ID")
+    )
     if not project_id:
         raise HTTPException(status_code=503, detail="RAILWAY_PROJECT_ID not configured")
 
@@ -403,53 +433,80 @@ async def get_pipeline_status(current_user: Dict = Depends(get_current_user)):
 
         result: Dict[str, Any] = {}
         for stage in _PIPELINE_STAGES:
-            svc_name = _pipeline_service_name(stage)
-            if not svc_name:
-                result[stage] = {
-                    "configured": False,
-                    "service_name": None,
-                    "service_id": None,
-                    "environment_id": env_id,
-                    "last_deployment": None,
-                    "error": f"RAILWAY_{stage.upper()}_SERVICE_NAME not configured",
-                }
-                continue
+            direct_svc_id = _product_service_id(product, stage) if product else None
 
-            svc = services_by_name.get(svc_name.lower())
-            if not svc:
+            if direct_svc_id:
+                try:
+                    deployments = await client.get_service_deployments(direct_svc_id, limit=1)
+                    last = deployments[0] if deployments else None
+                    last_deployment = (
+                        {
+                            "id": last["id"],
+                            "status": last["status"],
+                            "created_at": last.get("createdAt", ""),
+                        }
+                        if last
+                        else None
+                    )
+                except Exception:
+                    last_deployment = None
+
+                result[stage] = {
+                    "configured": True,
+                    "service_name": product.name,
+                    "service_id": direct_svc_id,
+                    "environment_id": env_id,
+                    "last_deployment": last_deployment,
+                    "error": None,
+                }
+            else:
+                svc_name = _pipeline_service_name(stage)
+                if not svc_name:
+                    result[stage] = {
+                        "configured": False,
+                        "service_name": None,
+                        "service_id": None,
+                        "environment_id": env_id,
+                        "last_deployment": None,
+                        "error": f"RAILWAY_{stage.upper()}_SERVICE_NAME not configured",
+                    }
+                    continue
+
+                svc = services_by_name.get(svc_name.lower())
+                if not svc:
+                    result[stage] = {
+                        "configured": True,
+                        "service_name": svc_name,
+                        "service_id": None,
+                        "environment_id": env_id,
+                        "last_deployment": None,
+                        "error": f"Service '{svc_name}' not found in Railway project",
+                    }
+                    continue
+
+                try:
+                    deployments = await client.get_service_deployments(svc["id"], limit=1)
+                    last = deployments[0] if deployments else None
+                    last_deployment = (
+                        {
+                            "id": last["id"],
+                            "status": last["status"],
+                            "created_at": last.get("createdAt", ""),
+                        }
+                        if last
+                        else None
+                    )
+                except Exception:
+                    last_deployment = None
+
                 result[stage] = {
                     "configured": True,
                     "service_name": svc_name,
-                    "service_id": None,
+                    "service_id": svc["id"],
                     "environment_id": env_id,
-                    "last_deployment": None,
-                    "error": f"Service '{svc_name}' not found in Railway project",
+                    "last_deployment": last_deployment,
+                    "error": None,
                 }
-                continue
-
-            try:
-                deployments = await client.get_service_deployments(svc["id"], limit=1)
-                last = deployments[0] if deployments else None
-                last_deployment = (
-                    {
-                        "id": last["id"],
-                        "status": last["status"],
-                        "created_at": last.get("createdAt", ""),
-                    }
-                    if last
-                    else None
-                )
-            except Exception:
-                last_deployment = None
-
-            result[stage] = {
-                "configured": True,
-                "service_name": svc_name,
-                "service_id": svc["id"],
-                "environment_id": env_id,
-                "last_deployment": last_deployment,
-                "error": None,
-            }
 
         return {"environments": result}
 
@@ -460,44 +517,68 @@ async def get_pipeline_status(current_user: Dict = Depends(get_current_user)):
 @router.post("/pipeline/{target_stage}/promote")
 async def promote_pipeline_stage(
     target_stage: str,
+    product_id: Optional[str] = Query(None),
     current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """Promote to a pipeline stage by triggering a redeploy of its Railway service.
 
     Only 'test' and 'prod' are valid promotion targets.
+    When product_id is provided, uses that product's Railway service ID for the target stage.
     """
     if target_stage not in ("test", "prod"):
         raise HTTPException(status_code=400, detail="Can only promote to 'test' or 'prod'")
 
-    project_id = os.environ.get("RAILWAY_PROJECT_ID")
+    product = None
+    if product_id:
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+    project_id = (
+        (product.railway_project_id if product and product.railway_project_id else None)
+        or os.environ.get("RAILWAY_PROJECT_ID")
+    )
     if not project_id:
         raise HTTPException(status_code=503, detail="RAILWAY_PROJECT_ID not configured")
 
-    svc_name = _pipeline_service_name(target_stage)
-    if not svc_name:
-        raise HTTPException(
-            status_code=503,
-            detail=f"RAILWAY_{target_stage.upper()}_SERVICE_NAME not configured",
-        )
-
     try:
         client = await get_railway_client()
-        svc_id, env_id = await _find_service_and_env(
-            client, project_id, svc_name, _railway_env_name()
-        )
+        direct_svc_id = _product_service_id(product, target_stage) if product else None
+
+        if direct_svc_id:
+            envs = await client.get_project_environments(project_id)
+            env = next((e for e in envs if e["name"].lower() == _railway_env_name().lower()), None)
+            if not env:
+                raise RailwayAPIError(f"Railway environment '{_railway_env_name()}' not found")
+            svc_id = direct_svc_id
+            env_id = env["id"]
+            display_name = product.name
+        else:
+            svc_name = _pipeline_service_name(target_stage)
+            if not svc_name:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"RAILWAY_{target_stage.upper()}_SERVICE_NAME not configured",
+                )
+            svc_id, env_id = await _find_service_and_env(
+                client, project_id, svc_name, _railway_env_name()
+            )
+            display_name = svc_name
+
         deployment = await client.trigger_deployment(svc_id, env_id)
 
         logger.info(
             "User %s promoted to %s: service=%s deployment=%s",
             current_user.get("email", "unknown"),
             target_stage,
-            svc_name,
+            display_name,
             deployment.get("id"),
         )
 
         return {
             "environment": target_stage,
-            "service_name": svc_name,
+            "service_name": display_name,
             "deployment": {
                 "id": deployment.get("id"),
                 "status": deployment.get("status"),
@@ -512,28 +593,48 @@ async def promote_pipeline_stage(
 @router.post("/pipeline/{stage}/rollback")
 async def rollback_pipeline_stage(
     stage: str,
+    product_id: Optional[str] = Query(None),
     current_user: Dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """Roll back a pipeline stage to its previous successful deployment."""
+    """Roll back a pipeline stage to its previous successful deployment.
+
+    When product_id is provided, uses that product's Railway service ID for the stage.
+    """
     if stage not in _PIPELINE_STAGES:
         raise HTTPException(status_code=400, detail=f"Unknown pipeline stage: {stage}")
 
-    project_id = os.environ.get("RAILWAY_PROJECT_ID")
+    product = None
+    if product_id:
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+    project_id = (
+        (product.railway_project_id if product and product.railway_project_id else None)
+        or os.environ.get("RAILWAY_PROJECT_ID")
+    )
     if not project_id:
         raise HTTPException(status_code=503, detail="RAILWAY_PROJECT_ID not configured")
 
-    svc_name = _pipeline_service_name(stage)
-    if not svc_name:
-        raise HTTPException(
-            status_code=503,
-            detail=f"RAILWAY_{stage.upper()}_SERVICE_NAME not configured",
-        )
-
     try:
         client = await get_railway_client()
-        svc_id, _ = await _find_service_and_env(
-            client, project_id, svc_name, _railway_env_name()
-        )
+        direct_svc_id = _product_service_id(product, stage) if product else None
+
+        if direct_svc_id:
+            svc_id = direct_svc_id
+            display_name = product.name
+        else:
+            svc_name = _pipeline_service_name(stage)
+            if not svc_name:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"RAILWAY_{stage.upper()}_SERVICE_NAME not configured",
+                )
+            svc_id, _ = await _find_service_and_env(
+                client, project_id, svc_name, _railway_env_name()
+            )
+            display_name = svc_name
 
         deployments = await client.get_service_deployments(svc_id, limit=10)
         successful = [d for d in deployments if d.get("status") in ("SUCCESS", "ACTIVE")]
@@ -544,7 +645,6 @@ async def rollback_pipeline_stage(
                 detail="No previous successful deployment found to roll back to",
             )
 
-        # successful[0] is current, successful[1] is the previous
         target = successful[1]
         new_deployment = await client.redeploy_deployment(target["id"])
 
@@ -552,13 +652,13 @@ async def rollback_pipeline_stage(
             "User %s rolled back %s: service=%s redeploying=%s",
             current_user.get("email", "unknown"),
             stage,
-            svc_name,
+            display_name,
             target["id"],
         )
 
         return {
             "environment": stage,
-            "service_name": svc_name,
+            "service_name": display_name,
             "rolled_back_to": target["id"],
             "deployment": {
                 "id": new_deployment.get("id"),

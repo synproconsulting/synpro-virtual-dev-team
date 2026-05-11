@@ -3,6 +3,7 @@
  * =============
  * API client for Railway deployment operations via the backend proxy.
  * SDT1-58: Wire UAT Deploy tab to Railway GraphQL API
+ * SDT1-98: Per-environment Railway service IDs per product
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -225,10 +226,12 @@ export const checkRailwayHealth = async () => {
 // ── Pipeline API (DEV / TEST / PROD) ─────────────────────────────────────────
 
 /**
- * Get deployment status for all pipeline stages (DEV/TEST/PROD)
+ * Get deployment status for all pipeline stages (DEV/TEST/PROD).
+ * When productId is provided, the backend uses that product's per-environment service IDs.
  */
-export const getPipelineStatus = async () => {
-  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/status`, {
+export const getPipelineStatus = async (productId = null) => {
+  const params = productId ? `?product_id=${encodeURIComponent(productId)}` : '';
+  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/status${params}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -243,10 +246,12 @@ export const getPipelineStatus = async () => {
 };
 
 /**
- * Promote to a pipeline stage (test or prod)
+ * Promote to a pipeline stage (test or prod).
+ * When productId is provided, deploys that product's configured service for the target stage.
  */
-export const promoteEnvironment = async (targetStage) => {
-  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/${targetStage}/promote`, {
+export const promoteEnvironment = async (targetStage, productId = null) => {
+  const params = productId ? `?product_id=${encodeURIComponent(productId)}` : '';
+  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/${targetStage}/promote${params}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -261,10 +266,12 @@ export const promoteEnvironment = async (targetStage) => {
 };
 
 /**
- * Roll back a pipeline stage to its previous successful deployment
+ * Roll back a pipeline stage to its previous successful deployment.
+ * When productId is provided, rolls back that product's configured service for the stage.
  */
-export const rollbackEnvironment = async (stage) => {
-  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/${stage}/rollback`, {
+export const rollbackEnvironment = async (stage, productId = null) => {
+  const params = productId ? `?product_id=${encodeURIComponent(productId)}` : '';
+  const response = await fetch(`${API_BASE_URL}/api/railway/pipeline/${stage}/rollback${params}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getPipelineStatus, promoteEnvironment, rollbackEnvironment } from '../api/railwayApi';
+import { useProduct } from '../contexts/ProductContext';
 import './UATDeployment.css';
 
 const STATUS_COLORS = {
@@ -62,6 +63,7 @@ const CONFIRM_CONFIGS = {
 };
 
 const UATDeployment = () => {
+  const { selectedProduct } = useProduct();
   const [pipelineStatus, setPipelineStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
@@ -73,14 +75,14 @@ const UATDeployment = () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await getPipelineStatus();
+      const data = await getPipelineStatus(selectedProduct?.id || null);
       setPipelineStatus(data.environments);
     } catch (err) {
       setError(`Failed to load pipeline status: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedProduct]);
 
   useEffect(() => {
     loadStatus();
@@ -98,11 +100,11 @@ const UATDeployment = () => {
     try {
       if (key.startsWith('promote_')) {
         const target = key.replace('promote_', '');
-        await promoteEnvironment(target);
+        await promoteEnvironment(target, selectedProduct?.id || null);
         setSuccess(`Promotion to ${STAGE_LABELS[target]} triggered successfully.`);
       } else if (key.startsWith('rollback_')) {
         const stage = key.replace('rollback_', '');
-        await rollbackEnvironment(stage);
+        await rollbackEnvironment(stage, selectedProduct?.id || null);
         setSuccess(`Rollback of ${STAGE_LABELS[stage]} triggered successfully.`);
       }
       await loadStatus();

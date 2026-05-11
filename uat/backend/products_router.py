@@ -60,6 +60,9 @@ class ProductCreate(BaseModel):
     railway_project_id: Optional[str] = None
     railway_backend_service_name: Optional[str] = None
     railway_frontend_service_name: Optional[str] = None
+    railway_dev_service_id: Optional[str] = None
+    railway_test_service_id: Optional[str] = None
+    railway_prod_service_id: Optional[str] = None
 
 
 class ProductUpdate(BaseModel):
@@ -71,6 +74,9 @@ class ProductUpdate(BaseModel):
     railway_project_id: Optional[str] = None
     railway_backend_service_name: Optional[str] = None
     railway_frontend_service_name: Optional[str] = None
+    railway_dev_service_id: Optional[str] = None
+    railway_test_service_id: Optional[str] = None
+    railway_prod_service_id: Optional[str] = None
 
 
 def _to_dict(product: Product) -> dict:
@@ -84,6 +90,9 @@ def _to_dict(product: Product) -> dict:
         "railway_project_id": product.railway_project_id,
         "railway_backend_service_name": product.railway_backend_service_name,
         "railway_frontend_service_name": product.railway_frontend_service_name,
+        "railway_dev_service_id": product.railway_dev_service_id,
+        "railway_test_service_id": product.railway_test_service_id,
+        "railway_prod_service_id": product.railway_prod_service_id,
     }
 
 
@@ -123,6 +132,9 @@ def create_product(
         railway_project_id=body.railway_project_id,
         railway_backend_service_name=body.railway_backend_service_name,
         railway_frontend_service_name=body.railway_frontend_service_name,
+        railway_dev_service_id=body.railway_dev_service_id,
+        railway_test_service_id=body.railway_test_service_id,
+        railway_prod_service_id=body.railway_prod_service_id,
     )
     db.add(product)
     try:

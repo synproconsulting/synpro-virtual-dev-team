@@ -126,6 +126,9 @@ class Product(Base):
     railway_project_id = Column(String(255), nullable=True)
     railway_backend_service_name = Column(String(255), nullable=True)
     railway_frontend_service_name = Column(String(255), nullable=True)
+    railway_dev_service_id = Column(String(255), nullable=True)
+    railway_test_service_id = Column(String(255), nullable=True)
+    railway_prod_service_id = Column(String(255), nullable=True)
     sonarcloud_key = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -147,7 +150,7 @@ class OrchestratorStatus(enum.Enum):
 
 class OrchestratorState(Base):
     """Orchestrator execution state for resume capability.
-    
+
     Tracks the execution progress of a sprint or set of tickets,
     allowing the orchestrator to resume from interruptions.
     """
@@ -164,20 +167,20 @@ class OrchestratorState(Base):
     sprint_name = Column(String(255), nullable=False)
     jira_project_key = Column(String(50), nullable=False)
     status = Column(Enum(OrchestratorStatus), nullable=False, default=OrchestratorStatus.PENDING)
-    
+
     # JSON fields for flexible state storage
     ticket_queue = Column(JSON, nullable=False, default=list)  # List of ticket keys in execution order
     completed_tickets = Column(JSON, nullable=False, default=list)  # List of completed ticket keys
     failed_tickets = Column(JSON, nullable=False, default=list)  # List of failed ticket keys with error info
     current_ticket = Column(String(50), nullable=True)  # Currently executing ticket key
-    
+
     # Metadata
     total_tickets = Column(Integer, nullable=False, default=0)
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     last_checkpoint_at = Column(DateTime(timezone=True), nullable=True)
     error_message = Column(Text, nullable=True)
-    
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
