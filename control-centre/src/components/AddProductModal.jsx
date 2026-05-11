@@ -4,6 +4,7 @@ import { createProduct } from "../api/productsApi";
 const EMPTY = {
   name: "", jira_project_key: "", jira_base_url: "", github_org: "", github_repo: "",
   railway_project_id: "", railway_backend_service_name: "", railway_frontend_service_name: "",
+  railway_dev_service_id: "", railway_test_service_id: "", railway_prod_service_id: "",
 };
 
 export default function AddProductModal({ onClose, onAdded }) {
@@ -31,6 +32,9 @@ export default function AddProductModal({ onClose, onAdded }) {
           ...(form.railway_project_id && { railway_project_id: form.railway_project_id }),
           ...(form.railway_backend_service_name && { railway_backend_service_name: form.railway_backend_service_name }),
           ...(form.railway_frontend_service_name && { railway_frontend_service_name: form.railway_frontend_service_name }),
+          ...(form.railway_dev_service_id && { railway_dev_service_id: form.railway_dev_service_id }),
+          ...(form.railway_test_service_id && { railway_test_service_id: form.railway_test_service_id }),
+          ...(form.railway_prod_service_id && { railway_prod_service_id: form.railway_prod_service_id }),
         },
         token,
       );
@@ -66,6 +70,9 @@ export default function AddProductModal({ onClose, onAdded }) {
           {field("Railway Project ID", "railway_project_id", false)}
           {field("Railway Backend Service", "railway_backend_service_name", false)}
           {field("Railway Frontend Service", "railway_frontend_service_name", false)}
+          {field("Railway DEV Service ID", "railway_dev_service_id", false)}
+          {field("Railway TEST Service ID", "railway_test_service_id", false)}
+          {field("Railway PROD Service ID", "railway_prod_service_id", false)}
           <div className="modal-field">
             <label>Auth Token *</label>
             <input
