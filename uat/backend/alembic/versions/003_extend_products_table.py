@@ -20,6 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if not bind.dialect.has_table(bind, 'products'):
+        return
     op.add_column('products', sa.Column('jira_base_url', sa.String(500), nullable=True))
     op.add_column('products', sa.Column('github_org', sa.String(255), nullable=True))
     op.add_column('products', sa.Column('railway_project_id', sa.String(255), nullable=True))
