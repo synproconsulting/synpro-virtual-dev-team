@@ -38,11 +38,6 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-# When FRONTEND_URL=* is configured, automatically enable wildcard CORS so the
-# backend starts correctly without requiring a separate ALLOW_CORS_WILDCARD flag.
-# CLAUDE.md documents that FRONTEND_URL=* should work out of the box for UAT.
-if os.environ.get("FRONTEND_URL", "").strip() == "*":
-    os.environ.setdefault("ALLOW_CORS_WILDCARD", "true")
 
 
 # ── App setup ─────────────────────────────────────────────────────────────────────────
