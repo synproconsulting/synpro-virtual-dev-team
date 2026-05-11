@@ -22,6 +22,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.has_table(bind, 'products'):
+        return
     op.create_table(
         'products',
         sa.Column('id', postgresql.UUID(as_uuid=True), server_default=sa.text('gen_random_uuid()'), nullable=False),
@@ -38,5 +41,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    if not bind.dialect.has_table(bind, 'products'):
+        return
     op.drop_index(op.f('ix_products_name'), table_name='products')
     op.drop_table('products')
