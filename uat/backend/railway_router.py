@@ -400,7 +400,6 @@ async def _find_service_and_env(
 @router.get("/pipeline/status")
 async def get_pipeline_status(
     product_id: Optional[str] = Query(None),
-    current_user: Dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Return deployment status for DEV, TEST, and PROD pipeline stages.
