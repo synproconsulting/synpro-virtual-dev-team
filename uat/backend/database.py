@@ -89,3 +89,33 @@ def drop_all_tables() -> None:
     Warning: This will delete all data. Use only for testing or development.
     """
     Base.metadata.drop_all(bind=engine)
+
+
+def run_migrations_for_url(db_url: str) -> None:
+    """Run Alembic migrations against a specific database URL.
+
+    Used to initialise or upgrade per-product per-environment databases (SDT1-99).
+    Requires alembic.ini to be present in the working directory.
+
+    Runbook — adding a new product/environment database:
+      1. Create the target PostgreSQL database.
+      2. Set db_url_dev / db_url_test / db_url_prod on the product record via PUT /api/products/{id}.
+      3. POST /api/products/{product_id}/migrate with ?environment=dev|test|prod.
+      4. This function applies all Alembic migrations so all tables exist and are up to date.
+      5. Repeat for each environment that needs an isolated database.
+
+    Args:
+        db_url: PostgreSQL connection string for the target database.
+
+    Raises:
+        Exception: Propagated from Alembic if migrations fail.
+    """
+    from alembic.config import Config
+    from alembic import command
+
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("sqlalchemy.url", db_url)
+    command.upgrade(cfg, "head")
