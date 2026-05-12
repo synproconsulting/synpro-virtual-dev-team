@@ -294,3 +294,41 @@ The Control Centre IS the frontend. The separate `Virtual-Dev-Team-UAT-Frontend`
 
 ### 5. Control Centre needs authentication to call protected backend endpoints
 The Control Centre had no login flow, causing product CRUD operations to return 401. Added a Login page (SDT1-104, PR #192) calling the existing `/auth/login` endpoint. Token stored under key `token` in localStorage, consistent with the UAT frontend storage key.
+
+---
+
+### Sprint 12 — Frontend Consolidation ✅ Complete
+Fix version 10396, native sprint ID 303.
+
+| Exec # | Ticket | Summary | Status | PR |
+|--------|--------|---------|--------|----|
+| 1 | SDT1-107 | Merge UAT frontend pages into Control Centre | ✅ Done | #195 |
+| 2 | SDT1-108 | Decommission UAT frontend and update backend CORS | ✅ Done | #196 |
+
+**Fix PRs opened during Sprint 12 (infrastructure, not sprint tickets):**
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #194 | fix/add-sprint12-jira-ids | Add Sprint 12 Jira IDs to CLAUDE.md and PROJECT_CONTEXT.md |
+
+**Backlog bug tickets opened during Sprint 12:**
+
+- **SDT1-109** — Fix: `/profile` endpoint returns 404 from Control Centre (backlog)
+- **SDT1-110** — Fix: `/notifications/` endpoint returns 404 from Control Centre (backlog)
+- **SDT1-111 (to be created)** — Fix: Switch email delivery from SMTP to Resend API (backlog)
+
+---
+
+## Sprint 12 Lessons Learned
+
+### 1. Railway blocks outbound SMTP on ports 587 and 465
+Password reset email delivery via SMTP failed silently because Railway blocks outbound traffic on the standard SMTP ports. Transactional email providers that deliver over HTTPS (Resend, SendGrid) are required for any email flow on Railway. Added as Sprint 13 backlog item (SDT1-111).
+
+### 2. SMTP env var names must match exactly what the code reads
+The code reads `SMTP_USERNAME` and `SMTP_FROM_EMAIL`; Railway initially had `SMTP_USER` and `FROM_EMAIL` set, causing silent auth failures with no visible error. Always verify env var names against the actual source before declaring an env-driven feature working.
+
+### 3. Control Centre frontend service does not auto-redeploy when backend changes
+The Control Centre Railway service only redeploys when its own source changes. Backend-only PRs that affect frontend behaviour (CORS, new endpoints) require a manual Control Centre redeploy. This is the inverse of the backend, which auto-deploys via the GraphQL `serviceInstanceRedeploy` mutation in `ci.yml` on every merge to `main`.
+
+### 4. Frontend consolidation (AD-23) complete
+All UAT frontend pages (Login, Register, Dashboard, Profile, Notifications) merged into the Control Centre. The separate `Virtual-Dev-Team-UAT-Frontend` Railway service was decommissioned. The Control Centre is now the single product frontend per AD-23.
