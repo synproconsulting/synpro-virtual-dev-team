@@ -23,7 +23,8 @@ An AI-powered Virtual Development Team that automates the full software developm
 |---|---|
 | Control Centre (frontend) | https://control-centre-service-production.up.railway.app |
 | UAT Backend (FastAPI) | https://synpro-virtual-dev-team-production.up.railway.app |
-| UAT Frontend (React) | https://virtual-dev-team-uat-frontend-production.up.railway.app |
+
+> Virtual-Dev-Team-UAT-Frontend Railway service decommissioned in Sprint 12 (AD-23). All frontend functionality merged into Control Centre.
 
 ---
 
