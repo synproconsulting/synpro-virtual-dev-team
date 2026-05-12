@@ -13,7 +13,7 @@ An AI-powered Virtual Development Team that automates the full software developm
 
 **Owner:** Johan Wessels — SynPro Consulting
 **Started:** April 21, 2025
-**Current state:** Sprints 1–10 complete and merged. Sprint 11 not yet planned.
+**Current state:** Sprints 1–11 complete and merged. Sprint 12 not yet planned.
 
 ---
 
@@ -289,6 +289,14 @@ These are conscious design choices — not defaults or accidents. Understanding 
 **Consequence:** When a new router needs logic that currently lives in `agents/`, that logic must be inlined as local helper functions or rewritten as direct HTTP calls. Do not create shared library packages spanning `uat/backend/` and `agents/`.
 
 **Pattern to follow:** See `manager_agent_router.py` and `orchestrator_router.py` (post-Sprint 6 fix) — both are fully self-contained with local helper functions and no cross-directory imports.
+
+### AD-23 · One frontend per product — Control Centre IS the product frontend
+
+**Decision:** The Control Centre and the UAT frontend are to be merged into a single frontend service per product. The Control Centre was always intended to be the product frontend — not a separate operator tool. The separate Virtual-Dev-Team-UAT-Frontend Railway service will be decommissioned in Sprint 12.
+
+**Why:** Having two separate frontends for one product creates unnecessary duplication, split authentication, and confusion about which service is the real product. The Control Centre already contains the Sprint Status, Workflows, UAT Deploy, and PM Agent tabs — adding the user-facing pages (Login, Register, Dashboard, Profile, Notifications) makes it the complete product frontend.
+
+**Consequence:** Sprint 12 will merge all UAT frontend pages into the Control Centre, decommission the UAT frontend Railway service, and update CORS and backend configuration accordingly.
 
 ---
 
