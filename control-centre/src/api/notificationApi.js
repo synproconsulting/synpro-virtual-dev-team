@@ -1,112 +1,52 @@
-import axios from 'axios';
+const API_URL = import.meta.env.VITE_API_URL || "";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-
-const notificationApi = axios.create({
-  baseURL: `${API_BASE_URL}/api/notifications`,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+const authHeaders = () => ({
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
 });
 
-/**
- * Get all notifications with optional filters
- * @param {Object} params - Query parameters (limit, offset, type, status)
- * @returns {Promise<Array>} List of notifications
- */
 export const getNotifications = async (params = {}) => {
-  try {
-    const response = await notificationApi.get('/', { params });
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching notifications:', error);
-    throw error;
-  }
+  const qs = new URLSearchParams(params).toString();
+  const url = `${API_URL}/notifications/${qs ? `?${qs}` : ""}`;
+  const r = await fetch(url, { headers: authHeaders() });
+  const data = await r.json().catch(() => []);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return data;
 };
 
-/**
- * Get a single notification by ID
- * @param {string} id - Notification ID
- * @returns {Promise<Object>} Notification details
- */
-export const getNotification = async (id) => {
-  try {
-    const response = await notificationApi.get(`/${id}`);
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching notification:', error);
-    throw error;
-  }
-};
-
-/**
- * Mark a notification as read
- * @param {string} id - Notification ID
- * @returns {Promise<Object>} Updated notification
- */
 export const markAsRead = async (id) => {
-  try {
-    const response = await notificationApi.patch(`/${id}/read`);
-    return response.data;
-  } catch (error) {
-    console.error('Error marking notification as read:', error);
-    throw error;
-  }
+  const r = await fetch(`${API_URL}/notifications/${id}/read`, {
+    method: "PATCH",
+    headers: authHeaders(),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return data;
 };
 
-/**
- * Mark all notifications as read
- * @returns {Promise<Object>} Result
- */
 export const markAllAsRead = async () => {
-  try {
-    const response = await notificationApi.post('/mark-all-read');
-    return response.data;
-  } catch (error) {
-    console.error('Error marking all notifications as read:', error);
-    throw error;
-  }
+  const r = await fetch(`${API_URL}/notifications/mark-all-read`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return data;
 };
 
-/**
- * Delete a notification
- * @param {string} id - Notification ID
- * @returns {Promise<void>}
- */
 export const deleteNotification = async (id) => {
-  try {
-    await notificationApi.delete(`/${id}`);
-  } catch (error) {
-    console.error('Error deleting notification:', error);
-    throw error;
-  }
+  await fetch(`${API_URL}/notifications/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
 };
 
-/**
- * Clear all notifications
- * @returns {Promise<void>}
- */
-export const clearNotifications = async () => {
-  try {
-    await notificationApi.delete('/clear');
-  } catch (error) {
-    console.error('Error clearing notifications:', error);
-    throw error;
-  }
-};
-
-/**
- * Get unread notification count
- * @returns {Promise<number>} Unread count
- */
 export const getUnreadCount = async () => {
-  try {
-    const response = await notificationApi.get('/unread/count');
-    return response.data.count;
-  } catch (error) {
-    console.error('Error fetching unread count:', error);
-    throw error;
-  }
+  const r = await fetch(`${API_URL}/notifications/unread/count`, {
+    headers: authHeaders(),
+  });
+  const data = await r.json().catch(() => ({ count: 0 }));
+  return data.count ?? 0;
 };
 
-export default notificationApi;
+export default { getNotifications, markAsRead, markAllAsRead, deleteNotification, getUnreadCount };
