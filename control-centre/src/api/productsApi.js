@@ -28,3 +28,32 @@ export const createProduct = async (product, token) => {
   }
   return r.json();
 };
+
+export const updateProduct = async (productId, product, token) => {
+  const r = await fetch(`${API_URL}/api/products/${productId}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(product),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${r.status}`);
+  }
+  return r.json();
+};
+
+export const deleteProduct = async (productId, token) => {
+  const r = await fetch(`${API_URL}/api/products/${productId}`, {
+    method: "DELETE",
+    headers: {
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${r.status}`);
+  }
+};
