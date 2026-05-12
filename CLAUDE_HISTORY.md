@@ -315,7 +315,7 @@ Fix version 10396, native sprint ID 303.
 
 - **SDT1-109** — Fix: `/profile` endpoint returns 404 from Control Centre (backlog)
 - **SDT1-110** — Fix: `/notifications/` endpoint returns 404 from Control Centre (backlog)
-- **SDT1-111 (to be created)** — Fix: Switch email delivery from SMTP to Resend API (backlog)
+- **SDT1-113** — Fix: Switch email delivery from SMTP to Resend API (backlog)
 
 ---
 
