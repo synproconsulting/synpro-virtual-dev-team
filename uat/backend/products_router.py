@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from database import get_db
+from database import get_db, run_migrations_for_url
 from models import Product
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,9 @@ class ProductCreate(BaseModel):
     railway_dev_service_id: Optional[str] = None
     railway_test_service_id: Optional[str] = None
     railway_prod_service_id: Optional[str] = None
+    db_url_dev: Optional[str] = None
+    db_url_test: Optional[str] = None
+    db_url_prod: Optional[str] = None
 
 
 class ProductUpdate(BaseModel):
@@ -77,6 +80,9 @@ class ProductUpdate(BaseModel):
     railway_dev_service_id: Optional[str] = None
     railway_test_service_id: Optional[str] = None
     railway_prod_service_id: Optional[str] = None
+    db_url_dev: Optional[str] = None
+    db_url_test: Optional[str] = None
+    db_url_prod: Optional[str] = None
 
 
 def _to_dict(product: Product) -> dict:
@@ -93,6 +99,9 @@ def _to_dict(product: Product) -> dict:
         "railway_dev_service_id": product.railway_dev_service_id,
         "railway_test_service_id": product.railway_test_service_id,
         "railway_prod_service_id": product.railway_prod_service_id,
+        "db_url_dev": product.db_url_dev,
+        "db_url_test": product.db_url_test,
+        "db_url_prod": product.db_url_prod,
     }
 
 
@@ -135,6 +144,9 @@ def create_product(
         railway_dev_service_id=body.railway_dev_service_id,
         railway_test_service_id=body.railway_test_service_id,
         railway_prod_service_id=body.railway_prod_service_id,
+        db_url_dev=body.db_url_dev,
+        db_url_test=body.db_url_test,
+        db_url_prod=body.db_url_prod,
     )
     db.add(product)
     try:
@@ -180,3 +192,50 @@ def delete_product(
     db.delete(product)
     db.commit()
     logger.info("Product deleted: %s", product_id)
+
+
+@router.post("/{product_id}/migrate")
+def migrate_product_database(
+    product_id: str,
+    environment: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(_require_auth),
+) -> dict:
+    """Run Alembic migrations for a product's per-environment database.
+
+    Initialises or upgrades the isolated database for the given product and
+    environment. The db_url_dev / db_url_test / db_url_prod field must already
+    be set on the product record before calling this endpoint.
+
+    Args:
+        product_id: UUID of the product.
+        environment: Target environment — 'dev', 'test', or 'prod'.
+    """
+    if environment not in ("dev", "test", "prod"):
+        raise HTTPException(status_code=400, detail="environment must be 'dev', 'test', or 'prod'")
+
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    url_map = {
+        "dev": product.db_url_dev,
+        "test": product.db_url_test,
+        "prod": product.db_url_prod,
+    }
+    db_url = url_map[environment]
+
+    if not db_url:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No database URL configured for environment '{environment}'",
+        )
+
+    try:
+        run_migrations_for_url(db_url)
+    except Exception as exc:
+        logger.error("Migration failed product=%s env=%s: %s", product_id, environment, exc)
+        raise HTTPException(status_code=500, detail=f"Migration failed: {exc}")
+
+    logger.info("Migrations applied: product=%s environment=%s", product_id, environment)
+    return {"message": f"Migrations applied successfully for environment '{environment}'"}
