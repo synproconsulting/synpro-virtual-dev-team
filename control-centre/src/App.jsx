@@ -10,6 +10,7 @@ import UATDeployment from "./components/UATDeployment";
 import SonarCloudTrigger from "./components/SonarCloudTrigger";
 import PMAgentChat from "./components/PMAgentChat";
 import ProductsTab from "./components/ProductsTab";
+import LoginPage from "./components/LoginPage";
 
 const TABS = [
   { id: "overview",   label: "Overview",      component: DashboardMain },
@@ -22,13 +23,25 @@ const TABS = [
 ];
 
 export default function App() {
+  const [token, setToken] = useState(() => localStorage.getItem("token") || "");
   const [activeTab, setActiveTab] = useState("sprint");
   const [products, setProducts] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
-    fetchProducts().then(setProducts);
-  }, []);
+    if (token) fetchProducts().then(setProducts);
+  }, [token]);
+
+  const handleLogin = (newToken) => {
+    localStorage.setItem("token", newToken);
+    setToken(newToken);
+    setActiveTab("overview");
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    setToken("");
+  };
 
   const handleProductAdded = (newProduct) => {
     setProducts(prev =>
@@ -36,6 +49,10 @@ export default function App() {
     );
     setShowAddModal(false);
   };
+
+  if (!token) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
 
   const ActiveComponent = TABS.find(t => t.id === activeTab)?.component || SprintDashboard;
 
@@ -60,6 +77,7 @@ export default function App() {
                 </button>
               ))}
             </nav>
+            <button className="cc-logout-btn" onClick={handleLogout}>Logout</button>
           </div>
         </header>
         <main className="cc-main">
