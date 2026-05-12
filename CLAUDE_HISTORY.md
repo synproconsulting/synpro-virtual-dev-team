@@ -252,3 +252,45 @@ SDT1-97 introduced `RAILWAY_TEST_SERVICE_NAME` and `RAILWAY_PROD_SERVICE_NAME` e
 
 ### 3. Product selector uses localStorage for persistence — no backend session required
 SDT1-96 stores the selected product in `localStorage` on the browser. No backend endpoint or database table is needed to remember the selection across page loads. This keeps the feature self-contained in the Control Centre frontend and avoids a new API dependency.
+
+
+---
+
+### Sprint 11 — Multi-Product & Control Centre Auth ✅ Complete
+Fix version 10363, native sprint ID 270.
+
+| Exec # | Ticket | Summary | Status | PR |
+|--------|--------|---------|--------|----|
+| 1 | SDT1-98 | Environments: Railway service per environment per product | ✅ Done | #185 |
+| 2 | SDT1-99 | Environments: separate databases per product per environment | ✅ Done | #190 |
+| 3 | SDT1-103 | Control Centre: Products admin tab | ✅ Done | #191 |
+| 4 | SDT1-104 | Control Centre: Add login page using existing UAT backend auth | ✅ Done | #192 |
+
+**Fix PRs opened during Sprint 11 (infrastructure, not sprint tickets):**
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #184 | fix/add-sprint11-jira-ids | Add Sprint 11 Jira IDs to CLAUDE.md and PROJECT_CONTEXT.md |
+| #186 | fix/migration-003-idempotent | Make migration 003 idempotent — skip if products table absent |
+| #187 | fix/sprint-11-cors-products-localhost | Fix: CORS on products, localhost URL in railwayApi, remove Orchestrator tab |
+| #188 | fix/sprint-11-cors-and-pipeline-auth | Fix: CORS wildcard and pipeline status auth |
+| #189 | fix/alembic-migrations-002-004-idempotent | Fix: make migrations 002 and 004 idempotent |
+
+---
+
+## Sprint 11 Lessons Learned
+
+### 1. Products table was never created by Alembic — stamp had marked all migrations as applied without running them
+The Alembic stamp operation marked all migrations as applied without actually running any DDL. This meant the `products` table existed (created by SQLAlchemy `create_all()`) but migration 002's `op.create_table()` would crash on `alembic upgrade head` because the table already existed, blocking the entire chain. Fix: `alembic stamp 001 && alembic upgrade head` to reset the revision pointer to before the products migrations and replay them from the correct baseline. All migration 002+ `upgrade()` functions must now be idempotent.
+
+### 2. CORS wildcard (FRONTEND_URL=*) requires allow_credentials=False
+When `FRONTEND_URL=*`, setting `allow_credentials=True` in the CORS middleware violates the CORS spec — browsers reject responses with both `Access-Control-Allow-Origin: *` and `Access-Control-Allow-Credentials: true`. Fix in `config.py`: `allow_credentials = "*" not in origins`. Bearer-token auth (`Authorization: Bearer ...`) works correctly without `allow_credentials=True` because the header is not a credential in the CORS sense.
+
+### 3. Control Centre and UAT frontend were built as separate services but the intended architecture is one frontend per product
+The Control Centre IS the frontend. The separate `Virtual-Dev-Team-UAT-Frontend` Railway service duplicates authentication and creates UX confusion. Sprint 12 will consolidate them: all UAT frontend pages (Login, Register, Dashboard, Profile, Notifications) will be merged into the Control Centre, and the UAT frontend Railway service will be decommissioned. See AD-23.
+
+### 4. Product selector only appears when at least one product record exists
+`ProductSelector.jsx` returns `null` when `products.length === 0`. An empty products table means no dropdown appears in the header. This is by design but confused initial testing — seed at least one product record before testing the product selector feature.
+
+### 5. Control Centre needs authentication to call protected backend endpoints
+The Control Centre had no login flow, causing product CRUD operations to return 401. Added a Login page (SDT1-104, PR #192) calling the existing `/auth/login` endpoint. Token stored under key `token` in localStorage, consistent with the UAT frontend storage key.
