@@ -9,6 +9,7 @@ import GitHubWorkflowMonitor from "./components/GitHubWorkflowMonitor";
 import UATDeployment from "./components/UATDeployment";
 import SonarCloudTrigger from "./components/SonarCloudTrigger";
 import PMAgentChat from "./components/PMAgentChat";
+import ProductsTab from "./components/ProductsTab";
 
 const TABS = [
   { id: "overview",   label: "Overview",      component: DashboardMain },
@@ -17,6 +18,7 @@ const TABS = [
   { id: "deploy",     label: "UAT Deploy",    component: UATDeployment },
   { id: "sonarcloud", label: "SonarCloud",    component: SonarCloudTrigger },
   { id: "pm-agent",   label: "PM Agent",      component: PMAgentChat },
+  { id: "products",   label: "Products",      component: null },
 ];
 
 export default function App() {
@@ -61,7 +63,10 @@ export default function App() {
           </div>
         </header>
         <main className="cc-main">
-          <ActiveComponent />
+          {activeTab === "products"
+            ? <ProductsTab onProductsChanged={() => fetchProducts().then(setProducts)} />
+            : <ActiveComponent />
+          }
         </main>
         {showAddModal && (
           <AddProductModal
