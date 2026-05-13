@@ -64,242 +64,76 @@ Committing directly to `main` bypasses the audit trail, CI gates, and the Manage
 
 ## Key Architectural Decisions
 
-These are conscious design choices — not defaults or accidents. Understanding the *why* prevents future sessions from accidentally reversing them.
+These are conscious design choices — not defaults or accidents. Understanding the *why* prevents future sessions from accidentally reversing them. CLAUDE.md keeps each decision as a one-line summary for discoverability; the full **Decision**, **Why**, **Consequence**, and **Do not** text for every AD lives in **PROJECT_CONTEXT.md Section 12**.
 
----
+### AD-1 · SonarCloud and Railway deploy are not merge-gate checks — see PROJECT_CONTEXT.md Section 12
+SonarCloud and Railway deploy run with `continue-on-error: true` and are excluded from the Manager Agent's blocking check list — only the `test` matrix (Python 3.11 + 3.12) and the `bandit` scan are blocking.
 
-### AD-1 · SonarCloud and Railway deploy are not merge-gate checks
+### AD-2 · No git CLI — all GitHub operations use the REST API — see PROJECT_CONTEXT.md Section 12
+The Dev Agent creates branches, commits files, and opens PRs entirely via the GitHub Contents API and Git Trees API over HTTP — no `git` binary required.
 
-**Decision:** Both run with `continue-on-error: true` in `ci.yml` and are excluded from the Manager Agent blocking check list. The only blocking CI jobs are the `test` matrix (Python 3.11 + 3.12) and the `bandit` security scan.
+### AD-3 · Feature branches are always recreated from `main`, never updated in place — see PROJECT_CONTEXT.md Section 12
+Before creating a branch, the Dev Agent deletes any existing branch with the same name and recreates it fresh from the latest `main` SHA, guaranteeing clean diffs.
 
-**Why:** SonarCloud is triggered selectively from the Control Centre before promoting a build to TEST or PROD — running it on every feature-branch PR would be redundant and costly. Railway deploy only runs after merge to `main`, so it can never be a pre-merge gate.
+### AD-4 · Two parallel agent implementations: CrewAI (local) and raw Anthropic SDK (CI) — see PROJECT_CONTEXT.md Section 12
+The same three agents exist in two forms — CrewAI-wrapped (`agents/`) for local use and self-contained single-file versions (`ci_dev_agent.py` / `ci_manager_agent.py`) for CI; logic changes must be applied to both.
 
-**Do not:** Add SonarCloud or Railway deploy as blocking conditions in `manager_agent.py`, `ci_manager_agent.py`, `GetCIStatusTool`, or any merge-readiness logic.
+### AD-5 · Jira sprints are tracked via fix versions, not native Agile sprints — see PROJECT_CONTEXT.md Section 12
+Sprints are assigned via Jira's `fixVersions` field, not the native Agile sprint API; JQL must dual-query `fixVersion = {fix_id} OR sprint = {native_id}` to catch all tickets.
 
----
+### AD-6 · Manager Agent posts a COMMENT review, not a formal APPROVE — see PROJECT_CONTEXT.md Section 12
+`ApprovePRTool` submits a `COMMENT`-type review and then calls merge directly — GitHub blocks a token from submitting a formal `APPROVE` review on PRs it owns.
 
-### AD-2 · No git CLI — all GitHub operations use the REST API
+### AD-7 · Jira API calls are always proxied through the FastAPI backend — see PROJECT_CONTEXT.md Section 12
+The Control Centre browser app never calls Jira directly — all Jira requests go through `/proxy/jira/*` on the UAT backend because Jira does not allow browser CORS.
 
-**Decision:** The Dev Agent creates branches, commits files, and opens PRs entirely via the GitHub Contents API and Git Trees API over HTTP. No `git` binary is required.
+### AD-8 · Password reset token is returned in the API response (UAT mode, by design) — see PROJECT_CONTEXT.md Section 12
+`POST /auth/password-reset/request` returns the reset token in the response body and the UI displays it — UAT-only workaround for the missing SMTP server, tracked as SDT1-50.
 
-**Why:** Agents run in GitHub Actions runners and arbitrary Python environments. Eliminating the git dependency means agents work anywhere Python and `requests` are available. Base64 encoding handles binary-safe file content. The SHA-based update protocol replaces the need for local refs.
+### AD-9 · Ticket execution order uses `customfield_10071`, not Jira dependency links — see PROJECT_CONTEXT.md Section 12
+Each story has an integer execution order in `customfield_10071`; the Orchestrator sorts by this field and Jira `blocks` / `is-blocked-by` link types are not used.
 
-**Consequence:** File updates require the current blob SHA (fetched before writing). The `commit_file` tool handles this automatically via `get_file()` → SHA lookup before `PUT /contents/{path}`.
+### AD-10 · All agents are stateless — `memory=False` on every CrewAI agent — see PROJECT_CONTEXT.md Section 12
+Every CrewAI agent is instantiated with `memory=False`; context is passed explicitly via the task description rather than via the vector store.
 
----
+### AD-11 · CrewAI requires an OpenAI API key even when using Anthropic — use a stub — see PROJECT_CONTEXT.md Section 12
+`.env` must set `OPENAI_API_KEY=sk-no-openai-needed` to satisfy CrewAI's import-time check — the agents use `claude-sonnet-4-5` and OpenAI is never actually called.
 
-### AD-3 · Feature branches are always recreated from `main`, never updated in place
+### AD-12 · PM Agent tool set is split into BACKLOG_TOOLS and SPRINT_TOOLS — see PROJECT_CONTEXT.md Section 12
+PM Agent tools are divided into `BACKLOG_TOOLS` (epic/story creation, default) and `SPRINT_TOOLS` (sprint population) — sprint-phase invocations must pass the `tools` override.
 
-**Decision:** Before creating a branch, the Dev Agent deletes any existing branch with the same name and recreates it fresh from the latest `main` SHA.
+### AD-13 · Manager Agent diff is truncated at 8 000 characters (CrewAI) / 12 000 characters (CI) — see PROJECT_CONTEXT.md Section 12
+PR diffs are truncated from the end at 8 000 chars (CrewAI) / 12 000 chars (CI) to stay within Claude's effective tool-use context.
 
-**Why:** In-place branch updates accumulate divergence from `main` and produce complex diffs that are harder for the Manager Agent to review. Starting fresh from `main` on every invocation guarantees a clean, minimal diff and eliminates merge conflicts entirely.
+### AD-14 · Playwright E2E tests run against the live Railway-deployed UAT backend — see PROJECT_CONTEXT.md Section 12
+E2E tests hit the live UAT URL on Railway, not a local stack — Playwright runs with `continue-on-error: true` because results depend on Railway availability.
 
-**Consequence:** Any work committed to a branch that has not yet been merged to `main` will be lost if the Dev Agent retriggers for the same ticket. This is intentional — the branch is ephemeral; `main` is the source of truth.
+### AD-15 · GitHub Actions use a PAT (`PAT_TOKEN`), not the default `GITHUB_TOKEN` — see PROJECT_CONTEXT.md Section 12
+`auto-implement.yml` and `auto-review.yml` authenticate with `PAT_TOKEN` because the default `GITHUB_TOKEN` cannot push to protected branches or trigger other workflows.
 
----
+### AD-16 · `uat/backend/` uses a flat module layout — no packages, no `src/` subdirectory — see PROJECT_CONTEXT.md Section 12
+All Python source files sit directly in `uat/backend/` with no `src/` subdirectory and no `__init__.py`; imports are flat (`from models import ...`).
 
-### AD-4 · Two parallel agent implementations: CrewAI (local) and raw Anthropic SDK (CI)
+### AD-17 · Orchestrator re-queries Jira before each ticket — no startup cache — see PROJECT_CONTEXT.md Section 12
+`run_sprint()` re-queries Jira at the top of every iteration and always processes `tickets[0]` — failed-but-still-To-Do tickets are automatically retried, but permanently broken tickets can loop indefinitely.
 
-**Decision:** The same three agents exist in two forms — CrewAI-wrapped versions in `agents/` (used locally via `main.py`) and self-contained single-file versions in `ci_dev_agent.py` / `ci_manager_agent.py` (used by GitHub Actions).
+### AD-18 · Manager Agent uses `PAT_TOKEN` (not `GITHUB_TOKEN`) for workflow dispatch retriggers — see PROJECT_CONTEXT.md Section 12
+`ci_manager_agent.py` uses `DISPATCH_HEADERS` (PAT) exclusively for `workflow_dispatch` calls; `GITHUB_TOKEN` cannot fire workflow_dispatch events on other workflows.
 
-**Why:** CrewAI's full dependency graph is heavy and unsuitable for GitHub Actions runners. The CI versions use the Anthropic SDK directly with `tool_use` content blocks, keeping the runner lightweight. The local CrewAI versions provide a better development and debugging experience.
+### AD-19 · `gh_read_file` in `ci_dev_agent.py` returns `None` for directory paths — see PROJECT_CONTEXT.md Section 12
+`gh_read_file` checks `isinstance(data, list)` after parsing — when the Contents API returns a directory listing it returns `None` (same as 404), avoiding a `TypeError` crash.
 
-**Consequence:** Any logic change to review criteria, merge conditions, or file structure rules must be applied to **both** implementations. They are not shared-code — they are intentional duplicates kept in sync manually.
+### AD-20 · Manager Agent merge must use `PAT_TOKEN`, not `GITHUB_TOKEN` — see PROJECT_CONTEXT.md Section 12
+`merge_pr()` uses `DISPATCH_HEADERS` (PAT) because GitHub does not fire `push` events for `GITHUB_TOKEN` merges, which would block `ci.yml` and Railway deploy from running on `main`.
 
----
+### AD-21 · Railway deploy uses GraphQL API `serviceInstanceRedeploy`, not the CLI — see PROJECT_CONTEXT.md Section 12
+`ci.yml` calls the Railway GraphQL API directly via `curl` + `jq` and the `serviceInstanceRedeploy` mutation — no `npm install -g @railway/cli` required.
 
-### AD-5 · Jira sprints are tracked via fix versions, not native Agile sprints
+### AD-22 · `uat/backend/` is a self-contained service — no cross-directory imports at runtime — see PROJECT_CONTEXT.md Section 12
+Files in `uat/backend/` may import only from stdlib, pip-installed packages in `uat/backend/requirements.txt`, and other files within `uat/backend/` itself — never from `agents/` or `tools/`.
 
-**Decision:** The PM Agent assigns tickets to sprints using Jira's `fixVersions` field (release management), not the native Agile sprint API. Sprint IDs are pre-created fix versions (e.g. Sprint 5 = version ID 10132).
-
-**Why:** The Agile sprint API requires board-specific configuration and returns different data structures from the standard REST API. Fix versions are simpler to create and query programmatically and don't require board access.
-
-**Consequence:** A dual JQL query is always needed to catch all tickets: `fixVersion = {fix_id} OR sprint = {native_id}`. Neither field alone is reliable. The PM Agent may create a new fix version instead of reusing an existing one if the name string doesn't match exactly — always pre-create sprint versions manually and verify before running the PM Agent.
-
----
-
-### AD-6 · Manager Agent posts a COMMENT review, not a formal APPROVE
-
-**Decision:** `ApprovePRTool` submits a `COMMENT`-type review body, not an `APPROVE`-type review event. The merge is called immediately after.
-
-**Why:** GitHub blocks the same token from approving PRs it owns. The `GITHUB_TOKEN` (and the PAT used in CI) belongs to the repo owner, so a formal `APPROVE` review event is rejected with a 422. The workaround is posting an approval comment then calling the merge API directly.
-
-**Consequence:** Merged PRs do not show a green "Approved" badge in the GitHub UI. This is expected — the approval is recorded as a comment. Do not interpret the absence of a formal approval as a process failure.
-
----
-
-### AD-7 · Jira API calls are always proxied through the FastAPI backend
-
-**Decision:** The Control Centre browser app never calls the Jira API directly. All Jira requests go through `/proxy/jira/*` endpoints on the UAT FastAPI backend.
-
-**Why:** Jira's REST API does not set permissive CORS headers, so direct browser-to-Jira calls are blocked. The GitHub API does allow CORS, so the Control Centre calls GitHub directly. The Anthropic API key is a server secret and also never exposed to the browser.
-
-**Do not:** Add direct Jira calls to the Control Centre frontend. The proxy pattern is load-bearing.
-
----
-
-### AD-8 · Password reset token is returned in the API response (UAT mode, by design)
-
-**Decision:** `POST /auth/password-reset/request` returns the reset token in the JSON response body, and the frontend displays it on screen.
-
-**Why:** The UAT environment has no SMTP server configured. Returning the token directly lets testers exercise the reset flow without email infrastructure. This is UAT Finding #1 and is tracked as SDT1-50 for remediation before any TEST/PROD promotion.
-
-**Do not:** Treat this as a normal security pattern or replicate it in any new endpoint. It exists only because SDT1-50 has not yet been implemented.
-
----
-
-### AD-9 · Ticket execution order uses `customfield_10071`, not Jira dependency links
-
-**Decision:** Each story has an integer execution order in `customfield_10071`. The Orchestrator sorts by this field. Jira `blocks`/`is-blocked-by` link types are not used.
-
-**Why:** Resolving Jira link graphs requires recursive API calls and topological sorting — significantly more complex than sorting by a single integer field. The custom field is set by the PM Agent at sprint planning time and is sufficient for the linear execution sequences used so far.
-
-**Consequence:** Dependency relationships are implicit in the ordering number, not machine-readable as links. SDT1-53 (Sprint 5) will add proper link support. Until then, the PM Agent must set `customfield_10071` correctly on every story.
-
----
-
-### AD-10 · All agents are stateless — `memory=False` on every CrewAI agent
-
-**Decision:** All three CrewAI agents (`pm_agent.py`, `dev_agent.py`, `manager_agent.py`) are instantiated with `memory=False`.
-
-**Why:** Stateful CrewAI memory uses a vector store that adds latency, cost, and non-determinism. Each agent run is scoped to a single task (plan a sprint, implement a ticket, review a PR) and requires no cross-session context. The session context is provided explicitly via the task description.
-
----
-
-### AD-11 · CrewAI requires an OpenAI API key even when using Anthropic — use a stub
-
-**Decision:** `.env` sets `OPENAI_API_KEY=sk-no-openai-needed`. This is a dummy value.
-
-**Why:** CrewAI's framework validates the presence of `OPENAI_API_KEY` at import time regardless of which LLM provider is configured. The agents use `claude-sonnet-4-5` via the `LLM(model=...)` constructor, so OpenAI is never actually called. The stub satisfies the framework check.
-
----
-
-### AD-12 · PM Agent tool set is split into BACKLOG_TOOLS and SPRINT_TOOLS
-
-**Decision:** The PM Agent's tools are divided into two groups. `BACKLOG_TOOLS` covers epic/story creation; `SPRINT_TOOLS` covers sprint population. The agent is instantiated with `BACKLOG_TOOLS` by default and the caller swaps to `SPRINT_TOOLS` for sprint-phase tasks.
-
-**Why:** The combined tool schema of all PM tools exceeds a threshold that causes issues with Claude's tool-use context window. Splitting keeps each invocation's tool list small enough to function reliably.
-
-**Consequence:** When invoking the PM Agent for sprint planning specifically, the `tools` override must be passed. Using the default `BACKLOG_TOOLS` for a sprint task will silently omit the sprint population tools.
-
----
-
-### AD-13 · Manager Agent diff is truncated at 8 000 characters (CrewAI) / 12 000 characters (CI)
-
-**Decision:** `GetPRDiffTool` in `manager_tools.py` truncates diffs at 8 000 chars. `ci_manager_agent.py` truncates at 12 000 chars. Both cut from the end of the diff.
-
-**Why:** Large diffs exceed Claude's effective context for tool-use. Truncation prevents context overflow and keeps review latency predictable.
-
-**Known weakness:** Truncation from the end means new files appended at the bottom of a PR diff are invisible to the Manager. SDT1-46 will fix this by reordering: new files first, modified hunks second, deletions last.
-
----
-
-### AD-14 · Playwright E2E tests run against the live Railway-deployed UAT backend
-
-**Decision:** E2E tests in `tests/e2e/` hit the actual production UAT URL (`https://synpro-virtual-dev-team-production.up.railway.app`), not a local or ephemeral test environment.
-
-**Why:** Spinning up a full Docker stack in CI for every PR is expensive and slow. The UAT backend is always running on Railway and is the canonical test target. E2E test results reflect real deployment behaviour.
-
-**Consequence:** E2E tests depend on Railway availability. If the UAT service is down or mid-deploy, E2E tests will fail for infrastructure reasons unrelated to the PR. This is why Playwright runs with `continue-on-error: true`.
-
----
-
-### AD-15 · GitHub Actions use a PAT (`PAT_TOKEN`), not the default `GITHUB_TOKEN`
-
-**Decision:** `auto-implement.yml` and `auto-review.yml` authenticate with a Personal Access Token stored as `PAT_TOKEN`, not the built-in `GITHUB_TOKEN`.
-
-**Why:** The default `GITHUB_TOKEN` cannot push to branches protected by branch protection rules, and cannot trigger other workflow runs (a security restriction GitHub applies to prevent recursive workflow loops). The PAT bypasses both restrictions and must be rotated when the owner account credentials change.
-
----
-
-### AD-16 · `uat/backend/` uses a flat module layout — no packages, no `src/` subdirectory
-
-**Decision:** All Python source files sit directly in `uat/backend/`. No `src/` subdirectory, no `__init__.py` files. Imports are flat: `from models import ...`, not `from src.models import ...`.
-
-**Why:** The backend is a small, focused FastAPI app. A package hierarchy would add indirection without benefit at this scale. The flat layout also matches how Railway's Procfile resolves modules at startup.
-
-**Do not:** Create `src/` subdirectories or `__init__.py` files inside `uat/backend/`. The Dev Agent backstory and `ci_dev_agent.py` prompt both enforce this layout explicitly.
-
----
-
-### AD-17 · Orchestrator re-queries Jira before each ticket — no startup cache
-
-**Decision:** `run_sprint()` uses a `while True:` loop that calls `get_open_sprint_tickets()` at the top of every iteration, always processing `tickets[0]` (the lowest execution-order To Do ticket). The loop exits when Jira returns an empty list.
-
-**Why:** Fetching once at startup and iterating a stale snapshot meant any external state change (manual Jira transition, failed retrigger, mid-run ticket completion) was invisible for the rest of the run. The while-loop model also makes automatic retry of failed tickets possible — if a ticket fails and remains To Do, the next iteration picks it up again without operator intervention.
-
-**Consequence:** A ticket that genuinely cannot be implemented will loop indefinitely (fail → still To Do → retry). The Orchestrator does not implement a per-ticket retry cap. If a ticket is permanently broken, move it to Done or remove it from To Do in Jira to unblock the sprint.
-
----
-
-### AD-18 · Manager Agent uses `PAT_TOKEN` (not `GITHUB_TOKEN`) for workflow dispatch retriggers
-
-**Decision:** `ci_manager_agent.py` maintains two header dicts: `GH_HEADERS` (built-in `GITHUB_TOKEN`) for all read/write operations on PRs, commits, and reviews; and `DISPATCH_HEADERS` (PAT from `PAT_TOKEN` env var) exclusively for `workflow_dispatch` API calls. `auto-review.yml` exposes `PAT_TOKEN: ${{ secrets.PAT_TOKEN }}` to the script.
-
-**Why:** GitHub's security model blocks `GITHUB_TOKEN` from triggering `workflow_dispatch` events on other workflows to prevent recursive loops. All retrigger calls (merge-conflict recovery → Auto Implement) silently returned 4xx when using `GITHUB_TOKEN` — tickets were left stranded with closed PRs and no new implementation. Confirmed failure on PR #98 (SDT1-46).
-
-**Consequence:** Any new place in `ci_manager_agent.py` that needs to fire a workflow must use `DISPATCH_HEADERS`. If `PAT_TOKEN` is not set in the environment, it falls back to `GITHUB_TOKEN` (which will fail silently) — always verify the secret is present.
-
----
-
-### AD-19 · `gh_read_file` in `ci_dev_agent.py` returns `None` for directory paths
-
-**Decision:** `gh_read_file` checks `isinstance(data, list)` after `data = r.json()`. If the GitHub Contents API returns a directory listing (a JSON array), the function returns `None` — identical to how a 404 is handled.
-
-**Why:** When Claude passes a directory path to `read_file`, the GitHub API returns a list of directory entries rather than a file dict. Accessing `data["content"]` on a list raises `TypeError: list indices must be integers or slices, not str`, crashing the entire Auto Implement run after files may have already been staged. Returning `None` lets the agent see "File not found" and try a different path.
-
-**Do not:** Remove this guard or assume the GitHub Contents API always returns a dict.
-
----
-
-### AD-20 · Manager Agent merge must use `PAT_TOKEN`, not `GITHUB_TOKEN`
-
-**Decision:** `merge_pr()` in `ci_manager_agent.py` uses `DISPATCH_HEADERS` (`PAT_TOKEN`) for the `PUT /pulls/{pr_number}/merge` API call, not `GH_HEADERS` (`GITHUB_TOKEN`).
-
-**Why:** GitHub does not fire `push` events for actions performed by `GITHUB_TOKEN` — this is the same recursive-loop prevention that blocks `GITHUB_TOKEN` from dispatching workflows (AD-15, AD-18). Every Manager Agent squash merge using `GITHUB_TOKEN` produced no push event on `main`, so `ci.yml` never ran and Railway never received a deploy trigger. All Sprint 5 merges (2026-04-30) produced zero CI runs on `main` as a result — the UAT backend ran stale code until the RAILWAY_TOKEN was manually rotated and a deploy manually triggered.
-
-**Consequence:** `DISPATCH_HEADERS` is now used for three operations: workflow dispatch retriggers, the merge call, and any future write that must produce observable side effects on `main`. `GH_HEADERS` (`GITHUB_TOKEN`) is safe only for operations that do not need to trigger downstream workflows — PR reads, review comments, CI status checks.
-
-**Do not:** Revert `merge_pr()` to `GH_HEADERS`. The CI and Railway deploy pipelines depend on the PAT-triggered push event.
-
----
-
-### AD-21 · Railway deploy uses GraphQL API `serviceInstanceRedeploy`, not the CLI
-
-**Decision:** The `ci.yml` deploy job calls the Railway GraphQL API (`https://backboard.railway.app/graphql/v2`) directly via `curl` + `jq` to trigger redeployments. It does not install the Railway CLI (`npm install -g @railway/cli`).
-
-**How it works:**
-1. `printf` constructs the GraphQL query JSON (avoids nested-shell-escape fragility)
-2. `project(id: "$RAILWAY_PROJECT_ID")` returns all environments and services
-3. `jq` with `ascii_downcase` resolves "production" environment ID and service ID by name (case-insensitive)
-4. `serviceInstanceRedeploy(environmentId: ..., serviceId: ...)` mutation triggers the redeploy
-5. If the API returns `{"errors":[...]}` or is unreachable, the step exits 0 (non-blocking) and logs all available environment/service names for debugging
-
-**Why:** The Railway CLI (`railway up`) uses `railway.json` in the working directory and requires the correct service name at invocation time. The CLI also requires a project-scoped token and the service name must match exactly. The GraphQL API resolves service IDs dynamically by name, is dependency-free (no npm install), and is more transparent — the full response is echoed to CI logs.
-
-**Secrets used:** `RAILWAY_TOKEN` (personal token in GitHub Secrets — must have project read+deploy access) and `RAILWAY_PROJECT_ID` (the project UUID).
-
-**Do not:** Add `npm install -g @railway/cli` back to the deploy job. Use the GraphQL API pattern instead.
-
----
-
-### AD-22 · `uat/backend/` is a self-contained service — no cross-directory imports at runtime
-
-**Decision:** Every Python file in `uat/backend/` must import only from: the Python standard library, pip-installed packages in `uat/backend/requirements.txt`, and other files within `uat/backend/` itself. No imports from `agents/`, `tools/`, or any other top-level directory.
-
-**Why:** Railway deploys `uat/backend/` as a standalone service. The working directory at startup is `uat/backend/`, and no other project directories are present on the filesystem. A `sys.path.insert` pointing to a parent directory works locally but resolves to a non-existent path in the Railway container. This caused at minimum two confirmed production crashes: `manager_agent_router.py` (Sprint 5) and `orchestrator_router.py` (Sprint 6).
-
-**Consequence:** When a new router needs logic that currently lives in `agents/`, that logic must be inlined as local helper functions or rewritten as direct HTTP calls. Do not create shared library packages spanning `uat/backend/` and `agents/`.
-
-**Pattern to follow:** See `manager_agent_router.py` and `orchestrator_router.py` (post-Sprint 6 fix) — both are fully self-contained with local helper functions and no cross-directory imports.
-
-### AD-23 · One frontend per product — Control Centre IS the product frontend
-
-**Decision:** The Control Centre and the UAT frontend are to be merged into a single frontend service per product. The Control Centre was always intended to be the product frontend — not a separate operator tool. The separate Virtual-Dev-Team-UAT-Frontend Railway service will be decommissioned in Sprint 12.
-
-**Why:** Having two separate frontends for one product creates unnecessary duplication, split authentication, and confusion about which service is the real product. The Control Centre already contains the Sprint Status, Workflows, UAT Deploy, and PM Agent tabs — adding the user-facing pages (Login, Register, Dashboard, Profile, Notifications) makes it the complete product frontend.
-
-**Consequence:** Sprint 12 will merge all UAT frontend pages into the Control Centre, decommission the UAT frontend Railway service, and update CORS and backend configuration accordingly.
+### AD-23 · One frontend per product — Control Centre IS the product frontend — see PROJECT_CONTEXT.md Section 12
+The Control Centre is the single product frontend; the separate Virtual-Dev-Team-UAT-Frontend Railway service was decommissioned in Sprint 12.
 
 ---
 
