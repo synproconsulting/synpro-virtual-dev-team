@@ -39,6 +39,16 @@ export default function App() {
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get("token");
+    if (urlToken) {
+      setResetToken(urlToken);
+      setView("reset-complete");
+      window.history.replaceState({}, "", "/");
+    }
+  }, []);
+
+  useEffect(() => {
     if (token) fetchProducts().then(setProducts);
   }, [token]);
 
