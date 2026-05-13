@@ -332,3 +332,54 @@ The Control Centre Railway service only redeploys when its own source changes. B
 
 ### 4. Frontend consolidation (AD-23) complete
 All UAT frontend pages (Login, Register, Dashboard, Profile, Notifications) merged into the Control Centre. The separate `Virtual-Dev-Team-UAT-Frontend` Railway service was decommissioned. The Control Centre is now the single product frontend per AD-23.
+
+---
+
+### Sprint 13 — Bug Fixes & CI Hardening ✅ Complete
+Epic SDT1-112. Fix version 10429, native sprint ID 336.
+
+| Exec # | Ticket | Summary | Status | PR |
+|--------|--------|---------|--------|----|
+| 1 | SDT1-102 | Fix: Remove decommissioned UAT frontend from CI deploy job | ✅ Done | #201 |
+| 2 | SDT1-109 | Fix: `/profile` endpoint returns 404 from Control Centre | ✅ Done | #203 |
+| 3 | SDT1-110 | Fix: `/notifications/` endpoint returns 404 from Control Centre | ✅ Done | #204 |
+| 4 | SDT1-113 | Fix: Switch email delivery from SMTP to Resend API | ✅ Done | #205 |
+
+**Fix PRs opened during Sprint 13 (infrastructure, not sprint tickets):**
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #198 | fix/add-sprint13-jira-ids | Add Sprint 13 Jira IDs to CLAUDE.md and PROJECT_CONTEXT.md |
+| #199 | fix/correct-sdt1-113-key-in-history | Correct SDT1-113 ticket key in CLAUDE_HISTORY.md Sprint 12 backlog |
+| #200 | fix/hard-rule-resolve-discrepancies | Add Hard Rule: resolve Claude Code discrepancies in current action |
+| #202 | fix/move-ad-bodies-to-project-context | Move AD bodies to PROJECT_CONTEXT.md to reduce CLAUDE.md below 40k |
+| #206 | fix/control-centre-password-reset-token-link | Fix: handle password reset token from email link in Control Centre |
+
+**Backlog bug tickets opened during Sprint 13:**
+
+- **SDT1-114** — Fix: Sprint selector in Sprint Status tab not scrollable and does not default to active sprint (backlog)
+
+---
+
+## Sprint 13 Lessons Learned
+
+### 1. Always verify backlog ticket current state before including it in a sprint
+SDT1-102 was included in Sprint 13 based on its ticket description, but the underlying fix had already been implemented in Sprint 9 (PR #174). Going forward: before adding any backlog ticket to a sprint, verify the current state of the code against the ticket's acceptance criteria rather than assuming the description still reflects reality.
+
+### 2. Execution order must be infrastructure-first
+CI/pipeline fixes must always be exec order 1 so every subsequent PR in the sprint benefits from the corrected pipeline. Sprint 13 followed this pattern (SDT1-102 first) and the remaining tickets merged cleanly through the fixed CI.
+
+### 3. Railway blocks outbound SMTP on all ports — Resend API over HTTPS is the correct solution
+SMTP-based email delivery is fundamentally unsupported on Railway (confirmed across ports 25, 465, 587, 2525). The Resend API delivers over HTTPS, sidestepping the block entirely. Domain verification for `contact.synproconsulting.co` via Namecheap DNS completed in under 15 minutes — Resend's verification flow is fast once the registrar is identified.
+
+### 4. Gmail addresses cannot be used as Resend sender addresses
+Resend rejects free-mail-provider domains (gmail.com, yahoo.com, outlook.com) as sender addresses. A verified owned domain is mandatory. Sprint 13 used `noreply@contact.synproconsulting.co` after verifying the apex domain.
+
+### 5. Control Centre has no URL router — deep links require mount-time query parsing
+The password reset email link delivers a token as a query string parameter, but the Control Centre is a single-page React app with no router. Handling deep links requires mount-time `URLSearchParams` parsing in `App.jsx` to extract the token and route the user into the reset flow. Adding a router was out of scope for SDT1-113; the query-string parser was the minimum viable fix (PR #206).
+
+### 6. Resolve Claude Code discrepancies in the current action — never defer
+When Claude Code flags a discrepancy (corrected ticket key, wrong ID, file-size limit breach) at the end of its output, the correction must be folded into the same PR. Deferring to a follow-up PR creates inconsistent intermediate states in the docs. Added as a Hard Rule (PR #200) after the SDT1-113 ticket-key correction had to be done as a separate follow-up (PR #199) instead of being included in PR #198.
+
+### 7. CLAUDE.md size matters — keep under 40 000 characters
+Claude Code performance degrades when CLAUDE.md exceeds ~40 000 characters. Sprint 13 moved the full AD bodies (Decision / Why / Consequence / Do not) into PROJECT_CONTEXT.md Section 12, leaving one-line summaries in CLAUDE.md with cross-references (PR #202). Reference content that is not needed at every session start belongs in PROJECT_CONTEXT.md.
