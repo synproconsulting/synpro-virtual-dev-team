@@ -107,6 +107,10 @@ class Product(Base):
     Each product maps a software project to its Jira project, GitHub repo,
     and Railway deployment. The Jira proxy uses these values when a product_id
     is supplied, falling back to environment variables for single-product deployments.
+
+    Secret credentials (Jira API token, GitHub token, Anthropic key, Resend key)
+    are stored encrypted in the ``*_enc`` columns and decrypted on demand via
+    the dedicated credentials endpoint (SDT1-118).
     """
 
     __tablename__ = "products"
@@ -120,15 +124,25 @@ class Product(Base):
     name = Column(String(255), nullable=False, unique=True, index=True)
     jira_project_key = Column(String(50), nullable=False)
     jira_base_url = Column(String(500), nullable=True)
+    jira_email = Column(String(255), nullable=True)
+    jira_api_token_enc = Column(String(1000), nullable=True)
     github_org = Column(String(255), nullable=True)
     github_repo = Column(String(255), nullable=False)
+    github_token_enc = Column(String(1000), nullable=True)
+    anthropic_api_key_enc = Column(String(1000), nullable=True)
+    resend_api_key_enc = Column(String(1000), nullable=True)
+    resend_from_email = Column(String(255), nullable=True)
     railway_service_id = Column(String(255), nullable=True)
     railway_project_id = Column(String(255), nullable=True)
-    railway_backend_service_name = Column(String(255), nullable=True)
-    railway_frontend_service_name = Column(String(255), nullable=True)
     railway_dev_service_id = Column(String(255), nullable=True)
     railway_test_service_id = Column(String(255), nullable=True)
     railway_prod_service_id = Column(String(255), nullable=True)
+    dev_backend_service_id = Column(String(255), nullable=True)
+    dev_frontend_service_id = Column(String(255), nullable=True)
+    test_backend_service_id = Column(String(255), nullable=True)
+    test_frontend_service_id = Column(String(255), nullable=True)
+    prod_backend_service_id = Column(String(255), nullable=True)
+    prod_frontend_service_id = Column(String(255), nullable=True)
     db_url_dev = Column(String(1000), nullable=True)
     db_url_test = Column(String(1000), nullable=True)
     db_url_prod = Column(String(1000), nullable=True)
