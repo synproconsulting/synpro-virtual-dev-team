@@ -9,7 +9,12 @@ const EMPTY = {
 };
 
 function getStoredToken() {
-  try { return localStorage.getItem("authToken") || ""; } catch { return ""; }
+  try { return localStorage.getItem("token") || ""; } catch { return ""; }
+}
+
+function redirectToLogin() {
+  try { localStorage.removeItem("token"); } catch {}
+  window.location.reload();
 }
 
 export default function ProductsTab({ onProductsChanged }) {
@@ -46,6 +51,11 @@ export default function ProductsTab({ onProductsChanged }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const token = getStoredToken();
+    if (!token) {
+      redirectToLogin();
+      return;
+    }
     setError("");
     setSaving(true);
     const payload = {
@@ -63,9 +73,9 @@ export default function ProductsTab({ onProductsChanged }) {
     };
     try {
       if (editingId) {
-        await updateProduct(editingId, payload, getStoredToken());
+        await updateProduct(editingId, payload, token);
       } else {
-        await createProduct(payload, getStoredToken());
+        await createProduct(payload, token);
       }
       closeForm();
       onProductsChanged();
@@ -78,10 +88,15 @@ export default function ProductsTab({ onProductsChanged }) {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    const token = getStoredToken();
+    if (!token) {
+      redirectToLogin();
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      await deleteProduct(deleteTarget.id, getStoredToken());
+      await deleteProduct(deleteTarget.id, token);
       setDeleteTarget(null);
       onProductsChanged();
     } catch (err) {
