@@ -58,6 +58,8 @@ Committing directly to `main` bypasses the audit trail, CI gates, and the Manage
 
 **uto-implement.yml is manual-only — never dispatch it programmatically.** Claude Code is the Dev Agent for Sprint 8 and beyond. The uto-implement.yml workflow exists for reference and manual single-ticket testing from the GitHub Actions UI only. The orchestrator.py Orchestrator must not dispatch it automatically via the GitHub API. Implement tickets directly with Claude Code.
 
+**When Claude Code flags a discrepancy at the end of its output, resolve it in the current action — never defer to a follow-up.** If a sprint setup prompt produces output noting a corrected ticket key, wrong ID, or any inconsistency in CLAUDE.md, CLAUDE_HISTORY.md, or PROJECT_CONTEXT.md, that correction must be included in the same PR before it is submitted. Specifically: if any ticket key in CLAUDE_HISTORY.md is provisional (e.g. "SDT1-111 (to be created)"), it must be resolved and corrected in the same PR that sets up the sprint IDs — not in a follow-up PR.
+
 ---
 
 ## Key Architectural Decisions
