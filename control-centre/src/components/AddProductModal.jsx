@@ -7,11 +7,17 @@ const EMPTY = {
   railway_dev_service_id: "", railway_test_service_id: "", railway_prod_service_id: "",
 };
 
+function readAuthToken() {
+  try { return localStorage.getItem("token") || ""; } catch { return ""; }
+}
+
+function redirectToLogin() {
+  try { localStorage.removeItem("token"); } catch {}
+  window.location.reload();
+}
+
 export default function AddProductModal({ onClose, onAdded }) {
   const [form, setForm] = useState(EMPTY);
-  const [token, setToken] = useState(() => {
-    try { return localStorage.getItem("authToken") || ""; } catch { return ""; }
-  });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -19,6 +25,11 @@ export default function AddProductModal({ onClose, onAdded }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const token = readAuthToken();
+    if (!token) {
+      redirectToLogin();
+      return;
+    }
     setError("");
     setSaving(true);
     try {
@@ -38,7 +49,6 @@ export default function AddProductModal({ onClose, onAdded }) {
         },
         token,
       );
-      try { if (token) localStorage.setItem("authToken", token); } catch {}
       onAdded(product);
     } catch (err) {
       setError(err.message);
@@ -73,16 +83,6 @@ export default function AddProductModal({ onClose, onAdded }) {
           {field("Railway DEV Service ID", "railway_dev_service_id", false)}
           {field("Railway TEST Service ID", "railway_test_service_id", false)}
           {field("Railway PROD Service ID", "railway_prod_service_id", false)}
-          <div className="modal-field">
-            <label>Auth Token *</label>
-            <input
-              type="password"
-              value={token}
-              onChange={e => setToken(e.target.value)}
-              placeholder="Paste a valid JWT token"
-              required
-            />
-          </div>
           {error && <p className="modal-error">{error}</p>}
           <div className="modal-actions">
             <button type="button" onClick={onClose} disabled={saving}>Cancel</button>
