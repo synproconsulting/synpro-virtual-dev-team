@@ -1,0 +1,428 @@
+/* Products tab - grouped credential form and list view (SDT1-119).
+   Uses the existing dark-theme CSS variables defined in App.css:
+   --bg, --bg-card, --bg-hover, --border, --accent, --accent-glow,
+   --success, --warning, --danger, --text, --muted, --font. */
+
+/* ?? Tab shell ??????????????????????????????????????????????????????? */
+.products-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.products-tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.products-tab-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+/* ?? Buttons (scoped to products UI) ????????????????????????????????? */
+.prod-btn-primary {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.prod-btn-primary:hover { opacity: 0.85; }
+.prod-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.prod-btn-secondary {
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.prod-btn-secondary:hover { background: var(--bg-card); }
+.prod-btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.prod-btn-danger {
+  background: var(--danger);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.prod-btn-danger:hover { opacity: 0.85; }
+.prod-btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.prod-btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.prod-btn-link:hover { background: var(--bg-hover); }
+.prod-btn-link-danger { color: var(--danger); }
+
+/* ?? List / table ???????????????????????????????????????????????????? */
+.products-table-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.products-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.products-table thead th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.products-table tbody td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.products-table tbody tr:last-child td { border-bottom: none; }
+.products-table tbody tr:hover { background: var(--bg-hover); }
+
+.products-name { font-weight: 600; }
+.products-mono { font-family: var(--font); font-size: 12px; color: var(--muted); }
+
+.products-actions-col { width: 1%; white-space: nowrap; text-align: right; }
+.products-actions {
+  text-align: right;
+  white-space: nowrap;
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+}
+
+.products-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 2rem 1rem !important;
+}
+
+/* ?? Form wrapper ???????????????????????????????????????????????????? */
+.products-form-wrapper {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.products-form-heading {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 0.25rem;
+}
+
+.products-form-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0 0 1.25rem;
+}
+
+.prod-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* ?? Sections ???????????????????????????????????????????????????????? */
+.prod-section {
+  border: none;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.prod-section:first-of-type { border-top: none; padding-top: 0; }
+
+.prod-section-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  padding: 0 0 0.75rem;
+  margin: 0;
+}
+
+.prod-section-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.875rem;
+}
+
+@media (min-width: 720px) {
+  .prod-section-body { grid-template-columns: 1fr 1fr; }
+  /* Span both columns for emphasis on the lone identity field */
+  .prod-section:first-of-type .prod-field { grid-column: 1 / -1; }
+}
+
+/* ?? Field ??????????????????????????????????????????????????????????? */
+.prod-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.prod-field label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.prod-required {
+  color: var(--danger);
+  margin-left: 2px;
+}
+
+.prod-field input {
+  padding: 0.6rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+}
+
+.prod-field input::placeholder { color: var(--muted); }
+
+.prod-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.prod-field input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ?? Secret field (password + eye toggle) ???????????????????????????? */
+.prod-secret-wrap { position: relative; }
+
+.prod-secret-wrap input { padding-right: 2.5rem; font-family: var(--font); }
+
+.prod-secret-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+.prod-secret-toggle:hover { color: var(--text); background: var(--bg-hover); }
+.prod-secret-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ?? Environment groups ?????????????????????????????????????????????? */
+.prod-env-block {
+  grid-column: 1 / -1;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.02);
+  overflow: hidden;
+}
+
+.prod-env-block.prod-env-required { border-color: rgba(99,102,241,0.3); }
+
+.prod-env-header,
+.prod-env-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.875rem;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: default;
+}
+
+.prod-env-toggle { cursor: pointer; transition: background 0.15s; }
+.prod-env-toggle:hover { background: var(--bg-hover); }
+
+.prod-env-arrow {
+  font-size: 0.75rem;
+  color: var(--muted);
+  width: 0.75rem;
+  display: inline-block;
+}
+
+.prod-env-title { flex: 1; }
+
+.prod-env-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.prod-env-tag-required {
+  background: rgba(99,102,241,0.15);
+  color: var(--accent);
+}
+
+.prod-env-tag-optional {
+  background: rgba(100,116,139,0.15);
+  color: var(--muted);
+}
+
+.prod-env-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  padding: 0.25rem 0.875rem 0.875rem;
+  border-top: 1px solid var(--border);
+}
+
+@media (min-width: 720px) {
+  .prod-env-body { grid-template-columns: 1fr 1fr; }
+}
+
+/* ?? Errors and actions ?????????????????????????????????????????????? */
+.prod-form-error {
+  font-size: 0.8rem;
+  color: var(--danger);
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.25);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  margin: 0;
+}
+
+.prod-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+/* ?? Modal (delete confirm and AddProductModal) ?????????????????????? */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.modal-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 460px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 3rem);
+}
+
+.modal-box-wide { max-width: 720px; }
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.modal-header h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+.modal-close:hover { color: var(--text); background: var(--bg-hover); }
+
+.modal-body {
+  padding: 1.25rem;
+  overflow-y: auto;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
