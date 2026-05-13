@@ -6,10 +6,14 @@ const authHeader = () => ({
 });
 
 export const getUserProfile = async () => {
-  const r = await fetch(`${API_URL}/profile`, { headers: authHeader() });
+  const r = await fetch(`${API_URL}/auth/me`, { headers: authHeader() });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.detail || data.message || `HTTP ${r.status}`);
-  return data;
+  return {
+    ...data,
+    name: data.username,
+    createdAt: data.created_at,
+  };
 };
 
 export const updateUserProfile = async (profileData) => {
