@@ -1,52 +1,17 @@
-const API_URL = import.meta.env.VITE_API_URL || "";
+// Backend notification endpoints are not yet implemented â€” uat/backend/notifications.py
+// is a stub router (SDT1-47 placeholder) with no handlers, and no other router exposes
+// notification routes. Calls to /notifications/* therefore return 404. Until the backend
+// is built, this client returns safe defaults so the Notifications page renders without
+// 404 errors. Replace these stubs with real fetch calls once the backend endpoints exist.
 
-const authHeaders = () => ({
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-});
+export const getNotifications = async () => [];
 
-export const getNotifications = async (params = {}) => {
-  const qs = new URLSearchParams(params).toString();
-  const url = `${API_URL}/notifications/${qs ? `?${qs}` : ""}`;
-  const r = await fetch(url, { headers: authHeaders() });
-  const data = await r.json().catch(() => []);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return data;
-};
+export const markAsRead = async (id) => ({ id, read: true });
 
-export const markAsRead = async (id) => {
-  const r = await fetch(`${API_URL}/notifications/${id}/read`, {
-    method: "PATCH",
-    headers: authHeaders(),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return data;
-};
+export const markAllAsRead = async () => ({ ok: true });
 
-export const markAllAsRead = async () => {
-  const r = await fetch(`${API_URL}/notifications/mark-all-read`, {
-    method: "POST",
-    headers: authHeaders(),
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return data;
-};
+export const deleteNotification = async (id) => {};
 
-export const deleteNotification = async (id) => {
-  await fetch(`${API_URL}/notifications/${id}`, {
-    method: "DELETE",
-    headers: authHeaders(),
-  });
-};
-
-export const getUnreadCount = async () => {
-  const r = await fetch(`${API_URL}/notifications/unread/count`, {
-    headers: authHeaders(),
-  });
-  const data = await r.json().catch(() => ({ count: 0 }));
-  return data.count ?? 0;
-};
+export const getUnreadCount = async () => 0;
 
 export default { getNotifications, markAsRead, markAllAsRead, deleteNotification, getUnreadCount };
