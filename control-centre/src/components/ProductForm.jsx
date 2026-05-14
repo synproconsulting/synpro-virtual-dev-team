@@ -20,6 +20,7 @@ const EMPTY = {
   name: "",
   jira_base_url: "",
   jira_project_key: "",
+  jira_board_id: "",
   jira_email: "",
   jira_api_token: "",
   github_org: "",
@@ -249,6 +250,8 @@ export default function ProductForm({ initial, isEdit, saving, error, onSubmit, 
                    placeholder="https://yourorg.atlassian.net" />
         <TextField label="Jira Project Key" name="jira_project_key" value={form.jira_project_key}
                    onChange={set("jira_project_key")} required placeholder="SDT1" />
+        <TextField label="Jira Board ID" name="jira_board_id" value={form.jira_board_id}
+                   onChange={set("jira_board_id")} placeholder="e.g. 34" />
         <TextField label="Jira Email" name="jira_email" value={form.jira_email}
                    onChange={set("jira_email")} required type="email"
                    placeholder="you@yourdomain.com" />
