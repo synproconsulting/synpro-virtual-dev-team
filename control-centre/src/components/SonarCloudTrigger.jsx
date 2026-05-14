@@ -1,9 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { triggerSonarAnalysis, fetchSonarResults } from '../api/sonarApi';
 import SonarResultsView from './SonarResultsView';
+import { useProduct } from '../contexts/ProductContext';
 import './SonarCloudTrigger.css';
 
+const deriveSonarKey = (creds) => {
+  if (!creds) return '';
+  const org = (creds.github_org || '').trim();
+  const repo = (creds.github_repo || '').trim();
+  if (!org && !repo) return '';
+  if (!org) return repo;
+  return `${org}_${repo}`;
+};
+
 const SonarCloudTrigger = () => {
+  const { productCredentials, loadingCredentials, credentialsError } = useProduct();
+
   const [loading, setLoading] = useState(false);
   const [fetchingResults, setFetchingResults] = useState(false);
   const [result, setResult] = useState(null);
@@ -14,9 +26,17 @@ const SonarCloudTrigger = () => {
     branch: 'main',
     pullRequest: ''
   });
-  const [activeView, setActiveView] = useState('trigger'); // 'trigger' or 'results'
+  const [activeView, setActiveView] = useState('trigger');
 
-  // Auto-load results if projectKey is set
+  // Sync the SonarCloud project key with the selected product.
+  useEffect(() => {
+    const derived = deriveSonarKey(productCredentials);
+    setSonarConfig(prev => ({ ...prev, projectKey: derived }));
+    setAnalysisResults(null);
+    setResult(null);
+    setError(null);
+  }, [productCredentials?.id, productCredentials?.github_org, productCredentials?.github_repo]);
+
   useEffect(() => {
     const loadInitialResults = async () => {
       if (sonarConfig.projectKey && activeView === 'results') {
@@ -24,6 +44,7 @@ const SonarCloudTrigger = () => {
       }
     };
     loadInitialResults();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView]);
 
   const handleInputChange = (e) => {
@@ -42,7 +63,6 @@ const SonarCloudTrigger = () => {
     try {
       const response = await triggerSonarAnalysis(sonarConfig);
       setResult(response);
-      // Switch to results view after triggering
       setTimeout(() => {
         setActiveView('results');
       }, 2000);
@@ -78,9 +98,18 @@ const SonarCloudTrigger = () => {
     return sonarConfig.projectKey.trim() !== '';
   };
 
+  if (loadingCredentials) {
+    return <div className="sonar-trigger-container"><p>Loading product credentials…</p></div>;
+  }
+  if (credentialsError) {
+    return <div className="sonar-trigger-container"><p>Error loading credentials: {credentialsError}</p></div>;
+  }
+  if (!productCredentials) {
+    return <div className="sonar-trigger-container"><p>Select a product to view SonarCloud results</p></div>;
+  }
+
   return (
     <div className="sonar-trigger-container">
-      {/* Header with view toggle */}
       <div className="sonar-header">
         <h2>SonarCloud Analysis</h2>
         <div className="view-toggle">
@@ -100,7 +129,6 @@ const SonarCloudTrigger = () => {
         </div>
       </div>
 
-      {/* Configuration Form */}
       <div className="sonar-form">
         <div className="form-row">
           <div className="form-group">
@@ -168,14 +196,12 @@ const SonarCloudTrigger = () => {
         )}
       </div>
 
-      {/* Error Alert */}
       {error && (
         <div className="alert alert-error">
           <strong>Error:</strong> {error}
         </div>
       )}
 
-      {/* Success Alert (Trigger) */}
       {activeView === 'trigger' && result && (
         <div className="alert alert-success">
           <strong>Analysis Triggered Successfully!</strong>
@@ -190,7 +216,6 @@ const SonarCloudTrigger = () => {
         </div>
       )}
 
-      {/* Results View */}
       {activeView === 'results' && (
         <>
           {fetchingResults && (
@@ -199,15 +224,15 @@ const SonarCloudTrigger = () => {
               <p>Loading analysis results...</p>
             </div>
           )}
-          
+
           {!fetchingResults && analysisResults && (
-            <SonarResultsView 
-              results={analysisResults} 
+            <SonarResultsView
+              results={analysisResults}
               projectKey={sonarConfig.projectKey}
               branch={sonarConfig.branch}
             />
           )}
-          
+
           {!fetchingResults && !analysisResults && !error && (
             <div className="empty-state">
               <p>No results available. Click "Refresh Results" to fetch the latest analysis.</p>
