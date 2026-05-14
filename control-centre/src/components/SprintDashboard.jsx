@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { fetchSprints, fetchSprintIssues, fetchSprintData, triggerSprint, triggerAutoReview, fetchMergedPRs, completeSprint } from '../api/sprintApi';
 import JiraSprintView from './JiraSprintView';
 import PullRequestView from './PullRequestView';
@@ -15,7 +15,7 @@ const formatDate = (dateStr) => {
   }
 };
 
-const STATE_STYLE = {
+const STATE_BADGE = {
   active:  { bg: '#4ade80', text: '#052e16' },
   closed:  { bg: 'rgba(148,163,184,0.2)', text: '#94a3b8' },
   future:  { bg: 'rgba(96,165,250,0.2)', text: '#60a5fa' },
@@ -55,6 +55,11 @@ const SprintDashboard = () => {
   const [nextSprintTarget, setNextSprintTarget] = useState("");
   const [completing, setCompleting]         = useState(false);
 
+  const scrollRef = useRef(null);
+  const selectedButtonRef = useRef(null);
+  // Set to true once the user has interacted, so we stop force-centering.
+  const userScrolledRef = useRef(false);
+
   const loadGlobal = useCallback(async () => {
     if (!productCredentials) return;
     setGlobalData(await fetchSprintData(productCredentials));
@@ -67,6 +72,7 @@ const SprintDashboard = () => {
       return;
     }
     let cancelled = false;
+    userScrolledRef.current = false;
     const init = async () => {
       setLoading(true);
       const [sprintList, global, merged] = await Promise.all([
@@ -94,6 +100,18 @@ const SprintDashboard = () => {
     const iv = setInterval(loadGlobal, 60000);
     return () => { cancelled = true; clearInterval(iv); };
   }, [productCredentials, productId, loadGlobal]);
+
+  // Centre the selected sprint button in the horizontal scroller after
+  // sprints load or the selection changes — runs once per (re)load until
+  // the user manually scrolls.
+  useEffect(() => {
+    const button = selectedButtonRef.current;
+    const container = scrollRef.current;
+    if (!button || !container || userScrolledRef.current) return;
+    const offset = button.offsetLeft - (container.clientWidth - button.clientWidth) / 2;
+    const max = container.scrollWidth - container.clientWidth;
+    container.scrollLeft = Math.max(0, Math.min(offset, max));
+  }, [selected?.id, sprints]);
 
   const onSprintChange = async (sprint) => {
     setSelected(sprint); setLoading(true); setMsg(null);
@@ -177,29 +195,34 @@ const SprintDashboard = () => {
       <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"1rem"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
           <div style={{position:"relative",flex:1,minWidth:0}}>
-            <div style={{
-              display:"flex", gap:6, overflowX:"auto", paddingBottom:2,
-              scrollbarWidth:"none", msOverflowStyle:"none",
-            }}>
+            <div
+              ref={scrollRef}
+              className="sprint-selector-scroll"
+              onScroll={() => { userScrolledRef.current = true; }}
+            >
               {sprints.map(sprint => {
                 const isActive   = sprint.state === 'active';
                 const isSelected = selected?.id === sprint.id;
-                const stStyle    = STATE_STYLE[sprint.state] || STATE_STYLE.closed;
+                const badge      = STATE_BADGE[sprint.state] || STATE_BADGE.closed;
+                const pillClass = [
+                  "sprint-pill",
+                  isActive && "sprint-pill--active",
+                  isSelected && "sprint-pill--selected",
+                ].filter(Boolean).join(" ");
                 return (
-                  <button key={sprint.id} onClick={() => onSprintChange(sprint)} style={{
-                    background: isSelected ? (isActive ? '#16a34a' : 'var(--accent)') : 'var(--bg)',
-                    color:      isSelected ? 'white' : isActive ? '#4ade80' : 'var(--muted)',
-                    border:     `1px solid ${isSelected ? (isActive ? '#16a34a' : 'var(--accent)') : isActive ? '#4ade80' : 'var(--border)'}`,
-                    borderRadius: 20, padding: '4px 10px 4px 12px', fontSize: 12,
-                    cursor: 'pointer', fontFamily: 'inherit', fontWeight: 500,
-                    flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
-                  }}>
+                  <button
+                    key={sprint.id}
+                    ref={isSelected ? selectedButtonRef : undefined}
+                    onClick={() => onSprintChange(sprint)}
+                    className={pillClass}
+                    aria-current={isSelected ? "true" : undefined}
+                  >
                     <span>{sprint.name.split(' - ')[0]}</span>
                     <span style={{
-                      background:    isSelected ? 'rgba(255,255,255,0.25)' : stStyle.bg,
-                      color:         isSelected ? 'white' : stStyle.text,
-                      fontSize:      9, fontWeight: 700, padding: '1px 5px',
-                      borderRadius:  8, letterSpacing: '0.05em', textTransform: 'uppercase',
+                      background: isSelected ? 'rgba(255,255,255,0.25)' : badge.bg,
+                      color:      isSelected ? 'white' : badge.text,
+                      fontSize:   9, fontWeight: 700, padding: '1px 5px',
+                      borderRadius: 8, letterSpacing: '0.05em', textTransform: 'uppercase',
                     }}>{sprint.state || '?'}</span>
                   </button>
                 );
