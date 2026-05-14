@@ -1105,3 +1105,98 @@ SMTP_FROM_NAME=SynPro Virtual Dev Team
 - [NIST SP 800-107](https://csrc.nist.gov/publications/detail/sp/800-107/rev-1/final) - Cryptographic Key Management
 - [RFC 7519](https://tools.ietf.org/html/rfc7519) - JSON Web Token
 - [OWASP JWT Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html)
+
+---
+
+# Seed Product Script (SDT1-120)
+
+`seed_product.py` is a standalone script that seeds the **SynPro VSDC** product record into the UAT backend. It is idempotent: running it multiple times has the same effect as running it once.
+
+## What it does
+
+1. Reads all required environment variables and exits 1 with a list of missing names if any are absent.
+2. Calls `GET /api/products` to check whether a product named `SynPro VSDC` already exists. If it does, prints `Product already exists, skipping` and exits 0.
+3. Calls `POST /auth/login` with `SEED_EMAIL` / `SEED_PASSWORD` to obtain a JWT.
+4. Calls `POST /api/products` with the Bearer token to create the product. Plaintext secrets travel over HTTPS to the backend, which encrypts them via `encryption.py` (SDT1-118) before persisting.
+
+## Running the script
+
+```bash
+cd uat/backend
+python seed_product.py
+```
+
+The script uses only the Python standard library (`urllib`, `json`, `os`, `sys`) - no extra `pip install` step is required.
+
+## Required environment variables
+
+| Variable | Purpose |
+|---|---|
+| `API_BASE_URL` | Base URL of the UAT backend, e.g. `https://synpro-virtual-dev-team-production.up.railway.app` |
+| `SEED_EMAIL` | E-mail of a **registered** UAT backend user (must exist via `POST /auth/register`) |
+| `SEED_PASSWORD` | Password for `SEED_EMAIL` |
+| `JIRA_BASE_URL` | Maps to `jira_base_url` |
+| `JIRA_PROJECT_KEY` | Maps to `jira_project_key` |
+| `JIRA_EMAIL` | Maps to `jira_email` |
+| `JIRA_API_TOKEN` | Maps to `jira_api_token` (encrypted server-side) |
+| `GITHUB_TOKEN` | Maps to `github_token` (encrypted server-side) |
+| `ANTHROPIC_API_KEY` | Maps to `anthropic_api_key` (encrypted server-side) |
+| `RESEND_API_KEY` | Maps to `resend_api_key` (encrypted server-side) |
+| `SMTP_FROM_EMAIL` | Maps to `resend_from_email` |
+| `RAILWAY_PROJECT_ID` | Maps to `railway_project_id` |
+| `RAILWAY_BACKEND_SERVICE_ID` | Maps to `dev_backend_service_id` |
+| `RAILWAY_FRONTEND_SERVICE_ID` | Maps to `dev_frontend_service_id` |
+
+The product **name**, **GitHub org** (`synproconsulting`) and **GitHub repo** (`synpro-virtual-dev-team`) are fixed in the script - they are specific to SynPro VSDC. The TEST and PROD service ID fields are intentionally left unset and can be configured later via the Products tab in the Control Centre.
+
+## Registered user prerequisite
+
+`SEED_EMAIL` and `SEED_PASSWORD` must correspond to a **real, registered** user in the UAT backend's `users` table. Register one in advance via `POST /auth/register` (or the Control Centre's Register page) before running the seed script. The script does not create users.
+
+## Idempotency
+
+The existence check on `GET /api/products` makes the script safe to re-run:
+
+- First run with no `SynPro VSDC` -> creates the product, exits 0.
+- Subsequent runs -> prints `Product already exists, skipping`, exits 0.
+
+The script never updates an existing product. If you need to change credentials on the `SynPro VSDC` row, use the Control Centre Products tab (which submits the changes through the same `POST /api/products` -> encryption pipeline).
+
+## Exit codes
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Product created, or already exists |
+| 1 | Missing env vars, HTTP failure, or unexpected response shape |
+
+## Example .env snippet for local runs
+
+```bash
+API_BASE_URL=https://synpro-virtual-dev-team-production.up.railway.app
+SEED_EMAIL=you@example.com
+SEED_PASSWORD=...
+
+# Jira
+JIRA_BASE_URL=https://synproconsulting.atlassian.net
+JIRA_PROJECT_KEY=SDT1
+JIRA_EMAIL=johan.wessels@synproconsulting.co
+JIRA_API_TOKEN=...
+
+# GitHub / Anthropic / Resend
+GITHUB_TOKEN=...
+ANTHROPIC_API_KEY=...
+RESEND_API_KEY=...
+SMTP_FROM_EMAIL=noreply@contact.synproconsulting.co
+
+# Railway
+RAILWAY_PROJECT_ID=...
+RAILWAY_BACKEND_SERVICE_ID=...
+RAILWAY_FRONTEND_SERVICE_ID=...
+```
+
+After exporting these (e.g. `set -a; source .env; set +a`), run:
+
+```bash
+python uat/backend/seed_product.py
+```
+
