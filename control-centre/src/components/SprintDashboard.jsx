@@ -21,6 +21,16 @@ const STATE_BADGE = {
   future:  { bg: 'rgba(96,165,250,0.2)', text: '#60a5fa' },
 };
 
+// Sort sprints by numeric id ascending so the row order is stable across
+// products and reloads. NaN ids (rare) sink to the bottom.
+const sortSprints = (list) => {
+  const toNum = (s) => {
+    const n = parseInt(s?.id, 10);
+    return Number.isNaN(n) ? Number.POSITIVE_INFINITY : n;
+  };
+  return [...(list || [])].sort((a, b) => toNum(a) - toNum(b));
+};
+
 const MetricCard = ({ title, value, sub, color }) => (
   <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"1rem",borderLeft:color?`3px solid ${color}`:undefined}}>
     <div style={{fontSize:12,color:"var(--muted)",marginBottom:6}}>{title}</div>
@@ -71,22 +81,32 @@ const SprintDashboard = () => {
       setGlobalData(null); setMergedPRs([]); setLoading(false);
       return;
     }
-    let cancelled = false;
+    // Clear immediately on product change so the UI never shows the
+    // previous product's sprints while the new fetch is in flight.
+    setSprints([]);
+    setSelected(null);
+    setIssues([]);
+    setGlobalData(null);
+    setMergedPRs([]);
+    setMsg(null);
+    setLoading(true);
     userScrolledRef.current = false;
+
+    let cancelled = false;
     const init = async () => {
-      setLoading(true);
       const [sprintList, global, merged] = await Promise.all([
         fetchSprints(productId),
         fetchSprintData(productCredentials),
         fetchMergedPRs(productCredentials),
       ]);
       if (cancelled) return;
+      const sortedSprints = sortSprints(sprintList);
       setMergedPRs(merged);
-      setSprints(sprintList);
+      setSprints(sortedSprints);
       setGlobalData(global);
-      if (sprintList.length) {
-        const activeSprint  = sprintList.find(s => s.state === 'active');
-        const defaultSprint = activeSprint || sprintList[sprintList.length - 1];
+      if (sortedSprints.length) {
+        const activeSprint  = sortedSprints.find(s => s.state === 'active');
+        const defaultSprint = activeSprint || sortedSprints[sortedSprints.length - 1];
         setSelected(defaultSprint);
         const sprintIssues = await fetchSprintIssues(defaultSprint, productId);
         if (!cancelled) setIssues(sprintIssues);
@@ -112,6 +132,24 @@ const SprintDashboard = () => {
     const max = container.scrollWidth - container.clientWidth;
     container.scrollLeft = Math.max(0, Math.min(offset, max));
   }, [selected?.id, sprints]);
+
+  // Mouse-wheel scrolls the selector horizontally. React's synthetic
+  // onWheel handler is registered as passive in React 17+, so a native
+  // listener is needed for preventDefault() to actually suppress the
+  // vertical page scroll.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (e.deltaY === 0) return;
+      if (el.scrollWidth <= el.clientWidth) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+      userScrolledRef.current = true;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [productCredentials]);
 
   const onSprintChange = async (sprint) => {
     setSelected(sprint); setLoading(true); setMsg(null);

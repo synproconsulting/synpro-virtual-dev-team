@@ -434,9 +434,13 @@ button {
   gap: 6px;
   overflow-x: auto;
   padding-bottom: 2px;
+  /* Right padding ensures the last pill clears the 32px gradient overlay
+     and the adjacent action buttons (Complete Sprint / Run Sprint). */
+  padding-right: 40px;
   scrollbar-width: none;
   -ms-overflow-style: none;
   scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
 }
 .sprint-selector-scroll::-webkit-scrollbar { display: none; }
 
