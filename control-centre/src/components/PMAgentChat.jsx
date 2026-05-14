@@ -1,9 +1,34 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { sendPMMessage, generateSprintPlan } from '../api/pmAgentApi';
+import { generateSprintPlan } from '../api/pmAgentApi';
 import SprintPlanApproval from './SprintPlanApproval';
+import { useProduct } from '../contexts/ProductContext';
 import './PMAgentChat.css';
 
+const API_URL = import.meta.env.VITE_API_URL || '';
+
+const sendChatWithProduct = async (message, history, productId) => {
+  if (!API_URL) throw new Error('VITE_API_URL not configured');
+  const r = await fetch(`${API_URL}/api/pm-agent/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, history, product_id: productId || null }),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.detail || `PM Agent error: ${r.status}`);
+  }
+  const data = await r.json();
+  return {
+    message:    data.reply || data.message || '',
+    sprintPlan: data.plan  || data.sprintPlan || null,
+    role:       data.role  || 'assistant',
+  };
+};
+
 const PMAgentChat = () => {
+  const { productCredentials, loadingCredentials, credentialsError } = useProduct();
+  const productId = productCredentials?.id || null;
+
   const [messages, setMessages] = useState([
     {
       id: 1,
@@ -42,8 +67,12 @@ const PMAgentChat = () => {
     setLoading(true);
 
     try {
-      const response = await sendPMMessage(input.trim(), messages);
-      
+      const history = messages.map(m => ({
+        role: m.type === 'user' ? 'user' : 'assistant',
+        content: m.content,
+      }));
+      const response = await sendChatWithProduct(input.trim(), history, productId);
+
       const agentMessage = {
         id: Date.now() + 1,
         type: 'agent',
@@ -81,7 +110,6 @@ const PMAgentChat = () => {
   const handleGeneratePlan = async () => {
     setLoading(true);
     try {
-      // Extract the conversation as a brief for the PM Agent
       const brief = messages
         .filter(m => m.type === 'user')
         .map(m => m.content)
@@ -93,7 +121,7 @@ const PMAgentChat = () => {
       const plan = await generateSprintPlan(brief, history);
       setSprintPlan(plan);
       setShowApproval(true);
-      
+
       const confirmMessage = {
         id: Date.now(),
         type: 'agent',
@@ -142,6 +170,16 @@ const PMAgentChat = () => {
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
 
+  if (loadingCredentials) {
+    return <div className="pm-agent-chat"><div style={{padding:'2rem',textAlign:'center'}}>Loading product credentials…</div></div>;
+  }
+  if (credentialsError) {
+    return <div className="pm-agent-chat"><div style={{padding:'2rem',textAlign:'center'}}>Error loading credentials: {credentialsError}</div></div>;
+  }
+  if (!productCredentials) {
+    return <div className="pm-agent-chat"><div style={{padding:'2rem',textAlign:'center'}}>Select a product to use PM Agent</div></div>;
+  }
+
   return (
     <div className="pm-agent-chat">
       <div className="chat-header">
@@ -152,7 +190,7 @@ const PMAgentChat = () => {
             <span className="status">Online</span>
           </div>
         </div>
-        <button 
+        <button
           className="generate-plan-btn"
           onClick={handleGeneratePlan}
           disabled={loading || messages.length < 3}
@@ -163,8 +201,8 @@ const PMAgentChat = () => {
 
       <div className="chat-messages" ref={chatContainerRef}>
         {messages.map((message) => (
-          <div 
-            key={message.id} 
+          <div
+            key={message.id}
             className={`message ${message.type} ${message.isError ? 'error' : ''}`}
           >
             <div className="message-content">
@@ -205,7 +243,7 @@ const PMAgentChat = () => {
           rows="2"
           disabled={loading}
         />
-        <button 
+        <button
           className="send-button"
           onClick={handleSendMessage}
           disabled={!input.trim() || loading}

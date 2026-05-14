@@ -63,7 +63,11 @@ const CONFIRM_CONFIGS = {
 };
 
 const UATDeployment = () => {
-  const { selectedProduct } = useProduct();
+  const { productCredentials, loadingCredentials, credentialsError } = useProduct();
+  const productId = productCredentials?.id || null;
+  const railwayProjectId = productCredentials?.railway_project_id || null;
+  const devBackendServiceId = productCredentials?.dev_backend_service_id || null;
+
   const [pipelineStatus, setPipelineStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
@@ -72,21 +76,35 @@ const UATDeployment = () => {
   const [confirmation, setConfirmation] = useState(null);
 
   const loadStatus = useCallback(async () => {
+    if (!productId) {
+      setPipelineStatus(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const data = await getPipelineStatus(selectedProduct?.id || null);
+      const data = await getPipelineStatus(productId);
       setPipelineStatus(data.environments);
     } catch (err) {
       setError(`Failed to load pipeline status: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, [selectedProduct]);
+  }, [productId]);
 
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  if (loadingCredentials) {
+    return <div className="uat-deployment-container"><p>Loading product credentials…</p></div>;
+  }
+  if (credentialsError) {
+    return <div className="uat-deployment-container"><p>Error loading credentials: {credentialsError}</p></div>;
+  }
+  if (!productCredentials) {
+    return <div className="uat-deployment-container"><p>Select a product to view deployments</p></div>;
+  }
 
   const requestAction = (actionKey) => setConfirmation(actionKey);
 
@@ -100,11 +118,11 @@ const UATDeployment = () => {
     try {
       if (key.startsWith('promote_')) {
         const target = key.replace('promote_', '');
-        await promoteEnvironment(target, selectedProduct?.id || null);
+        await promoteEnvironment(target, productId);
         setSuccess(`Promotion to ${STAGE_LABELS[target]} triggered successfully.`);
       } else if (key.startsWith('rollback_')) {
         const stage = key.replace('rollback_', '');
-        await rollbackEnvironment(stage, selectedProduct?.id || null);
+        await rollbackEnvironment(stage, productId);
         setSuccess(`Rollback of ${STAGE_LABELS[stage]} triggered successfully.`);
       }
       await loadStatus();
@@ -202,6 +220,11 @@ const UATDeployment = () => {
           <div>
             <h2>Deployment Pipeline</h2>
             <p className="subtitle">DEV &#8594; TEST &#8594; PROD promotion pipeline</p>
+            {(railwayProjectId || devBackendServiceId) && (
+              <p className="subtitle" style={{fontSize:11, opacity:0.7}}>
+                Railway project: {railwayProjectId || '—'} · DEV service: {devBackendServiceId || '—'}
+              </p>
+            )}
           </div>
           <button className="refresh-btn" onClick={loadStatus} disabled={loading}>
             {loading ? 'Refreshing…' : '↻ Refresh'}

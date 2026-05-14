@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { fetchGitHubWorkflows } from '../api/githubApi';
+import { useProduct } from '../contexts/ProductContext';
 import { ExternalLink, RefreshCw } from 'lucide-react';
-
-const GH_REPO = import.meta.env.VITE_GITHUB_REPO || "synproconsulting/synpro-virtual-dev-team";
 
 const STATUS_STYLE = {
   success:     { bg: "rgba(34,197,94,0.15)",   color: "#4ade80",  label: "✓ Success",   dot: "#4ade80" },
@@ -25,15 +24,22 @@ const timeAgo = (dateStr) => {
 const WORKFLOW_FILTERS = ["All", "Auto Review and Merge", "Auto Implement", "CI Pipeline", "Deploy to UAT"];
 
 const GitHubWorkflowMonitor = () => {
+  const { productCredentials, loadingCredentials, credentialsError } = useProduct();
+  const githubOrg = productCredentials?.github_org || "";
+  const githubRepo = productCredentials?.github_repo || "";
+  const ghRepoSlug = githubOrg && githubRepo ? `${githubOrg}/${githubRepo}` : null;
+
   const [runs, setRuns]       = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError]     = useState(null);
   const [filter, setFilter]   = useState("All");
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const loadWorkflows = useCallback(async () => {
+    if (!ghRepoSlug) return;
+    setLoading(true);
     try {
-      const data = await fetchGitHubWorkflows(GH_REPO);
+      const data = await fetchGitHubWorkflows(ghRepoSlug);
       setRuns(data);
       setLastUpdated(new Date());
       setError(null);
@@ -42,13 +48,32 @@ const GitHubWorkflowMonitor = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [ghRepoSlug]);
 
   useEffect(() => {
+    if (!ghRepoSlug) {
+      setRuns([]); setLastUpdated(null); setError(null);
+      return;
+    }
     loadWorkflows();
     const interval = setInterval(loadWorkflows, 30000);
     return () => clearInterval(interval);
-  }, [loadWorkflows]);
+  }, [ghRepoSlug, loadWorkflows]);
+
+  if (loadingCredentials) {
+    return <div style={{textAlign:"center",color:"var(--muted)",padding:"3rem 1rem"}}>Loading product credentials…</div>;
+  }
+  if (credentialsError) {
+    return <div style={{textAlign:"center",color:"var(--muted)",padding:"3rem 1rem"}}>Error loading credentials: {credentialsError}</div>;
+  }
+  if (!productCredentials) {
+    return <div style={{textAlign:"center",color:"var(--muted)",padding:"3rem 1rem"}}>Select a product to view workflows</div>;
+  }
+  if (!ghRepoSlug) {
+    return <div style={{textAlign:"center",color:"var(--muted)",padding:"3rem 1rem"}}>
+      Product is missing GitHub org/repo configuration.
+    </div>;
+  }
 
   const filtered = filter === "All"
     ? runs
@@ -60,7 +85,7 @@ const GitHubWorkflowMonitor = () => {
         <div>
           <div style={{fontSize:16, fontWeight:600, marginBottom:4}}>GitHub Actions Monitor</div>
           <div style={{fontSize:12, color:"var(--muted)"}}>
-            {GH_REPO} · Auto-refreshes every 30s
+            {ghRepoSlug} · Auto-refreshes every 30s
             {lastUpdated && ` · Updated ${timeAgo(lastUpdated.toISOString())}`}
           </div>
         </div>

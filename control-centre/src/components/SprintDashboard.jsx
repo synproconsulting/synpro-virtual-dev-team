@@ -3,6 +3,7 @@ import { fetchSprints, fetchSprintIssues, fetchSprintData, triggerSprint, trigge
 import JiraSprintView from './JiraSprintView';
 import PullRequestView from './PullRequestView';
 import CIPipelineView from './CIPipelineView';
+import { useProduct } from '../contexts/ProductContext';
 import { Play, GitPullRequest } from 'lucide-react';
 
 const formatDate = (dateStr) => {
@@ -28,7 +29,18 @@ const MetricCard = ({ title, value, sub, color }) => (
   </div>
 );
 
+const EmptyState = ({ message }) => (
+  <div style={{textAlign:"center",color:"var(--muted)",padding:"3rem 1rem",
+               background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10}}>
+    {message}
+  </div>
+);
+
 const SprintDashboard = () => {
+  const { productCredentials, loadingCredentials, credentialsError } = useProduct();
+  const productId = productCredentials?.id || null;
+  const jiraProjectKey = productCredentials?.jira_project_key || null;
+
   const [sprints, setSprints]       = useState([]);
   const [selected, setSelected]     = useState(null);
   const [issues, setIssues]         = useState([]);
@@ -44,32 +56,48 @@ const SprintDashboard = () => {
   const [completing, setCompleting]         = useState(false);
 
   const loadGlobal = useCallback(async () => {
-    setGlobalData(await fetchSprintData());
-  }, []);
+    if (!productCredentials) return;
+    setGlobalData(await fetchSprintData(productCredentials));
+  }, [productCredentials]);
 
   useEffect(() => {
+    if (!productCredentials) {
+      setSprints([]); setSelected(null); setIssues([]);
+      setGlobalData(null); setMergedPRs([]); setLoading(false);
+      return;
+    }
+    let cancelled = false;
     const init = async () => {
-      const [sprintList, global, merged] = await Promise.all([fetchSprints(), fetchSprintData(), fetchMergedPRs()]);
+      setLoading(true);
+      const [sprintList, global, merged] = await Promise.all([
+        fetchSprints(productId),
+        fetchSprintData(productCredentials),
+        fetchMergedPRs(productCredentials),
+      ]);
+      if (cancelled) return;
       setMergedPRs(merged);
       setSprints(sprintList);
       setGlobalData(global);
       if (sprintList.length) {
-        // Default to the active sprint; fall back to the last sprint
         const activeSprint  = sprintList.find(s => s.state === 'active');
         const defaultSprint = activeSprint || sprintList[sprintList.length - 1];
         setSelected(defaultSprint);
-        setIssues(await fetchSprintIssues(defaultSprint));
+        const sprintIssues = await fetchSprintIssues(defaultSprint, productId);
+        if (!cancelled) setIssues(sprintIssues);
+      } else {
+        setSelected(null);
+        setIssues([]);
       }
-      setLoading(false);
+      if (!cancelled) setLoading(false);
     };
     init();
     const iv = setInterval(loadGlobal, 60000);
-    return () => clearInterval(iv);
-  }, [loadGlobal]);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [productCredentials, productId, loadGlobal]);
 
   const onSprintChange = async (sprint) => {
     setSelected(sprint); setLoading(true); setMsg(null);
-    setIssues(await fetchSprintIssues(sprint));
+    setIssues(await fetchSprintIssues(sprint, productId));
     setLoading(false);
   };
 
@@ -111,6 +139,16 @@ const SprintDashboard = () => {
     }
   };
 
+  if (loadingCredentials) {
+    return <EmptyState message="Loading product credentials…" />;
+  }
+  if (credentialsError) {
+    return <EmptyState message={`Error loading credentials: ${credentialsError}`} />;
+  }
+  if (!productCredentials) {
+    return <EmptyState message="Select a product to view sprint data" />;
+  }
+
   const prs       = globalData?.prs  || [];
   const runs      = globalData?.runs || [];
   const done      = issues.filter(i => i.status === "Done");
@@ -129,6 +167,11 @@ const SprintDashboard = () => {
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:"1rem"}}>
+      {jiraProjectKey && (
+        <div style={{fontSize:11,color:"var(--muted)",marginBottom:-4}}>
+          Jira project: <strong style={{color:"var(--fg)"}}>{jiraProjectKey}</strong>
+        </div>
+      )}
 
       {/* Sprint selector + buttons */}
       <div style={{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:10,padding:"1rem"}}>
