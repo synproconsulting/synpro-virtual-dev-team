@@ -67,6 +67,29 @@ export function formStateToPayload(form) {
   return payload;
 }
 
+// Inline styles for the edit-mode "locked" secret display. Kept here rather
+// than in ProductsTab.css because the fix is scoped to this single file.
+const LOCKED_STYLES = {
+  row: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+  },
+  value: {
+    flex: 1,
+    padding: "0.6rem 0.75rem",
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: "8px",
+    fontSize: "0.875rem",
+    fontFamily: "var(--font)",
+    color: "var(--muted)",
+    letterSpacing: "0.15em",
+    userSelect: "none",
+    lineHeight: "1.2",
+  },
+};
+
 function Asterisk() {
   return <span className="prod-required" aria-hidden="true">*</span>;
 }
@@ -92,35 +115,69 @@ function TextField({ label, name, value, onChange, required, placeholder, type =
   );
 }
 
-function SecretField({ label, name, value, onChange, required, placeholder }) {
+// Secret field with two modes:
+// - Add mode (isEdit=false): always renders a password input. The field is
+//   required because the user must provide a value when creating a product.
+// - Edit mode (isEdit=true): renders a locked display showing "........" and
+//   a "Change" button. Clicking "Change" swaps the locked display for a
+//   password input. The user can either type a new value (which will be
+//   submitted) or leave it blank (in which case formStateToPayload strips
+//   the empty string and the stored encrypted value on the backend is
+//   preserved). The field is never `required` in edit mode.
+function SecretField({ label, name, value, onChange, isEdit }) {
   const [visible, setVisible] = useState(false);
+  const [editing, setEditing] = useState(!isEdit);
+
+  const required = !isEdit;
+  const showAsterisk = required;
+
   return (
     <div className="prod-field">
       <label htmlFor={`prod-${name}`}>
-        {label}{required && <Asterisk />}
+        {label}{showAsterisk && <Asterisk />}
       </label>
-      <div className="prod-secret-wrap">
-        <input
-          id={`prod-${name}`}
-          name={name}
-          type={visible ? "text" : "password"}
-          value={value}
-          onChange={onChange}
-          required={required}
-          placeholder={placeholder}
-          autoComplete="new-password"
-          spellCheck={false}
-        />
-        <button
-          type="button"
-          className="prod-secret-toggle"
-          onClick={() => setVisible(v => !v)}
-          aria-label={visible ? "Hide value" : "Show value"}
-          tabIndex={-1}
-        >
-          {visible ? EYE_OFF : EYE_OPEN}
-        </button>
-      </div>
+      {!editing ? (
+        <div className="prod-secret-locked" style={LOCKED_STYLES.row}>
+          <span
+            style={LOCKED_STYLES.value}
+            aria-label="Saved value, hidden"
+            data-testid={`prod-${name}-locked`}
+          >
+            ........
+          </span>
+          <button
+            type="button"
+            className="prod-btn-secondary"
+            onClick={() => setEditing(true)}
+          >
+            Change
+          </button>
+        </div>
+      ) : (
+        <div className="prod-secret-wrap">
+          <input
+            id={`prod-${name}`}
+            name={name}
+            type={visible ? "text" : "password"}
+            value={value}
+            onChange={onChange}
+            required={required}
+            placeholder={isEdit ? "Enter new value (leave blank to keep current)" : ""}
+            autoComplete="new-password"
+            spellCheck={false}
+            autoFocus={isEdit}
+          />
+          <button
+            type="button"
+            className="prod-secret-toggle"
+            onClick={() => setVisible(v => !v)}
+            aria-label={visible ? "Hide value" : "Show value"}
+            tabIndex={-1}
+          >
+            {visible ? EYE_OFF : EYE_OPEN}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -176,9 +233,6 @@ export default function ProductForm({ initial, isEdit, saving, error, onSubmit, 
     onSubmit(formStateToPayload(form));
   };
 
-  const secretRequired = !isEdit;
-  const secretPlaceholder = isEdit ? "........" : "";
-
   const testOpen = Boolean(form.test_backend_service_id || form.test_frontend_service_id);
   const prodOpen = Boolean(form.prod_backend_service_id || form.prod_frontend_service_id);
 
@@ -198,9 +252,9 @@ export default function ProductForm({ initial, isEdit, saving, error, onSubmit, 
         <TextField label="Jira Email" name="jira_email" value={form.jira_email}
                    onChange={set("jira_email")} required type="email"
                    placeholder="you@yourdomain.com" />
-        <SecretField label="Jira API Token" name="jira_api_token" value={form.jira_api_token}
-                     onChange={set("jira_api_token")} required={secretRequired}
-                     placeholder={secretPlaceholder} />
+        <SecretField label="Jira API Token" name="jira_api_token"
+                     value={form.jira_api_token} onChange={set("jira_api_token")}
+                     isEdit={isEdit} />
       </Section>
 
       <Section title="GitHub">
@@ -208,21 +262,21 @@ export default function ProductForm({ initial, isEdit, saving, error, onSubmit, 
                    onChange={set("github_org")} required placeholder="e.g. myorg" />
         <TextField label="GitHub Repo" name="github_repo" value={form.github_repo}
                    onChange={set("github_repo")} required placeholder="e.g. my-repo" />
-        <SecretField label="GitHub Token" name="github_token" value={form.github_token}
-                     onChange={set("github_token")} required={secretRequired}
-                     placeholder={secretPlaceholder} />
+        <SecretField label="GitHub Token" name="github_token"
+                     value={form.github_token} onChange={set("github_token")}
+                     isEdit={isEdit} />
       </Section>
 
       <Section title="Anthropic">
         <SecretField label="Anthropic API Key" name="anthropic_api_key"
                      value={form.anthropic_api_key} onChange={set("anthropic_api_key")}
-                     required={secretRequired} placeholder={secretPlaceholder} />
+                     isEdit={isEdit} />
       </Section>
 
       <Section title="Resend (Email)">
-        <SecretField label="Resend API Key" name="resend_api_key" value={form.resend_api_key}
-                     onChange={set("resend_api_key")} required={secretRequired}
-                     placeholder={secretPlaceholder} />
+        <SecretField label="Resend API Key" name="resend_api_key"
+                     value={form.resend_api_key} onChange={set("resend_api_key")}
+                     isEdit={isEdit} />
         <TextField label="Resend From Email" name="resend_from_email"
                    value={form.resend_from_email} onChange={set("resend_from_email")}
                    required type="email" placeholder="noreply@yourdomain.com" />
@@ -254,10 +308,10 @@ export default function ProductForm({ initial, isEdit, saving, error, onSubmit, 
         <EnvGroup title="PROD Environment" optional defaultOpen={prodOpen}>
           <TextField label="Backend Service ID" name="prod_backend_service_id"
                      value={form.prod_backend_service_id}
-                     onChange={set("prod_backend_service_id")} />
+                     onChange={set("prod_backend_service_id")} required={false} />
           <TextField label="Frontend Service ID" name="prod_frontend_service_id"
                      value={form.prod_frontend_service_id}
-                     onChange={set("prod_frontend_service_id")} />
+                     onChange={set("prod_frontend_service_id")} required={false} />
         </EnvGroup>
       </Section>
 
