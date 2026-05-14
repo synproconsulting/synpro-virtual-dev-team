@@ -123,6 +123,7 @@ class Product(Base):
     )
     name = Column(String(255), nullable=False, unique=True, index=True)
     jira_project_key = Column(String(50), nullable=False)
+    jira_board_id = Column(String(50), nullable=True)
     jira_base_url = Column(String(500), nullable=True)
     jira_email = Column(String(255), nullable=True)
     jira_api_token_enc = Column(String(1000), nullable=True)
