@@ -63,6 +63,7 @@ class ProductCreate(BaseModel):
 
     name: str
     jira_project_key: str
+    jira_board_id: Optional[str] = None
     jira_base_url: Optional[str] = None
     jira_email: Optional[str] = None
     jira_api_token: Optional[str] = None
@@ -92,6 +93,7 @@ class ProductUpdate(BaseModel):
 
     name: Optional[str] = None
     jira_project_key: Optional[str] = None
+    jira_board_id: Optional[str] = None
     jira_base_url: Optional[str] = None
     jira_email: Optional[str] = None
     jira_api_token: Optional[str] = None
@@ -122,6 +124,7 @@ class ProductResponse(BaseModel):
     id: str
     name: str
     jira_project_key: str
+    jira_board_id: Optional[str] = None
     jira_base_url: Optional[str] = None
     jira_email: Optional[str] = None
     github_org: Optional[str] = None
@@ -163,6 +166,7 @@ _SECRET_FIELDS = {
 _PLAIN_FIELDS = (
     "name",
     "jira_project_key",
+    "jira_board_id",
     "jira_base_url",
     "jira_email",
     "github_org",
@@ -190,6 +194,7 @@ def _to_public_dict(product: Product) -> dict:
         "id": str(product.id),
         "name": product.name,
         "jira_project_key": product.jira_project_key,
+        "jira_board_id": product.jira_board_id,
         "jira_base_url": product.jira_base_url,
         "jira_email": product.jira_email,
         "github_org": product.github_org,

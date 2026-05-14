@@ -26,6 +26,10 @@ JIRA_BASE_URL  = os.getenv("JIRA_BASE_URL", "")
 JIRA_EMAIL     = os.getenv("JIRA_EMAIL", "")
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN", "")
 JIRA_PROJECT   = os.getenv("JIRA_PROJECT_KEY", "SDT1")
+# Default Jira board ID used when a product row has no jira_board_id set.
+# 0 (or unset) means "no default" - callers must skip the native-sprints
+# fetch rather than fall back to an unrelated board.
+JIRA_BOARD_ID  = int(os.getenv("JIRA_BOARD_ID", "0")) or None
 DATABASE_URL   = os.getenv("DATABASE_URL", "")
 
 
@@ -83,52 +87,47 @@ def _get_product_jira_cfg(
     return base_url, project
 
 
-# Legacy default board ID for the SynPro VSDC / SDT1 deployment. Used only
-# when no product is selected (single-product fallback). Per-product board
-# IDs come from products.jira_board_id when that column exists.
-_DEFAULT_JIRA_BOARD_ID = 34
-
-
 def _get_product_jira_board_id(product_id: Optional[str]) -> Optional[int]:
     """Return the Jira board ID for a product, or ``None`` if not configured.
 
     Resolution:
-      * ``product_id is None`` -> legacy default board (SynPro VSDC).
-      * ``product_id`` set and the ``products`` row carries a non-null
-        ``jira_board_id`` -> that value.
-      * Anything else (no DATABASE_URL, row missing, column missing, value
-        null) -> ``None``.
+      1. ``products.jira_board_id`` for the matching ``product_id`` if set.
+      2. ``JIRA_BOARD_ID`` environment variable if set (non-zero).
+      3. ``None`` - caller must skip the native-sprints fetch entirely
+         rather than silently substituting another product's board data.
 
-    Returning ``None`` for "not configured" lets callers skip the native
-    sprints fetch entirely rather than silently falling back to another
-    product's board. The ``jira_board_id`` column may not yet exist on the
-    ``products`` table; the lookup catches that case and treats it as
-    "not configured" without crashing the endpoint.
+    The DB lookup catches all exceptions (including a missing
+    ``jira_board_id`` column on older deployments) and falls through to
+    the env-var fallback, so this is safe to call before the migration
+    has been applied.
     """
-    if product_id is None:
-        return _DEFAULT_JIRA_BOARD_ID
-    if not DATABASE_URL:
-        return None
-    conn = None
-    try:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-        cur  = conn.cursor()
-        cur.execute(
-            "SELECT jira_board_id FROM products WHERE id = %s",
-            (product_id,)
-        )
-        row = cur.fetchone()
-        if row and row.get("jira_board_id") is not None:
-            return int(row["jira_board_id"])
-    except Exception as exc:
-        logger.debug("Product board lookup skipped for %s: %s", product_id, exc)
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
-    return None
+    if product_id and DATABASE_URL:
+        conn = None
+        try:
+            conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+            cur  = conn.cursor()
+            cur.execute(
+                "SELECT jira_board_id FROM products WHERE id = %s",
+                (product_id,)
+            )
+            row = cur.fetchone()
+            if row and row.get("jira_board_id") is not None:
+                try:
+                    return int(row["jira_board_id"])
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Invalid jira_board_id on product %s: %r",
+                        product_id, row["jira_board_id"],
+                    )
+        except Exception as exc:
+            logger.debug("Product board lookup skipped for %s: %s", product_id, exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+    return JIRA_BOARD_ID
 
 
 # -- Router --------------------------------------------------------------------
