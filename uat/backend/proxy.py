@@ -37,12 +37,30 @@ def jira_auth():
             "Content-Type": "application/json"}
 
 
-def _get_product_jira_cfg(product_id: Optional[str]) -> tuple:
-    """Return (jira_base_url, jira_project_key) for a product.
+def _get_product_jira_cfg(
+    product_id: Optional[str],
+    jira_project_key: Optional[str] = None,
+) -> tuple:
+    """Return ``(jira_base_url, jira_project_key)`` for a Jira call.
 
-    Falls back to environment variables when product_id is None, DATABASE_URL
-    is not configured, or the product record is not found.
+    Resolution priority for the project key:
+      1. ``jira_project_key`` query-string override (when supplied)
+      2. ``products`` row matching ``product_id``
+      3. ``JIRA_PROJECT_KEY`` environment variable
+
+    Resolution priority for the base URL:
+      1. ``products`` row matching ``product_id``
+      2. ``JIRA_BASE_URL`` environment variable
+
+    Each field is resolved independently — a product row that only sets
+    ``jira_project_key`` no longer forces a fallback to the env var for
+    that same field (the previous "both or neither" check is the SDT1-121
+    bug being fixed here). The explicit ``jira_project_key`` override
+    lets the frontend pass the value it already has from
+    ``productCredentials`` and bypass the DB lookup entirely.
     """
+    base_url = JIRA_BASE_URL
+    project  = JIRA_PROJECT
     if product_id and DATABASE_URL:
         try:
             conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
@@ -53,11 +71,16 @@ def _get_product_jira_cfg(product_id: Optional[str]) -> tuple:
             )
             row = cur.fetchone()
             conn.close()
-            if row and row.get("jira_base_url") and row.get("jira_project_key"):
-                return row["jira_base_url"], row["jira_project_key"]
+            if row:
+                if row.get("jira_base_url"):
+                    base_url = row["jira_base_url"]
+                if row.get("jira_project_key"):
+                    project = row["jira_project_key"]
         except Exception as exc:
             logger.warning("Product Jira config lookup failed for %s: %s", product_id, exc)
-    return JIRA_BASE_URL, JIRA_PROJECT
+    if jira_project_key:
+        project = jira_project_key
+    return base_url, project
 
 
 # -- Router --------------------------------------------------------------------
@@ -70,9 +93,10 @@ async def proxy_jira_issues(
     status: str = Query(None, description="Filter by status e.g. 'To Do', 'Done'"),
     max_results: int = Query(100),
     product_id: Optional[str] = Query(None, description="Product ID for per-product Jira config"),
+    jira_project_key: Optional[str] = Query(None, description="Override Jira project key directly (bypasses product lookup)"),
 ):
     """Proxy Jira issues to avoid CORS issues in the browser."""
-    base_url, project = _get_product_jira_cfg(product_id)
+    base_url, project = _get_product_jira_cfg(product_id, jira_project_key)
     if not base_url:
         return {"issues": [], "error": "JIRA_BASE_URL not configured"}
 
@@ -148,6 +172,7 @@ async def proxy_jira_transition(
 @router.get("/sprints")
 async def proxy_jira_sprints(
     product_id: Optional[str] = Query(None),
+    jira_project_key: Optional[str] = Query(None, description="Override Jira project key directly (bypasses product lookup)"),
 ):
     """Get all sprints - combines fix versions and native sprints.
 
@@ -155,7 +180,7 @@ async def proxy_jira_sprints(
     endDate sourced from the Jira Agile API so the Control Centre can display
     sprint health without a separate API call (SDT1-74).
     """
-    base_url, project = _get_product_jira_cfg(product_id)
+    base_url, project = _get_product_jira_cfg(product_id, jira_project_key)
     if not base_url:
         return {"sprints": [], "error": "JIRA_BASE_URL not configured"}
     async with httpx.AsyncClient() as client:
@@ -237,9 +262,10 @@ async def proxy_jira_sprints(
 async def proxy_sprint_issues(
     version_id: str,
     product_id: Optional[str] = Query(None),
+    jira_project_key: Optional[str] = Query(None, description="Override Jira project key directly (bypasses product lookup)"),
 ):
     """Get issues for a specific sprint (version or native sprint ID)."""
-    base_url, project = _get_product_jira_cfg(product_id)
+    base_url, project = _get_product_jira_cfg(product_id, jira_project_key)
     if not base_url:
         return {"issues": [], "error": "JIRA_BASE_URL not configured"}
 
@@ -298,6 +324,7 @@ async def proxy_complete_sprint(
     sprint_id: str,
     body: CompleteSprintRequest,
     product_id: Optional[str] = Query(None),
+    jira_project_key: Optional[str] = Query(None, description="Override Jira project key directly (bypasses product lookup)"),
 ):
     """Complete (close) a Jira sprint and optionally move incomplete issues.
 
@@ -305,7 +332,7 @@ async def proxy_complete_sprint(
     moveIncompleteTo: "backlog" (default) | "nextSprint"
     nextSprintId: required when moveIncompleteTo == "nextSprint"
     """
-    base_url, project = _get_product_jira_cfg(product_id)
+    base_url, project = _get_product_jira_cfg(product_id, jira_project_key)
     if not base_url:
         return {"success": False, "error": "JIRA not configured"}
 
