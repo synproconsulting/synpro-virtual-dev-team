@@ -83,6 +83,54 @@ def _get_product_jira_cfg(
     return base_url, project
 
 
+# Legacy default board ID for the SynPro VSDC / SDT1 deployment. Used only
+# when no product is selected (single-product fallback). Per-product board
+# IDs come from products.jira_board_id when that column exists.
+_DEFAULT_JIRA_BOARD_ID = 34
+
+
+def _get_product_jira_board_id(product_id: Optional[str]) -> Optional[int]:
+    """Return the Jira board ID for a product, or ``None`` if not configured.
+
+    Resolution:
+      * ``product_id is None`` -> legacy default board (SynPro VSDC).
+      * ``product_id`` set and the ``products`` row carries a non-null
+        ``jira_board_id`` -> that value.
+      * Anything else (no DATABASE_URL, row missing, column missing, value
+        null) -> ``None``.
+
+    Returning ``None`` for "not configured" lets callers skip the native
+    sprints fetch entirely rather than silently falling back to another
+    product's board. The ``jira_board_id`` column may not yet exist on the
+    ``products`` table; the lookup catches that case and treats it as
+    "not configured" without crashing the endpoint.
+    """
+    if product_id is None:
+        return _DEFAULT_JIRA_BOARD_ID
+    if not DATABASE_URL:
+        return None
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT jira_board_id FROM products WHERE id = %s",
+            (product_id,)
+        )
+        row = cur.fetchone()
+        if row and row.get("jira_board_id") is not None:
+            return int(row["jira_board_id"])
+    except Exception as exc:
+        logger.debug("Product board lookup skipped for %s: %s", product_id, exc)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return None
+
+
 # -- Router --------------------------------------------------------------------
 
 router = APIRouter(prefix="/proxy/jira", tags=["proxy"])
@@ -183,24 +231,32 @@ async def proxy_jira_sprints(
     base_url, project = _get_product_jira_cfg(product_id, jira_project_key)
     if not base_url:
         return {"sprints": [], "error": "JIRA_BASE_URL not configured"}
+    # Only fetch native sprints from a board the selected product actually
+    # owns. When a product has no board configured we deliberately leave
+    # board_id as None — never silently fall back to the SDT1 board, which
+    # was the source of the cross-product sprint bleed (SDT1-121 follow-up).
+    board_id = _get_product_jira_board_id(product_id)
+
     async with httpx.AsyncClient() as client:
         try:
             versions_r = await client.get(
                 f"{base_url}/rest/api/3/project/{project}/versions",
                 headers=jira_auth(), timeout=10.0
             )
-            sprints_r = await client.get(
-                f"{base_url}/rest/agile/1.0/board/34/sprint",
-                headers=jira_auth(), timeout=10.0,
-                params={"maxResults": 50}
-            )
+            sprints_r = None
+            if board_id is not None:
+                sprints_r = await client.get(
+                    f"{base_url}/rest/agile/1.0/board/{board_id}/sprint",
+                    headers=jira_auth(), timeout=10.0,
+                    params={"maxResults": 50}
+                )
 
             sprints    = []
             seen_names = set()
 
             # Build a map from sprint number -> native sprint metadata
             native_sprint_map = {}
-            if sprints_r.status_code == 200:
+            if sprints_r is not None and sprints_r.status_code == 200:
                 for s in sprints_r.json().get("values", []):
                     m = re.search(r'sprint\s+(\d+)', s.get("name", ""), re.IGNORECASE)
                     if m:
@@ -238,7 +294,12 @@ async def proxy_jira_sprints(
                         })
                         seen_names.add(vname.lower())
 
-            if sprints_r.status_code == 200 and not sprints:
+            # Native-sprint-only fallback: ONLY when the selected product
+            # has its own board configured. Without this gate the endpoint
+            # would return another product's sprints whenever the active
+            # product happens to have no fix versions yet.
+            if board_id is not None and sprints_r is not None and \
+               sprints_r.status_code == 200 and not sprints:
                 for s in sprints_r.json().get("values", []):
                     name = s.get("name", "")
                     if s.get("state") != "future":
