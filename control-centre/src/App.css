@@ -427,3 +427,54 @@ button {
 }
 
 .notif-mark-read:hover { background: var(--bg-hover); color: var(--text); }
+
+/* Sprint selector — horizontal scroll, scrollbar hidden across browsers (SDT1-114) */
+.sprint-selector-scroll {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+}
+.sprint-selector-scroll::-webkit-scrollbar { display: none; }
+
+.sprint-pill {
+  flex-shrink: 0;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 20px;
+  padding: 4px 10px 4px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s, color 0.15s;
+}
+
+.sprint-pill:hover { border-color: var(--accent); }
+
+.sprint-pill--active {
+  color: #4ade80;
+  border-color: #4ade80;
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.18);
+}
+
+.sprint-pill--selected {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.sprint-pill--active.sprint-pill--selected {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: white;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.25);
+}
