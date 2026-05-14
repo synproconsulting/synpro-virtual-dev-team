@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { fetchSprintData, fetchSprints, fetchWorkflowRuns } from "../api/sprintApi";
+import { useProduct } from "../contexts/ProductContext";
 import { Clock, GitPullRequest, CheckCircle2, AlertCircle, TrendingUp, Activity, Play, MessageSquare, Sparkles } from "lucide-react";
 
 const StatCard = ({ icon: Icon, label, value, trend, color = "var(--accent)", loading = false }) => (
@@ -187,29 +188,52 @@ const HealthIndicator = ({ label, status, message }) => {
   );
 };
 
+const EmptyState = ({ message }) => (
+  <div style={{
+    textAlign: "center",
+    color: "var(--muted)",
+    padding: "3rem 1rem",
+    background: "var(--bg-card)",
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+  }}>
+    {message}
+  </div>
+);
+
 const DashboardMain = () => {
+  const { productCredentials, loadingCredentials, credentialsError } = useProduct();
+  const productId = productCredentials?.id || null;
+
   const [data, setData] = useState(null);
   const [sprints, setSprints] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!productCredentials) {
+      setData(null);
+      setSprints([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
     const loadData = async () => {
       setLoading(true);
       const [globalData, sprintList] = await Promise.all([
-        fetchSprintData(),
-        fetchSprints(),
+        fetchSprintData(productCredentials),
+        fetchSprints(productId),
       ]);
+      if (cancelled) return;
       setData(globalData);
       setSprints(sprintList);
       setLoading(false);
     };
     loadData();
-    const interval = setInterval(loadData, 60000); // Refresh every minute
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(loadData, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [productCredentials, productId]);
 
   const navigateToTab = (tabId) => {
-    // Find the tab button and click it
     const navButtons = document.querySelectorAll(".cc-nav-btn");
     navButtons.forEach(btn => {
       if (btn.textContent.toLowerCase().includes(tabId)) {
@@ -218,15 +242,23 @@ const DashboardMain = () => {
     });
   };
 
+  if (loadingCredentials) {
+    return <EmptyState message="Loading product credentials…" />;
+  }
+  if (credentialsError) {
+    return <EmptyState message={`Error loading credentials: ${credentialsError}`} />;
+  }
+  if (!productCredentials) {
+    return <EmptyState message="Select a product to view overview" />;
+  }
+
   const metrics = data?.metrics || {};
   const prs = data?.prs || [];
   const runs = data?.runs || [];
   const issues = data?.jiraIssues || [];
 
-  // Calculate recent activity
   const recentActivity = [];
-  
-  // Add recent PRs
+
   prs.slice(0, 3).forEach(pr => {
     recentActivity.push({
       type: "pr",
@@ -237,7 +269,6 @@ const DashboardMain = () => {
     });
   });
 
-  // Add recent CI runs
   runs.slice(0, 2).forEach(run => {
     recentActivity.push({
       type: "ci",
@@ -248,7 +279,6 @@ const DashboardMain = () => {
     });
   });
 
-  // Add recently completed tickets
   issues.filter(i => i.status === "Done").slice(0, 2).forEach(issue => {
     recentActivity.push({
       type: "ticket",
@@ -259,7 +289,6 @@ const DashboardMain = () => {
     });
   });
 
-  // Sort by time (most recent first)
   recentActivity.sort((a, b) => {
     const timeToMinutes = (t) => {
       if (t.includes("min")) return parseInt(t);
@@ -270,19 +299,18 @@ const DashboardMain = () => {
     return timeToMinutes(a.time) - timeToMinutes(b.time);
   });
 
-  // System health calculations
   const ciHealth = metrics.ciSuccessRate >= 80 ? "healthy" : metrics.ciSuccessRate >= 60 ? "warning" : "error";
   const prHealth = prs.length <= 10 ? "healthy" : prs.length <= 20 ? "warning" : "error";
   const sprintHealth = metrics.velocity > 0 ? "healthy" : "warning";
 
   const activeSprint = sprints.length > 0 ? sprints[sprints.length - 1] : null;
-  const completionRate = issues.length > 0 
+  const completionRate = issues.length > 0
     ? Math.round((issues.filter(i => i.status === "Done").length / issues.length) * 100)
     : 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-      
+
       {/* Welcome Header */}
       <div style={{
         background: "linear-gradient(135deg, rgba(99,102,241,0.1) 0%, rgba(139,92,246,0.1) 100%)",
@@ -297,7 +325,7 @@ const DashboardMain = () => {
           </h1>
         </div>
         <p style={{ fontSize: 14, color: "var(--muted)", margin: 0, maxWidth: 600 }}>
-          Welcome back! Here's your development workflow at a glance. Manage sprints, 
+          Welcome back! Here's your development workflow at a glance. Manage sprints,
           monitor deployments, and leverage AI-assisted planning all in one place.
         </p>
         {activeSprint && (
@@ -368,7 +396,7 @@ const DashboardMain = () => {
         gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
         gap: "1.5rem",
       }}>
-        
+
         {/* Quick Actions */}
         <div>
           <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12, color: "var(--text)" }}>
@@ -478,8 +506,8 @@ const DashboardMain = () => {
         <div>
           <strong style={{ color: "var(--text)" }}>Pro Tip:</strong>{" "}
           <span style={{ color: "var(--muted)" }}>
-            Use the <strong style={{ color: "var(--accent)" }}>Sprint Status</strong> tab to 
-            run tickets with one click, or head to <strong style={{ color: "var(--accent)" }}>PM Agent</strong> to 
+            Use the <strong style={{ color: "var(--accent)" }}>Sprint Status</strong> tab to
+            run tickets with one click, or head to <strong style={{ color: "var(--accent)" }}>PM Agent</strong> to
             plan your next sprint using AI-powered insights.
           </span>
         </div>
@@ -489,7 +517,6 @@ const DashboardMain = () => {
   );
 };
 
-// Helper function to format time ago
 function getTimeAgo(dateString) {
   if (!dateString) return "Unknown";
   const now = new Date();
