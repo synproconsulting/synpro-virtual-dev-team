@@ -13,7 +13,7 @@ An AI-powered Virtual Development Team that automates the full software developm
 
 **Owner:** Johan Wessels — SynPro Consulting
 **Started:** April 21, 2025
-**Current state:** Sprints 1–13 complete and merged. Sprint 14 not yet planned.
+**Current state:** Sprints 1–14 complete and merged. Sprint 15 not yet planned.
 
 ---
 
