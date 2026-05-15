@@ -91,43 +91,48 @@ def _get_product_jira_board_id(product_id: Optional[str]) -> Optional[int]:
     """Return the Jira board ID for a product, or ``None`` if not configured.
 
     Resolution:
-      1. ``products.jira_board_id`` for the matching ``product_id`` if set.
-      2. ``JIRA_BOARD_ID`` environment variable if set (non-zero).
-      3. ``None`` - caller must skip the native-sprints fetch entirely
-         rather than silently substituting another product's board data.
+      * If ``product_id`` is supplied: return ``products.jira_board_id`` for
+        that row, or ``None`` if the row has no board set / lookup fails.
+        The ``JIRA_BOARD_ID`` env var is **never** consulted in this path —
+        falling back to it silently substituted another product's board
+        data, which was the cross-product sprint bleed fixed by SDT1-128.
+      * If ``product_id`` is ``None`` (legacy path before per-product
+        config existed): return the ``JIRA_BOARD_ID`` env var, or ``None``
+        if unset.
 
-    The DB lookup catches all exceptions (including a missing
-    ``jira_board_id`` column on older deployments) and falls through to
-    the env-var fallback, so this is safe to call before the migration
-    has been applied.
+    Callers must treat ``None`` as "skip the native-sprints fetch" rather
+    than substitute a default.
     """
-    if product_id and DATABASE_URL:
-        conn = None
-        try:
-            conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
-            cur  = conn.cursor()
-            cur.execute(
-                "SELECT jira_board_id FROM products WHERE id = %s",
-                (product_id,)
-            )
-            row = cur.fetchone()
-            if row and row.get("jira_board_id") is not None:
-                try:
-                    return int(row["jira_board_id"])
-                except (TypeError, ValueError):
-                    logger.warning(
-                        "Invalid jira_board_id on product %s: %r",
-                        product_id, row["jira_board_id"],
-                    )
-        except Exception as exc:
-            logger.debug("Product board lookup skipped for %s: %s", product_id, exc)
-        finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-    return JIRA_BOARD_ID
+    if not product_id:
+        return JIRA_BOARD_ID
+    if not DATABASE_URL:
+        return None
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT jira_board_id FROM products WHERE id = %s",
+            (product_id,)
+        )
+        row = cur.fetchone()
+        if row and row.get("jira_board_id") is not None:
+            try:
+                return int(row["jira_board_id"])
+            except (TypeError, ValueError):
+                logger.warning(
+                    "Invalid jira_board_id on product %s: %r",
+                    product_id, row["jira_board_id"],
+                )
+    except Exception as exc:
+        logger.debug("Product board lookup skipped for %s: %s", product_id, exc)
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return None
 
 
 # -- Router --------------------------------------------------------------------
