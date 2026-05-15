@@ -13,7 +13,7 @@ An AI-powered Virtual Development Team that automates the full software developm
 
 **Owner:** Johan Wessels — SynPro Consulting
 **Started:** April 21, 2025
-**Current state:** Sprints 1–14 complete and merged. Sprint 15 not yet planned.
+**Current state:** Sprints 1–14 complete and merged. Sprint 15 in progress.
 
 ---
 
@@ -57,6 +57,12 @@ Committing directly to `main` bypasses the audit trail, CI gates, and the Manage
 **Never run two Claude Code instances simultaneously on this project.** Concurrent instances make overlapping API calls to GitHub, Jira, and Railway — producing race conditions, duplicate PRs, and split-brain Jira state.
 
 **uto-implement.yml is manual-only — never dispatch it programmatically.** Claude Code is the Dev Agent for Sprint 8 and beyond. The uto-implement.yml workflow exists for reference and manual single-ticket testing from the GitHub Actions UI only. The orchestrator.py Orchestrator must not dispatch it automatically via the GitHub API. Implement tickets directly with Claude Code.
+
+**Claude Code is the Dev Agent — do not invoke `agents/dev_agent.py` directly.** Claude Code implements all tickets directly via the GitHub Contents API. `agents/dev_agent.py` and `auto-implement.yml` exist for reference and manual single-ticket testing only. Never dispatch `auto-implement.yml` programmatically or run `agents/dev_agent.py` as part of a sprint.
+
+**The rule-based auto-merger is the Manager Agent — do not invoke `agents/manager_agent.py` or `ci_manager_agent.py` directly.** Since Sprint 8 (SDT1-79, PR #167), PRs are merged automatically by the rule-based auto-merger in `ci.yml` when all blocking CI checks pass. `agents/manager_agent.py` and `ci_manager_agent.py` exist for reference only.
+
+**Sprint setup is performed directly via Jira API calls from Claude Code — do not invoke the PM Agent for sprint planning or sprint setup.** `agents/pm_agent.py` exists for reference only. All sprint setup (fix version creation, native sprint creation, ticket assignment, execution order, story points, priority) is done via direct Jira REST API calls.
 
 **When Claude Code flags a discrepancy at the end of its output, resolve it in the current action — never defer to a follow-up.** If a sprint setup prompt produces output noting a corrected ticket key, wrong ID, or any inconsistency in CLAUDE.md, CLAUDE_HISTORY.md, or PROJECT_CONTEXT.md, that correction must be included in the same PR before it is submitted. Specifically: if any ticket key in CLAUDE_HISTORY.md is provisional (e.g. "SDT1-111 (to be created)"), it must be resolved and corrected in the same PR that sets up the sprint IDs — not in a follow-up PR.
 
@@ -312,8 +318,8 @@ Every sprint story **must** have `customfield_10071` set by the PM Agent at plan
 |---|---|
 | Site | `synproconsulting.atlassian.net` |
 | Project key | `SDT1` |
-| Sprint IDs (native) | Sprint 1: 35, Sprint 2: 69, Sprint 3: 70, Sprint 4: 71, Sprint 5: 72, Sprint 6: 105, Sprint 7: 138, Sprint 8: 171, Sprint 9: 204, Sprint 10: 237, Sprint 11: 270, Sprint 12: 303, Sprint 13: 336, Sprint 14: 369 |
-| Sprint fix version IDs | Sprint 1: 10000, Sprint 2: 10033, Sprint 3: 10066, Sprint 4: 10099, Sprint 5: 10132, Sprint 6: 10198, Sprint 7: 10231, Sprint 8: 10264, Sprint 9: 10297, Sprint 10: 10330, Sprint 11: 10363, Sprint 12: 10396, Sprint 13: 10429, Sprint 14: 10462 |
+| Sprint IDs (native) | Sprint 1: 35, Sprint 2: 69, Sprint 3: 70, Sprint 4: 71, Sprint 5: 72, Sprint 6: 105, Sprint 7: 138, Sprint 8: 171, Sprint 9: 204, Sprint 10: 237, Sprint 11: 270, Sprint 12: 303, Sprint 13: 336, Sprint 14: 369, Sprint 15: 402 |
+| Sprint fix version IDs | Sprint 1: 10000, Sprint 2: 10033, Sprint 3: 10066, Sprint 4: 10099, Sprint 5: 10132, Sprint 6: 10198, Sprint 7: 10231, Sprint 8: 10264, Sprint 9: 10297, Sprint 10: 10330, Sprint 11: 10363, Sprint 12: 10396, Sprint 13: 10429, Sprint 14: 10462, Sprint 15: 10495 |
 | Execution order field | `customfield_10071` |
 | Story points field | `customfield_10016` |
 
