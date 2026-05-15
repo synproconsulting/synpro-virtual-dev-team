@@ -12,7 +12,10 @@ from starlette.types import ASGIApp
 import json
 
 # Configure logger
-logger = logging.getLogger("uvicorn.access")
+# NOTE: do NOT use "uvicorn.access" — uvicorn's AccessFormatter unpacks
+# record.args into 5 values (client_addr, method, full_path, http_version,
+# status_code) and raises ValueError when we log with f-strings (no args).
+logger = logging.getLogger("uat.backend.requests")
 logger.setLevel(logging.INFO)
 
 
@@ -106,3 +109,4 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             k: "***REDACTED***" if k.lower() in self.SENSITIVE_HEADERS else v
             for k, v in headers.items()
         }
+
