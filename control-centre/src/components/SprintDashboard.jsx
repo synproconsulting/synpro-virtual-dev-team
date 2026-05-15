@@ -438,7 +438,7 @@ const SprintDashboard = () => {
           placeholder={SEARCH_PLACEHOLDER[activeTab] || "Search..."}
           aria-label={SEARCH_PLACEHOLDER[activeTab] || "Search"}
           style={{
-            background:"var(--bg)",
+            background:"var(--bg-hover)",
             border:"1px solid var(--border)",
             borderRadius:6,
             padding:"5px 10px",
