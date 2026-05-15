@@ -51,6 +51,7 @@ const SprintDashboard = () => {
   const { productCredentials, loadingCredentials, credentialsError } = useProduct();
   const productId = productCredentials?.id || null;
   const jiraProjectKey = productCredentials?.jira_project_key || null;
+  const jiraBaseUrl = productCredentials?.jira_base_url || null;
 
   const [sprints, setSprints]       = useState([]);
   const [selected, setSelected]     = useState(null);
@@ -368,7 +369,22 @@ const SprintDashboard = () => {
                       <a href={pr.html_url} target="_blank" rel="noopener noreferrer" style={{color:"var(--accent)",textDecoration:"none",marginRight:6}}>#{pr.number}</a>
                       {pr.title}
                     </div>
-                    <div style={{fontSize:11,color:"var(--muted)"}}>{pr.head?.ref} · {pr.user?.login}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>
+                      {pr.head?.ref} · {pr.user?.login}
+                      {pr.ticketKey && jiraBaseUrl && (
+                        <>
+                          {" · "}
+                          <a
+                            href={`${jiraBaseUrl.replace(/\/$/, "")}/browse/${pr.ticketKey}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{color:"var(--accent)",textDecoration:"none"}}
+                          >
+                            {pr.ticketKey}
+                          </a>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <button onClick={() => handleAutoReview(pr.number)} style={{
                     background:"var(--accent)",color:"white",border:"none",
