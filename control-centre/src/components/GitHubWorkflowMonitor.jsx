@@ -23,7 +23,7 @@ const timeAgo = (dateStr) => {
 
 const WORKFLOW_FILTERS = ["All", "Auto Review and Merge", "Auto Implement", "CI Pipeline", "Deploy to UAT"];
 
-const GitHubWorkflowMonitor = () => {
+const GitHubWorkflowMonitor = ({ onRunsChange } = {}) => {
   const { productCredentials, loadingCredentials, credentialsError } = useProduct();
   const githubOrg = productCredentials?.github_org || "";
   const githubRepo = productCredentials?.github_repo || "";
@@ -41,6 +41,7 @@ const GitHubWorkflowMonitor = () => {
     try {
       const data = await fetchGitHubWorkflows(ghRepoSlug);
       setRuns(data);
+      onRunsChange?.(data.length);
       setLastUpdated(new Date());
       setError(null);
     } catch (e) {
@@ -48,17 +49,18 @@ const GitHubWorkflowMonitor = () => {
     } finally {
       setLoading(false);
     }
-  }, [ghRepoSlug]);
+  }, [ghRepoSlug, onRunsChange]);
 
   useEffect(() => {
     if (!ghRepoSlug) {
       setRuns([]); setLastUpdated(null); setError(null);
+      onRunsChange?.(0);
       return;
     }
     loadWorkflows();
     const interval = setInterval(loadWorkflows, 30000);
     return () => clearInterval(interval);
-  }, [ghRepoSlug, loadWorkflows]);
+  }, [ghRepoSlug, loadWorkflows, onRunsChange]);
 
   if (loadingCredentials) {
     return <div style={{textAlign:"center",color:"var(--muted)",padding:"3rem 1rem"}}>Loading product credentials…</div>;

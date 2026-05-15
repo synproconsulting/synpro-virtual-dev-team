@@ -3,6 +3,7 @@ import { fetchSprints, fetchSprintIssues, fetchSprintData, triggerSprint, trigge
 import JiraSprintView from './JiraSprintView';
 import PullRequestView from './PullRequestView';
 import CIPipelineView from './CIPipelineView';
+import GitHubWorkflowMonitor from './GitHubWorkflowMonitor';
 import { useProduct } from '../contexts/ProductContext';
 import { Play, GitPullRequest } from 'lucide-react';
 
@@ -64,6 +65,7 @@ const SprintDashboard = () => {
   const [completeDestination, setCompleteDestination] = useState("backlog");
   const [nextSprintTarget, setNextSprintTarget] = useState("");
   const [completing, setCompleting]         = useState(false);
+  const [workflowCount, setWorkflowCount]   = useState(0);
 
   const scrollRef = useRef(null);
   const selectedButtonRef = useRef(null);
@@ -216,9 +218,10 @@ const SprintDashboard = () => {
   const ciRate    = runs.length ? Math.round((runs.filter(r=>r.conclusion==="success").length/runs.length)*100) : 0;
 
   const TABS = [
-    { id:"jira", label:`Jira Issues (${issues.length})` },
-    { id:"prs",  label:`Pull Requests (${prs.length})` },
-    { id:"ci",   label:`CI/CD (${runs.length})` },
+    { id:"jira",      label:`Jira Issues (${issues.length})` },
+    { id:"prs",       label:`Pull Requests (${prs.length})` },
+    { id:"ci",        label:`CI/CD (${runs.length})` },
+    { id:"workflows", label:`Workflows (${workflowCount})` },
   ];
 
   return (
@@ -380,6 +383,7 @@ const SprintDashboard = () => {
             </div>
           )}
           {activeTab === "ci" && <CIPipelineView pipelines={runs}/>}
+          {activeTab === "workflows" && <GitHubWorkflowMonitor onRunsChange={setWorkflowCount} />}
         </>
       )}
 
