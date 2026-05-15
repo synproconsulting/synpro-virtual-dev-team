@@ -68,6 +68,8 @@ Committing directly to `main` bypasses the audit trail, CI gates, and the Manage
 
 **Jira ticket lifecycle: transition to In Progress before starting implementation.** Leave In Progress when PR is opened. Transition to Done only when the PR is merged to `main` and confirmed by the auto-merger. Never transition to Done on PR open. Until the auto-merger is taught to update Jira (SDT1-125), the operator (or a follow-up Claude Code session triggered after merge) is responsible for the Done transition — opening the PR is not the trigger.
 
+**Before opening any fix PR that corrects a bug discovered during the current sprint, create a Jira bug ticket first.** Assign it to the current sprint (fix version + native sprint). Reference the ticket key in the PR title using conventional commit format: `fix(SDT1-XX): description`. Transition to In Progress before starting, leave In Progress when PR opens, Done on merge. No fix PR may be opened without a corresponding Jira ticket.
+
 ---
 
 ## Key Architectural Decisions
