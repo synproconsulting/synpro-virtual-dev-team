@@ -31,6 +31,13 @@ const PR_FILTER_STYLE = {
 };
 const PR_FILTERS = ["All", "Open", "Merged", "Failed", "Closed"];
 
+const SEARCH_PLACEHOLDER = {
+  jira:      "Search issues...",
+  prs:       "Search PRs...",
+  ci:        "Search runs...",
+  workflows: "Search workflows...",
+};
+
 // Sort sprints by numeric id ascending so the row order is stable across
 // products and reloads. NaN ids (rare) sink to the bottom.
 const sortSprints = (list) => {
@@ -80,6 +87,7 @@ const SprintDashboard = () => {
   // globalData.runs.length so the tab badge isn't stuck at 0 before the
   // user opens the Workflows sub-tab.
   const [workflowCount, setWorkflowCount]   = useState(null);
+  const [filterQuery, setFilterQuery]       = useState("");
 
   const scrollRef = useRef(null);
   const selectedButtonRef = useRef(null);
@@ -168,6 +176,13 @@ const SprintDashboard = () => {
     return () => el.removeEventListener('wheel', onWheel);
   }, [productCredentials]);
 
+  // Reset the sub-tab text filter whenever the selected sprint changes so
+  // a stale query from the previous sprint doesn't hide everything in the
+  // new sprint (SDT1-92).
+  useEffect(() => {
+    setFilterQuery("");
+  }, [selected?.id]);
+
   const onSprintChange = async (sprint) => {
     setSelected(sprint); setLoading(true); setMsg(null);
     setIssues(await fetchSprintIssues(sprint, productId));
@@ -241,24 +256,49 @@ const SprintDashboard = () => {
   const mergedWithState = mergedInSprint.map(pr => ({ ...pr, _state: "Merged" }));
   const failedWithState = failedInSprint.map(pr => ({ ...pr, _state: "Failed" }));
   const allPrs          = [...openWithState, ...mergedWithState, ...failedWithState];
-  const prCounts        = {
-    All:    allPrs.length,
-    Open:   openWithState.length,
-    Merged: mergedWithState.length,
-    Failed: failedWithState.length,
-    Closed: mergedWithState.length + failedWithState.length,
+
+  // Case-insensitive substring filter applied per sub-tab (SDT1-92).
+  // When the query is empty every list passes through unchanged.
+  const q = filterQuery.trim().toLowerCase();
+  const matches = (...fields) =>
+    !q || fields.some(f => f != null && String(f).toLowerCase().includes(q));
+
+  const filteredIssues = q
+    ? issues.filter(i => matches(i.key, i.summary, i.status, i.assignee))
+    : issues;
+
+  const qOpen   = q ? openWithState.filter(pr =>
+                        matches(pr.number, pr.title, pr.head?.ref, pr.user?.login, pr.ticketKey)
+                      ) : openWithState;
+  const qMerged = q ? mergedWithState.filter(pr =>
+                        matches(pr.number, pr.title, pr.head?.ref, pr.user?.login, pr.ticketKey)
+                      ) : mergedWithState;
+  const qFailed = q ? failedWithState.filter(pr =>
+                        matches(pr.number, pr.title, pr.head?.ref, pr.user?.login, pr.ticketKey)
+                      ) : failedWithState;
+  const qAllPrs = [...qOpen, ...qMerged, ...qFailed];
+  const prCounts = {
+    All:    qAllPrs.length,
+    Open:   qOpen.length,
+    Merged: qMerged.length,
+    Failed: qFailed.length,
+    Closed: qMerged.length + qFailed.length,
   };
   const filteredPrs =
-    prFilter === "Open"   ? openWithState   :
-    prFilter === "Merged" ? mergedWithState :
-    prFilter === "Failed" ? failedWithState :
-    prFilter === "Closed" ? [...mergedWithState, ...failedWithState] :
-    allPrs;
+    prFilter === "Open"   ? qOpen   :
+    prFilter === "Merged" ? qMerged :
+    prFilter === "Failed" ? qFailed :
+    prFilter === "Closed" ? [...qMerged, ...qFailed] :
+    qAllPrs;
+
+  const filteredRuns = q
+    ? runs.filter(r => matches(r.name, r.display_title, r.head_branch))
+    : runs;
 
   const TABS = [
-    { id:"jira",      label:`Jira Issues (${issues.length})` },
-    { id:"prs",       label:`Pull Requests (${allPrs.length})` },
-    { id:"ci",        label:`CI/CD (${runs.length})` },
+    { id:"jira",      label:`Jira Issues (${q ? filteredIssues.length : issues.length})` },
+    { id:"prs",       label:`Pull Requests (${q ? qAllPrs.length : allPrs.length})` },
+    { id:"ci",        label:`CI/CD (${q ? filteredRuns.length : runs.length})` },
     { id:"workflows", label:`Workflows (${workflowCount ?? runs.length})` },
   ];
 
@@ -379,22 +419,48 @@ const SprintDashboard = () => {
       )}
 
       {/* Tabs */}
-      <div style={{display:"flex",gap:4,borderBottom:"1px solid var(--border)",paddingBottom:2}}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
-            background:activeTab===t.id?"var(--accent)":"transparent",
-            color:activeTab===t.id?"white":"var(--muted)",
-            border:"none", borderRadius:6, padding:"6px 14px",
-            fontSize:13, cursor:"pointer", fontFamily:"inherit"
-          }}>{t.label}</button>
-        ))}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                   gap:12,borderBottom:"1px solid var(--border)",paddingBottom:2}}>
+        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+              background:activeTab===t.id?"var(--accent)":"transparent",
+              color:activeTab===t.id?"white":"var(--muted)",
+              border:"none", borderRadius:6, padding:"6px 14px",
+              fontSize:13, cursor:"pointer", fontFamily:"inherit"
+            }}>{t.label}</button>
+          ))}
+        </div>
+        <input
+          type="search"
+          value={filterQuery}
+          onChange={e => setFilterQuery(e.target.value)}
+          placeholder={SEARCH_PLACEHOLDER[activeTab] || "Search..."}
+          aria-label={SEARCH_PLACEHOLDER[activeTab] || "Search"}
+          style={{
+            background:"var(--bg)",
+            border:"1px solid var(--border)",
+            borderRadius:6,
+            padding:"5px 10px",
+            fontSize:12,
+            color:"var(--text)",
+            width:220,
+            fontFamily:"inherit",
+            outline:"none",
+            transition:"border-color 0.15s",
+            flexShrink:0,
+            marginBottom:2,
+          }}
+          onFocus={e => { e.target.style.borderColor = "var(--accent)"; }}
+          onBlur={e => { e.target.style.borderColor = "var(--border)"; }}
+        />
       </div>
 
       {loading ? (
         <div style={{textAlign:"center",color:"var(--muted)",padding:"2rem"}}>Loading...</div>
       ) : (
         <>
-          {activeTab === "jira" && <JiraSprintView issues={issues} mergedPRs={mergedPRs}/>}
+          {activeTab === "jira" && <JiraSprintView issues={filteredIssues} mergedPRs={mergedPRs}/>}
           {activeTab === "prs" && (
             <div>
               <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
@@ -461,8 +527,13 @@ const SprintDashboard = () => {
               })}
             </div>
           )}
-          {activeTab === "ci" && <CIPipelineView pipelines={runs}/>}
-          {activeTab === "workflows" && <GitHubWorkflowMonitor onRunsChange={setWorkflowCount} />}
+          {activeTab === "ci" && <CIPipelineView pipelines={filteredRuns}/>}
+          {activeTab === "workflows" && (
+            <GitHubWorkflowMonitor
+              onRunsChange={setWorkflowCount}
+              filterQuery={filterQuery}
+            />
+          )}
         </>
       )}
 
