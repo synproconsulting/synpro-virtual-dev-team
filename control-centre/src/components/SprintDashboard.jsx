@@ -5,7 +5,31 @@ import PullRequestView from './PullRequestView';
 import CIPipelineView from './CIPipelineView';
 import GitHubWorkflowMonitor from './GitHubWorkflowMonitor';
 import { useProduct } from '../contexts/ProductContext';
-import { Play, GitPullRequest } from 'lucide-react';
+import { Play, GitPullRequest, Download } from 'lucide-react';
+
+// Local CSV download helpers (SDT1-93). Duplicated per file per spec to
+// avoid adding a new module — keep changes in sync if edited.
+const downloadCsv = (rows, filename) => {
+  if (!rows.length) return;
+  const cols = Object.keys(rows[0]);
+  const esc  = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = cols.join(",");
+  const body   = rows.map(r => cols.map(c => esc(r[c])).join(",")).join("\n");
+  const blob   = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8;" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+const csvFilename = (tabName, sprintName, productSlug) => {
+  const date = new Date().toISOString().slice(0, 10);
+  return `sprint-${sprintName || "unknown"}_${productSlug || "unknown"}_${tabName}_${date}.csv`;
+};
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
@@ -240,6 +264,10 @@ const SprintDashboard = () => {
   const prs       = globalData?.prs  || [];
   const closedPrs = globalData?.closedPrs || [];
   const runs      = globalData?.runs || [];
+
+  // Slugs used in CSV filenames (SDT1-93). Per spec: lowercase + spaces→hyphens.
+  const sprintSlug  = (selected?.name || "").toLowerCase().replace(/\s+/g, "-");
+  const productSlug = (productCredentials?.name || "").toLowerCase().replace(/\s+/g, "-");
   const done      = issues.filter(i => i.status === "Done");
   const todo      = issues.filter(i => i.status === "To Do");
   const inProg    = issues.filter(i => i.status === "In Progress");
@@ -460,23 +488,61 @@ const SprintDashboard = () => {
         <div style={{textAlign:"center",color:"var(--muted)",padding:"2rem"}}>Loading...</div>
       ) : (
         <>
-          {activeTab === "jira" && <JiraSprintView issues={filteredIssues} mergedPRs={mergedPRs}/>}
+          {activeTab === "jira" && (
+            <JiraSprintView
+              issues={filteredIssues}
+              mergedPRs={mergedPRs}
+              sprintName={sprintSlug}
+              productSlug={productSlug}
+            />
+          )}
           {activeTab === "prs" && (
             <div>
-              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
-                {PR_FILTERS.map(f => {
-                  const style = PR_FILTER_STYLE[f];
-                  const isActive = prFilter === f;
-                  return (
-                    <button key={f} onClick={() => setPrFilter(f)} style={{
-                      background: isActive ? style.bg : "transparent",
-                      color: isActive ? style.color : "var(--muted)",
-                      border: `1px solid ${isActive ? style.color : "var(--border)"}`,
-                      borderRadius:20, padding:"3px 12px", fontSize:12,
-                      cursor:"pointer", fontFamily:"inherit",
-                    }}>{f} ({prCounts[f]})</button>
-                  );
-                })}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                           gap:8,marginBottom:12,flexWrap:"wrap"}}>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {PR_FILTERS.map(f => {
+                    const style = PR_FILTER_STYLE[f];
+                    const isActive = prFilter === f;
+                    return (
+                      <button key={f} onClick={() => setPrFilter(f)} style={{
+                        background: isActive ? style.bg : "transparent",
+                        color: isActive ? style.color : "var(--muted)",
+                        border: `1px solid ${isActive ? style.color : "var(--border)"}`,
+                        borderRadius:20, padding:"3px 12px", fontSize:12,
+                        cursor:"pointer", fontFamily:"inherit",
+                      }}>{f} ({prCounts[f]})</button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => {
+                    const rows = filteredPrs.map(pr => ({
+                      number:     pr.number,
+                      title:      pr.title,
+                      state:      pr._state,
+                      ticket_key: pr.ticketKey || "",
+                      branch:     pr.head?.ref || "",
+                      author:     pr.user?.login || "",
+                      created_at: pr.created_at || "",
+                      merged_at:  pr.merged_at || "",
+                      url:        pr.html_url || "",
+                    }));
+                    downloadCsv(rows, csvFilename("pull-requests", sprintSlug, productSlug));
+                  }}
+                  disabled={!filteredPrs.length}
+                  title="Download CSV"
+                  style={{
+                    background:"transparent", color:"var(--accent)",
+                    border:"1px solid var(--accent)", borderRadius:6,
+                    padding:"4px 10px", fontSize:12,
+                    cursor: filteredPrs.length ? "pointer" : "not-allowed",
+                    opacity: filteredPrs.length ? 1 : 0.5,
+                    fontFamily:"inherit", display:"flex", alignItems:"center", gap:4, flexShrink:0,
+                  }}
+                >
+                  <Download size={12}/>CSV
+                </button>
               </div>
               {filteredPrs.length === 0 ? (
                 <div style={{textAlign:"center",color:"var(--muted)",padding:"2rem"}}>No pull requests in this view</div>
@@ -527,11 +593,19 @@ const SprintDashboard = () => {
               })}
             </div>
           )}
-          {activeTab === "ci" && <CIPipelineView pipelines={filteredRuns}/>}
+          {activeTab === "ci" && (
+            <CIPipelineView
+              pipelines={filteredRuns}
+              sprintName={sprintSlug}
+              productSlug={productSlug}
+            />
+          )}
           {activeTab === "workflows" && (
             <GitHubWorkflowMonitor
               onRunsChange={setWorkflowCount}
               filterQuery={filterQuery}
+              sprintName={sprintSlug}
+              productSlug={productSlug}
             />
           )}
         </>

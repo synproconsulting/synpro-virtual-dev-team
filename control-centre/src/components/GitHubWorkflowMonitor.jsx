@@ -1,7 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { fetchGitHubWorkflows } from '../api/githubApi';
 import { useProduct } from '../contexts/ProductContext';
-import { ExternalLink, RefreshCw } from 'lucide-react';
+import { ExternalLink, RefreshCw, Download } from 'lucide-react';
+
+// Local CSV download helpers (SDT1-93). Duplicated per file per spec to
+// avoid adding a new module — keep changes in sync if edited.
+const downloadCsv = (rows, filename) => {
+  if (!rows.length) return;
+  const cols = Object.keys(rows[0]);
+  const esc  = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = cols.join(",");
+  const body   = rows.map(r => cols.map(c => esc(r[c])).join(",")).join("\n");
+  const blob   = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8;" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+const csvFilename = (tabName, sprintName, productSlug) => {
+  const date = new Date().toISOString().slice(0, 10);
+  return `sprint-${sprintName || "unknown"}_${productSlug || "unknown"}_${tabName}_${date}.csv`;
+};
 
 const STATUS_STYLE = {
   success:     { bg: "rgba(34,197,94,0.15)",   color: "#4ade80",  label: "✓ Success",   dot: "#4ade80" },
@@ -23,7 +47,7 @@ const timeAgo = (dateStr) => {
 
 const WORKFLOW_FILTERS = ["All", "Auto Review and Merge", "Auto Implement", "CI Pipeline", "Deploy to UAT"];
 
-const GitHubWorkflowMonitor = ({ onRunsChange, filterQuery = "" } = {}) => {
+const GitHubWorkflowMonitor = ({ onRunsChange, filterQuery = "", sprintName = "", productSlug = "" } = {}) => {
   const { productCredentials, loadingCredentials, credentialsError } = useProduct();
   const githubOrg = productCredentials?.github_org || "";
   const githubRepo = productCredentials?.github_repo || "";
@@ -112,14 +136,46 @@ const GitHubWorkflowMonitor = ({ onRunsChange, filterQuery = "" } = {}) => {
             {lastUpdated && ` · Updated ${timeAgo(lastUpdated.toISOString())}`}
           </div>
         </div>
-        <button onClick={loadWorkflows} disabled={loading} style={{
-          background:"transparent", border:"1px solid var(--border)",
-          borderRadius:8, padding:"6px 12px", cursor:"pointer",
-          color:"var(--text)", display:"flex", alignItems:"center", gap:6, fontSize:13
-        }}>
-          <RefreshCw size={13} style={{animation: loading ? "spin 1s linear infinite" : "none"}} />
-          Refresh
-        </button>
+        <div style={{display:"flex", alignItems:"center", gap:8}}>
+          <button
+            onClick={() => {
+              const rows = filtered.map(r => ({
+                id:            r.id,
+                name:          r.name,
+                status:        r.status,
+                conclusion:    r.conclusion || "",
+                head_branch:   r.head_branch || "",
+                display_title: r.display_title || "",
+                ticket_key:    r.ticketKey || "",
+                pr_number:     r.prNumber || "",
+                created_at:    r.created_at || "",
+                updated_at:    r.updated_at || "",
+                url:           r.html_url || "",
+              }));
+              downloadCsv(rows, csvFilename("workflows", sprintName, productSlug));
+            }}
+            disabled={!filtered.length}
+            title="Download CSV"
+            style={{
+              background:"transparent", color:"var(--accent)",
+              border:"1px solid var(--accent)", borderRadius:6,
+              padding:"4px 10px", fontSize:12,
+              cursor: filtered.length ? "pointer" : "not-allowed",
+              opacity: filtered.length ? 1 : 0.5,
+              fontFamily:"inherit", display:"flex", alignItems:"center", gap:4,
+            }}
+          >
+            <Download size={12}/>CSV
+          </button>
+          <button onClick={loadWorkflows} disabled={loading} style={{
+            background:"transparent", border:"1px solid var(--border)",
+            borderRadius:8, padding:"6px 12px", cursor:"pointer",
+            color:"var(--text)", display:"flex", alignItems:"center", gap:6, fontSize:13
+          }}>
+            <RefreshCw size={13} style={{animation: loading ? "spin 1s linear infinite" : "none"}} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       <div style={{display:"flex", gap:6, marginBottom:16, flexWrap:"wrap"}}>
