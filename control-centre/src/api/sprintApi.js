@@ -43,7 +43,17 @@ export const fetchSprintData = async (product = null) => {
       fetch(`${GITHUB_API}/repos/${repo}/actions/runs?per_page=10`, { headers: ghHeaders() }),
       fetchJiraIssues(null, product?.id),
     ]);
-    const prs  = prsRes.ok  ? await prsRes.json() : [];
+    const rawPrs = prsRes.ok ? await prsRes.json() : [];
+    const prs = rawPrs.map(pr => {
+      const titleMatch  = pr.title?.match(/\[([A-Z][A-Z0-9]+-\d+)\]/i);
+      const branchMatch = pr.head?.ref?.match(/feature\/([a-zA-Z]+-\d+)[\-_]/i);
+      const ticketKey = titleMatch
+        ? titleMatch[1].toUpperCase()
+        : branchMatch
+          ? branchMatch[1].toUpperCase()
+          : null;
+      return { ...pr, ticketKey };
+    });
     const runs = runsRes.ok ? (await runsRes.json()).workflow_runs || [] : [];
 
     const doneIssues   = jiraIssues.filter(i => i.status === "Done");
