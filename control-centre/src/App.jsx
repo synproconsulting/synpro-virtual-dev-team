@@ -5,7 +5,6 @@ import ProductSelector from "./components/ProductSelector";
 import AddProductModal from "./components/AddProductModal";
 import DashboardMain from "./components/DashboardMain";
 import SprintDashboard from "./components/SprintDashboard";
-import GitHubWorkflowMonitor from "./components/GitHubWorkflowMonitor";
 import UATDeployment from "./components/UATDeployment";
 import SonarCloudTrigger from "./components/SonarCloudTrigger";
 import PMAgentChat from "./components/PMAgentChat";
@@ -21,7 +20,6 @@ import NotificationsPage from "./components/NotificationsPage";
 const TABS = [
   { id: "overview",   label: "Overview",      component: DashboardMain },
   { id: "sprint",     label: "Sprint Status", component: SprintDashboard },
-  { id: "workflows",  label: "Workflows",     component: GitHubWorkflowMonitor },
   { id: "deploy",     label: "UAT Deploy",    component: UATDeployment },
   { id: "sonarcloud", label: "SonarCloud",    component: SonarCloudTrigger },
   { id: "pm-agent",   label: "PM Agent",      component: PMAgentChat },
