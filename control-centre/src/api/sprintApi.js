@@ -35,11 +35,16 @@ export const fetchJiraIssues = async (status = null, productId = null) => {
   }
 };
 
+// Extracts a Jira ticket key from a PR. Tries two title forms first —
+// conventional commit (`feat(SDT1-89): ...` / `fix(SDT1-89): ...`) and the
+// older bracketed form (`[SDT1-89] ...`) — then falls back to the branch
+// name (any prefix, project keys may end with a digit like `SDT1`).
 const annotatePr = (pr) => {
-  const titleMatch  = pr.title?.match(/\[([A-Z][A-Z0-9]+-\d+)\]/i);
-  const branchMatch = pr.head?.ref?.match(/feature\/([a-zA-Z]+-\d+)[\-_]/i);
-  const ticketKey = titleMatch
-    ? titleMatch[1].toUpperCase()
+  const titleMatch  = pr.title?.match(/(?:\(([A-Z][A-Z0-9]+-\d+)\)|\[([A-Z][A-Z0-9]+-\d+)\])/i);
+  const branchMatch = pr.head?.ref?.match(/[a-zA-Z]+\/([a-zA-Z][a-zA-Z0-9]*-\d+)[-_]/i);
+  const titleKey = titleMatch ? (titleMatch[1] || titleMatch[2]) : null;
+  const ticketKey = titleKey
+    ? titleKey.toUpperCase()
     : branchMatch
       ? branchMatch[1].toUpperCase()
       : null;
@@ -177,23 +182,15 @@ export const fetchMergedPRs = async (product = null) => {
     const prs = await r.json();
     return prs
       .filter(pr => pr.merged_at)
-      .map(pr => {
-        const titleMatch = pr.title.match(/\[([A-Z][A-Z0-9]+-\d+)\]/i);
-        const branchMatch = pr.head?.ref?.match(/feature\/([a-zA-Z]+-\d+)[\-_]/i);
-        const ticketKey = titleMatch
-          ? titleMatch[1].toUpperCase()
-          : branchMatch
-            ? branchMatch[1].toUpperCase()
-            : null;
-        return {
-          number:   pr.number,
-          title:    pr.title,
-          url:      pr.html_url,
-          mergedAt: pr.merged_at,
-          ticketKey,
-        };
-      })
-      .filter(pr => pr.ticketKey);
+      .map(annotatePr)
+      .filter(pr => pr.ticketKey)
+      .map(pr => ({
+        number:    pr.number,
+        title:     pr.title,
+        url:       pr.html_url,
+        mergedAt:  pr.merged_at,
+        ticketKey: pr.ticketKey,
+      }));
   } catch (e) {
     console.error("fetchMergedPRs error:", e);
     return [];

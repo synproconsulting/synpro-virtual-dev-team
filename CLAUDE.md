@@ -246,7 +246,7 @@ python main.py --agent dev --task implement --ticket SDT1-31 --summary "Sprint s
 3. Creates fresh branch: `feature/sdt1-{ticket}-{slug}`
 4. Commits files individually via `PUT /contents/{path}` with base64 encoding
 5. For multi-file commits: uses Git Trees API (single commit, clean history)
-6. Opens PR: title format `[SDT1-XX] Summary` — Manager Agent parses the ticket key from this
+6. Opens PR: title format `feat(SDT1-XX): summary` or `fix(SDT1-XX): summary` (conventional commits) — Manager Agent parses the ticket key from the `(SDT1-XX)` group
 
 **Key design decisions:**
 - Always branches from latest `main` — eliminates merge conflicts
@@ -445,7 +445,7 @@ python main.py --agent sprint
 ## Key Conventions
 
 - **Commit format:** `feat(sdt1-XX): description` (conventional commits)
-- **PR title format:** `[SDT1-XX] Description` — Manager Agent parses ticket key from this
+- **PR title format:** `feat(SDT1-XX): description` or `fix(SDT1-XX): description` (conventional commits) — Manager Agent parses ticket key from the `(SDT1-XX)` group. The older `[SDT1-XX] Description` bracket form is still accepted by the parser for legacy PRs but is no longer the convention.
 - **Story points:** Fibonacci — 1, 2, 3, 5, 8, 13 (max 8 per story)
 - **Execution order:** `customfield_10071` in Jira — Orchestrator sorts by this
 - **ADF:** Acceptance criteria written in Atlassian Document Format in Jira descriptions
