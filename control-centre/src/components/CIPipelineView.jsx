@@ -1,5 +1,29 @@
 import React from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Download } from 'lucide-react';
+
+// Local CSV download helpers (SDT1-93). Duplicated per file per spec to
+// avoid adding a new module — keep changes in sync if edited.
+const downloadCsv = (rows, filename) => {
+  if (!rows.length) return;
+  const cols = Object.keys(rows[0]);
+  const esc  = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = cols.join(",");
+  const body   = rows.map(r => cols.map(c => esc(r[c])).join(",")).join("\n");
+  const blob   = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8;" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+const csvFilename = (tabName, sprintName, productSlug) => {
+  const date = new Date().toISOString().slice(0, 10);
+  return `sprint-${sprintName || "unknown"}_${productSlug || "unknown"}_${tabName}_${date}.csv`;
+};
 
 const STATUS_STYLE = {
   success:    { bg: "rgba(34,197,94,0.15)",   color: "#4ade80",  label: "✓ Success" },
@@ -19,16 +43,41 @@ const timeAgo = (dateStr) => {
   return `${Math.floor(diff/86400)}d ago`;
 };
 
-const CIPipelineView = ({ pipelines = [] }) => {
-  if (!pipelines.length) {
-    return (
-      <div style={{textAlign:"center", color:"var(--muted)", padding:"2rem"}}>
-        No CI/CD runs found
-      </div>
-    );
-  }
+const CIPipelineView = ({ pipelines = [], sprintName, productSlug }) => {
+  const handleDownloadCsv = () => {
+    const rows = pipelines.map(r => ({
+      id:            r.id,
+      name:          r.name,
+      status:        r.status,
+      conclusion:    r.conclusion || "",
+      head_branch:   r.head_branch || "",
+      display_title: r.display_title || "",
+      created_at:    r.created_at || "",
+      updated_at:    r.updated_at || "",
+      url:           r.html_url || "",
+    }));
+    downloadCsv(rows, csvFilename("ci-cd", sprintName, productSlug));
+  };
 
   return (
+    <div>
+      <div style={{display:"flex", justifyContent:"flex-end", marginBottom:10}}>
+        <button onClick={handleDownloadCsv} disabled={!pipelines.length} title="Download CSV" style={{
+          background:"transparent", color:"var(--accent)",
+          border:"1px solid var(--accent)", borderRadius:6,
+          padding:"4px 10px", fontSize:12,
+          cursor: pipelines.length ? "pointer" : "not-allowed",
+          opacity: pipelines.length ? 1 : 0.5,
+          fontFamily:"inherit", display:"flex", alignItems:"center", gap:4,
+        }}>
+          <Download size={12}/>CSV
+        </button>
+      </div>
+      {!pipelines.length ? (
+        <div style={{textAlign:"center", color:"var(--muted)", padding:"2rem"}}>
+          No CI/CD runs found
+        </div>
+      ) : (
     <div style={{display:"flex",flexDirection:"column",gap:8}}>
       {pipelines.map((run) => {
         const status = run.status === "completed" ? run.conclusion : run.status;
@@ -68,6 +117,8 @@ const CIPipelineView = ({ pipelines = [] }) => {
           </div>
         );
       })}
+    </div>
+      )}
     </div>
   );
 };

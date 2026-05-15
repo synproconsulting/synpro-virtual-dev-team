@@ -1,7 +1,31 @@
 import React, { useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Download } from 'lucide-react';
 
 const JIRA_URL = import.meta.env.VITE_JIRA_URL || "https://synproconsulting.atlassian.net";
+
+// Local CSV download helpers (SDT1-93). Duplicated per file per spec to
+// avoid adding a new module — keep changes in sync if edited.
+const downloadCsv = (rows, filename) => {
+  if (!rows.length) return;
+  const cols = Object.keys(rows[0]);
+  const esc  = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const header = cols.join(",");
+  const body   = rows.map(r => cols.map(c => esc(r[c])).join(",")).join("\n");
+  const blob   = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8;" });
+  const url    = URL.createObjectURL(blob);
+  const a      = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+const csvFilename = (tabName, sprintName, productSlug) => {
+  const date = new Date().toISOString().slice(0, 10);
+  return `sprint-${sprintName || "unknown"}_${productSlug || "unknown"}_${tabName}_${date}.csv`;
+};
 
 const STATUS_COLORS = {
   "To Do":       { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" },
@@ -49,7 +73,7 @@ const IssueRow = ({ issue, mergedPR }) => {
   );
 };
 
-const JiraSprintView = ({ issues = [], mergedPRs = [] }) => {
+const JiraSprintView = ({ issues = [], mergedPRs = [], sprintName, productSlug }) => {
   const [filter, setFilter] = useState("All");
 
   // Dynamic: derive unique statuses from actual data
@@ -72,6 +96,20 @@ const JiraSprintView = ({ issues = [], mergedPRs = [] }) => {
   // Type legend
   const typeStats = issues.reduce((acc, i) => { acc[i.type] = (acc[i.type]||0)+1; return acc; }, {});
 
+  const handleDownloadCsv = () => {
+    const rows = filtered.map(i => ({
+      key:      i.key,
+      summary:  i.summary,
+      type:     i.type,
+      status:   i.status,
+      priority: i.priority,
+      points:   i.points,
+      order:    i.order,
+      assignee: i.assignee || "",
+    }));
+    downloadCsv(rows, csvFilename("jira-issues", sprintName, productSlug));
+  };
+
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
@@ -89,12 +127,22 @@ const JiraSprintView = ({ issues = [], mergedPRs = [] }) => {
             );
           })}
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
           {Object.entries(typeStats).map(([type,count]) => (
             <div key={type} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--muted)"}}>
               <IssueTypeIcon type={type}/><span>{count}</span>
             </div>
           ))}
+          <button onClick={handleDownloadCsv} disabled={!filtered.length} title="Download CSV" style={{
+            background:"transparent", color:"var(--accent)",
+            border:"1px solid var(--accent)", borderRadius:6,
+            padding:"4px 10px", fontSize:12,
+            cursor: filtered.length ? "pointer" : "not-allowed",
+            opacity: filtered.length ? 1 : 0.5,
+            fontFamily:"inherit", display:"flex", alignItems:"center", gap:4, flexShrink:0,
+          }}>
+            <Download size={12}/>CSV
+          </button>
         </div>
       </div>
 
