@@ -443,3 +443,89 @@ PR #219 assumed `product_id=None` was the SynPro VSDC signal, but the frontend n
 
 ### 8. Set safety-net env vars in Railway whenever a board ID is operationally required
 The three-level resolution chain (product row → env var → None) means the `JIRA_BOARD_ID` env var acts as a safety net during the window between migration and product record update. Setting it in Railway alongside the column rollout means SynPro VSDC keeps working even if the operator forgets to fill in the new field on the existing product row.
+
+---
+
+### Sprint 15 — Control Centre UX Polish & Process Hardening ✅ Complete
+**Dates:** 14 May 2026 – 20 May 2026.
+**Native sprint ID 402, fix version 10495.**
+12 tickets, 27 story points, all merged.
+
+| Exec # | Ticket | Type | Summary | Points | Status | PR |
+|--------|--------|------|---------|--------|--------|----|
+| 1 | SDT1-123 | Bug | Fix: Request logging middleware throws ValueError in log formatter | 1 | ✅ Done | #224 |
+| 2 | SDT1-122 | Bug | Fix: Remove +Add button from product selector dropdown in header | 1 | ✅ Done | #225 |
+| 3 | SDT1-91  | Story | Control Centre: Merge Workflows into Sprint Status tab | 5 | ✅ Done | #226 |
+| 4 | SDT1-88  | Bug | Control Centre: PRs show linked Jira issue | 3 | ✅ Done | #227 |
+| 5 | SDT1-89  | Story | Control Centre: Show closed PRs in PR list | 2 | ✅ Done | #229 |
+| 6 | SDT1-90  | Story | Control Centre: Workflows show PR and Jira issue references | 3 | ✅ Done | #233 |
+| 7 | SDT1-92  | Story | Control Centre: Text filter on Sprint Status tab | 3 | ✅ Done | #235 |
+| 8 | SDT1-93  | Story | Control Centre: CSV download for any list view | 3 | ✅ Done | #237 |
+| 9 | SDT1-126 | Bug | Fix: PR ticketKey regex fails on conventional commit titles and digit-bearing project keys | 2 | ✅ Done | #230 |
+| 10 | SDT1-127 | Bug | Fix: Workflows sub-tab count shows 0 until tab is first clicked | 1 | ✅ Done | #230 |
+| 11 | SDT1-128 | Bug | Fix: sprint selector shows wrong product's sprints when jira_board_id is null | 2 | ✅ Done | #234 |
+| 12 | SDT1-130 | Bug | Fix: text filter search box background too dark — hard to see | 1 | ✅ Done | #236 |
+
+**All PRs opened during Sprint 15 (#223–#237 — all merged):**
+
+| PR | Branch | Title | Status |
+|----|--------|-------|--------|
+| #223 | fix/sprint-15-setup | docs: Sprint 15 setup + retire agent hard rules | ✅ Merged |
+| #224 | feature/SDT1-123-fix-logging-middleware-valueerror | fix(SDT1-123): fix malformed log format string in request logging middleware | ✅ Merged |
+| #225 | feature/SDT1-122-remove-add-button-header-dropdown | fix(SDT1-122): remove +Add button from product selector dropdown in header | ✅ Merged |
+| #226 | feature/SDT1-91-merge-workflows-into-sprint-status | feat(SDT1-91): merge Workflows into Sprint Status tab | ✅ Merged |
+| #227 | feature/SDT1-88-pr-list-show-linked-jira-issue | feat(SDT1-88): show linked Jira issue key on each open PR card | ✅ Merged |
+| #228 | fix/jira-lifecycle-hard-rule | docs: correct Jira ticket lifecycle hard rule — Done on merge not on PR open | ✅ Merged |
+| #229 | feature/SDT1-89-show-closed-prs-with-filters | feat(SDT1-89): show closed PRs with All/Open/Merged/Failed/Closed filter pills | ✅ Merged |
+| #230 | fix/pr-annotation-regex-and-workflow-count | fix: correct PR ticketKey regex for conventional commits and prime workflow count (SDT1-126 + SDT1-127) | ✅ Merged |
+| #231 | fix/hard-rule-bug-ticket-required-for-fix-prs | docs: hard rule — Jira bug ticket required before any fix PR | ✅ Merged |
+| #232 | fix/hard-rule-one-pr-at-a-time | docs: hard rule — one PR at a time, no exceptions | ✅ Merged |
+| #233 | feature/SDT1-90-workflows-show-pr-and-jira-references | feat(SDT1-90): show linked PR number and Jira ticket on workflow run cards | ✅ Merged |
+| #234 | fix/SDT1-128-sprint-board-bleed-null-board-id | fix(SDT1-128): prevent sprint board bleed when product jira_board_id is null | ✅ Merged |
+| #235 | feature/SDT1-92-text-filter-sprint-status | feat(SDT1-92): add text filter to Sprint Status tab across all sub-tabs | ✅ Merged |
+| #236 | fix/SDT1-130-search-input-background | fix(SDT1-130): lighten search input background for visibility | ✅ Merged |
+| #237 | feature/SDT1-93-csv-download-all-list-views | feat(SDT1-93): add CSV download to all Sprint Status list views | ✅ Merged |
+
+**Bug tickets opened mid-sprint and resolved in-sprint (root causes):**
+
+- **SDT1-126** — PR-title regex in `annotatePr` was anchored to `[SDT1-XX]` bracket form only; conventional-commit titles `feat(SDT1-89): …` weren't matched, so the SDT1-88 ticket badge was missing on most PRs. Regex extended to capture both `(SDT1-89)` and `[SDT1-89]` plus made case-insensitive. Sibling bug: branch-name regex used `[a-zA-Z]+-\d+` which couldn't match project keys ending in a digit like `SDT1`. PR #230.
+- **SDT1-127** — Workflows tab badge stuck at `0` until the tab was first opened, because `GitHubWorkflowMonitor` only reported its count via `onRunsChange` after its own fetch fired, and the fetch only fired when the tab mounted. Reworked: the count fallback in `SprintDashboard` now uses `globalData.runs.length` until the monitor reports. PR #230.
+- **SDT1-128** — `_get_product_jira_board_id` fell through to the `JIRA_BOARD_ID` env var when a product row's column was `NULL`, silently substituting board 34 (SDT1) for products like Fracttal PRM that had no board configured. The endpoint then dumped SDT1 sprints into Fracttal's response via the native-sprint fallback. Fix: when `product_id` is supplied, return `None` instead of env-var fallback; data fix on Fracttal PRM to set `jira_board_id = 67`. PR #234.
+- **SDT1-130** — Search input from SDT1-92 used `background: var(--bg)` which is identical to the page body, making the input invisible. Changed to `var(--bg-hover)`, the established "subtle elevation" tone already used for `cc-nav-btn:hover` etc. PR #236.
+
+**Hard rules added during Sprint 15:**
+
+1. **Agent retirement** (PR #223) — Claude Code is the Dev Agent: don't invoke `agents/dev_agent.py` or dispatch `auto-implement.yml` programmatically. The rule-based auto-merger in `ci.yml` is the Manager Agent: don't invoke `agents/manager_agent.py` or `ci_manager_agent.py` directly. Sprint setup is performed by direct Jira REST calls from Claude Code: don't invoke `agents/pm_agent.py` for planning.
+2. **Jira ticket lifecycle — Done on merge, not on PR open** (PR #228) — Transition to In Progress before starting; leave In Progress when the PR opens; Done only after the auto-merger merges to `main`. Premature transitions to Done caused Sprint 15 tickets to look complete while their PRs were still in CI.
+3. **Bug ticket required before any fix PR** (PR #231) — Before opening a fix PR for a bug discovered mid-sprint, create a Jira bug ticket in the current sprint first. PR title must reference the ticket key: `fix(SDT1-XX): …`. No fix PR may be opened without a corresponding ticket.
+4. **One PR at a time — no exceptions** (PR #232) — Before opening any PR, verify zero PRs are currently open in the repo via the GitHub API. Wait for the current one to merge before opening the next. Applies to feature, fix, and docs PRs without exception.
+
+**Backlog items raised during Sprint 15:**
+
+- **SDT1-125** — Auto-merger: transition Jira ticket to Done on PR merge via Jira API. (Story, To Do — the gap the lifecycle hard rule documents as a manual responsibility until automated.)
+- **SDT1-129** — Control Centre: filter Workflows sub-tab by selected sprint. (Story, To Do — surfaced while implementing SDT1-90; Workflows currently shows all recent runs regardless of selected sprint.)
+
+---
+
+## Sprint 15 Lessons Learned
+
+### 1. Per-product config columns must never fall through to a shared env-var default
+SDT1-128 root cause was the `_get_product_jira_board_id` resolution chain treating `JIRA_BOARD_ID` env var as a fallback when *any* product row had `NULL` for `jira_board_id`. The intent was always *"a per-product `NULL` means no board for that product"*, but the env-var fallback silently inherited another product's board. The fix: when `product_id` is supplied, only consult that product's row — env-var fallback applies only to the `product_id is None` legacy path. Anytime a per-product column has an env-var "default" sibling, the resolution function must distinguish *"caller didn't specify a product"* from *"caller specified a product but its column is null"* — the second case must never inherit the env-var default.
+
+### 2. Tab-badge counts are also state — they must reflect query filters too
+SDT1-92's text filter narrowed the visible rows in every sub-tab, but until the badge counts also updated, the user got a misleading "Pull Requests (12)" when only 3 were visible. The filter, the rendered list, and the badge all need to read from the same filtered source. The same pattern applied to the Workflows tab where the monitor manages its own data: the parent passes `filterQuery` down and the monitor reports the post-filter count back via `onRunsChange`, so the badge tracks the query even though the data lives elsewhere.
+
+### 3. CSS variables that share a value with the page body are invisible as control backgrounds
+The SDT1-92 input used `var(--bg)` for its background, identical to the page body — there was nothing to distinguish the input from the surrounding tab bar. The established "subtle elevation" tone in this codebase is `var(--bg-hover)` (used for nav-button hover and the user dropdown button). Whenever an interactive control needs to read as a control, it must use a tone *different from* its immediate parent, not from "the dark theme generally". SDT1-130 was the one-line fix.
+
+### 4. Add a Jira bug ticket the moment a bug is discovered — not "later"
+Three bugs were discovered while implementing Sprint 15 stories (SDT1-126/127 during SDT1-88 work, SDT1-128 during SDT1-91 work, SDT1-130 immediately after SDT1-92 merged). The new hard rule (PR #231) requires the bug ticket to be created *before* the fix PR opens — not after. Bundling two unrelated tickets into one PR (SDT1-126 + SDT1-127 in PR #230) muddies the audit trail; the hard rule was deliberately tightened mid-sprint to prevent that pattern recurring.
+
+### 5. "Done on PR open" was a quiet rule violation hiding in plain sight
+Until PR #228, the convention was to mark Jira tickets Done when the PR opened, on the implicit assumption the auto-merger would always succeed. This collapses two distinct states (work submitted vs. work shipped) and made Sprint 15's progress look healthier than it was when several PRs were sitting in CI. Until SDT1-125 automates the Jira transition on merge, the operator (or a follow-up Claude Code session) is responsible for the Done transition — and it must happen *after* merge confirmation, never on PR open. Every Sprint 15 ticket left "In Progress" through PR open was correctly transitioned to Done at sprint closeout, not when the PR was raised.
+
+### 6. Duplicated tiny helpers beat a new module for genuinely small scopes
+SDT1-93 added a 15-line `downloadCsv` helper plus a 4-line `csvFilename` helper to four files. The instinct to extract them into a shared module was deliberately resisted — the helpers are dependency-free, semantically obvious, and the spec called out *"no new files, no new dependencies"*. The duplication tax is one place to remember to update if the CSV escaping ever needs to change; the cost saved is one more cross-file import path and one more module in the tree. For trivially-small genuinely-shared logic, duplication is the right call. Reach for extraction when the helper grows non-trivial or starts attracting variants.
+
+### 7. Sprint setup IDs landing in the same PR as the rule changes works well
+PR #223 combined "set up Sprint 15 Jira IDs" with "add agent retirement hard rules" in one closeout-style commit. Mixing rules + data in one PR is usually a smell, but for sprint kickoff it worked: both were docs-only, both were prerequisites for the sprint, and bundling them avoided two near-identical opening PRs that nobody would have reviewed independently. The pattern is: kickoff docs PRs can bundle related rule additions; mid-sprint rule additions stay in their own PRs (as #228, #231, #232 did).
