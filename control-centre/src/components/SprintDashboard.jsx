@@ -22,6 +22,15 @@ const STATE_BADGE = {
   future:  { bg: 'rgba(96,165,250,0.2)', text: '#60a5fa' },
 };
 
+const PR_FILTER_STYLE = {
+  All:    { bg: "rgba(99,102,241,0.15)",  color: "#818cf8" },
+  Open:   { bg: "rgba(59,130,246,0.15)",  color: "#60a5fa" },
+  Merged: { bg: "rgba(34,197,94,0.15)",   color: "#4ade80" },
+  Failed: { bg: "rgba(239,68,68,0.15)",   color: "#f87171" },
+  Closed: { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" },
+};
+const PR_FILTERS = ["All", "Open", "Merged", "Failed", "Closed"];
+
 // Sort sprints by numeric id ascending so the row order is stable across
 // products and reloads. NaN ids (rare) sink to the bottom.
 const sortSprints = (list) => {
@@ -61,6 +70,7 @@ const SprintDashboard = () => {
   const [triggering, setTriggering] = useState(false);
   const [msg, setMsg]               = useState(null);
   const [activeTab, setActiveTab]   = useState("jira");
+  const [prFilter, setPrFilter]     = useState("All");
   const [mergedPRs, setMergedPRs]   = useState([]);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [completeDestination, setCompleteDestination] = useState("backlog");
@@ -209,6 +219,7 @@ const SprintDashboard = () => {
   }
 
   const prs       = globalData?.prs  || [];
+  const closedPrs = globalData?.closedPrs || [];
   const runs      = globalData?.runs || [];
   const done      = issues.filter(i => i.status === "Done");
   const todo      = issues.filter(i => i.status === "To Do");
@@ -218,9 +229,31 @@ const SprintDashboard = () => {
   const pct       = issues.length ? Math.round((done.length / issues.length) * 100) : 0;
   const ciRate    = runs.length ? Math.round((runs.filter(r=>r.conclusion==="success").length/runs.length)*100) : 0;
 
+  const sprintIssueKeys = new Set(issues.map(i => i.key));
+  const closedInSprint  = closedPrs.filter(pr => pr.ticketKey && sprintIssueKeys.has(pr.ticketKey));
+  const mergedInSprint  = closedInSprint.filter(pr => pr.merged_at);
+  const failedInSprint  = closedInSprint.filter(pr => !pr.merged_at);
+  const openWithState   = prs.map(pr => ({ ...pr, _state: "Open" }));
+  const mergedWithState = mergedInSprint.map(pr => ({ ...pr, _state: "Merged" }));
+  const failedWithState = failedInSprint.map(pr => ({ ...pr, _state: "Failed" }));
+  const allPrs          = [...openWithState, ...mergedWithState, ...failedWithState];
+  const prCounts        = {
+    All:    allPrs.length,
+    Open:   openWithState.length,
+    Merged: mergedWithState.length,
+    Failed: failedWithState.length,
+    Closed: mergedWithState.length + failedWithState.length,
+  };
+  const filteredPrs =
+    prFilter === "Open"   ? openWithState   :
+    prFilter === "Merged" ? mergedWithState :
+    prFilter === "Failed" ? failedWithState :
+    prFilter === "Closed" ? [...mergedWithState, ...failedWithState] :
+    allPrs;
+
   const TABS = [
     { id:"jira",      label:`Jira Issues (${issues.length})` },
-    { id:"prs",       label:`Pull Requests (${prs.length})` },
+    { id:"prs",       label:`Pull Requests (${allPrs.length})` },
     { id:"ci",        label:`CI/CD (${runs.length})` },
     { id:"workflows", label:`Workflows (${workflowCount})` },
   ];
@@ -360,42 +393,68 @@ const SprintDashboard = () => {
           {activeTab === "jira" && <JiraSprintView issues={issues} mergedPRs={mergedPRs}/>}
           {activeTab === "prs" && (
             <div>
-              {prs.length === 0 ? (
-                <div style={{textAlign:"center",color:"var(--muted)",padding:"2rem"}}>No open pull requests</div>
-              ) : prs.map(pr => (
-                <div key={pr.number} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:8,marginBottom:6,gap:10}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:500,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                      <a href={pr.html_url} target="_blank" rel="noopener noreferrer" style={{color:"var(--accent)",textDecoration:"none",marginRight:6}}>#{pr.number}</a>
-                      {pr.title}
+              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                {PR_FILTERS.map(f => {
+                  const style = PR_FILTER_STYLE[f];
+                  const isActive = prFilter === f;
+                  return (
+                    <button key={f} onClick={() => setPrFilter(f)} style={{
+                      background: isActive ? style.bg : "transparent",
+                      color: isActive ? style.color : "var(--muted)",
+                      border: `1px solid ${isActive ? style.color : "var(--border)"}`,
+                      borderRadius:20, padding:"3px 12px", fontSize:12,
+                      cursor:"pointer", fontFamily:"inherit",
+                    }}>{f} ({prCounts[f]})</button>
+                  );
+                })}
+              </div>
+              {filteredPrs.length === 0 ? (
+                <div style={{textAlign:"center",color:"var(--muted)",padding:"2rem"}}>No pull requests in this view</div>
+              ) : filteredPrs.map(pr => {
+                const badge = PR_FILTER_STYLE[pr._state] || PR_FILTER_STYLE.Open;
+                return (
+                  <div key={`${pr._state}-${pr.number}`} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:8,marginBottom:6,gap:10}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:500,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        <a href={pr.html_url} target="_blank" rel="noopener noreferrer" style={{color:"var(--accent)",textDecoration:"none",marginRight:6}}>#{pr.number}</a>
+                        {pr.title}
+                      </div>
+                      <div style={{fontSize:11,color:"var(--muted)"}}>
+                        {pr.head?.ref} · {pr.user?.login}
+                        {pr.ticketKey && jiraBaseUrl && (
+                          <>
+                            {" · "}
+                            <a
+                              href={`${jiraBaseUrl.replace(/\/$/, "")}/browse/${pr.ticketKey}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{color:"var(--accent)",textDecoration:"none"}}
+                            >
+                              {pr.ticketKey}
+                            </a>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div style={{fontSize:11,color:"var(--muted)"}}>
-                      {pr.head?.ref} · {pr.user?.login}
-                      {pr.ticketKey && jiraBaseUrl && (
-                        <>
-                          {" · "}
-                          <a
-                            href={`${jiraBaseUrl.replace(/\/$/, "")}/browse/${pr.ticketKey}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{color:"var(--accent)",textDecoration:"none"}}
-                          >
-                            {pr.ticketKey}
-                          </a>
-                        </>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+                      <span style={{
+                        fontSize:11,padding:"2px 10px",borderRadius:10,fontWeight:500,
+                        background:badge.bg,color:badge.color,whiteSpace:"nowrap",
+                      }}>{pr._state}</span>
+                      {pr._state === "Open" && (
+                        <button onClick={() => handleAutoReview(pr.number)} style={{
+                          background:"var(--accent)",color:"white",border:"none",
+                          borderRadius:6,padding:"5px 12px",fontSize:12,
+                          cursor:"pointer",fontFamily:"inherit",
+                          display:"flex",alignItems:"center",gap:4,
+                        }}>
+                          <GitPullRequest size={12}/>Auto Review
+                        </button>
                       )}
                     </div>
                   </div>
-                  <button onClick={() => handleAutoReview(pr.number)} style={{
-                    background:"var(--accent)",color:"white",border:"none",
-                    borderRadius:6,padding:"5px 12px",fontSize:12,
-                    cursor:"pointer",fontFamily:"inherit",
-                    display:"flex",alignItems:"center",gap:4,flexShrink:0,
-                  }}>
-                    <GitPullRequest size={12}/>Auto Review
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {activeTab === "ci" && <CIPipelineView pipelines={runs}/>}

@@ -35,25 +35,30 @@ export const fetchJiraIssues = async (status = null, productId = null) => {
   }
 };
 
+const annotatePr = (pr) => {
+  const titleMatch  = pr.title?.match(/\[([A-Z][A-Z0-9]+-\d+)\]/i);
+  const branchMatch = pr.head?.ref?.match(/feature\/([a-zA-Z]+-\d+)[\-_]/i);
+  const ticketKey = titleMatch
+    ? titleMatch[1].toUpperCase()
+    : branchMatch
+      ? branchMatch[1].toUpperCase()
+      : null;
+  return { ...pr, ticketKey };
+};
+
 export const fetchSprintData = async (product = null) => {
   const repo = getGhRepo(product);
   try {
-    const [prsRes, runsRes, jiraIssues] = await Promise.all([
+    const [prsRes, closedRes, runsRes, jiraIssues] = await Promise.all([
       fetch(`${GITHUB_API}/repos/${repo}/pulls?state=open&per_page=20`, { headers: ghHeaders() }),
+      fetch(`${GITHUB_API}/repos/${repo}/pulls?state=closed&per_page=50&sort=updated&direction=desc`, { headers: ghHeaders() }),
       fetch(`${GITHUB_API}/repos/${repo}/actions/runs?per_page=10`, { headers: ghHeaders() }),
       fetchJiraIssues(null, product?.id),
     ]);
     const rawPrs = prsRes.ok ? await prsRes.json() : [];
-    const prs = rawPrs.map(pr => {
-      const titleMatch  = pr.title?.match(/\[([A-Z][A-Z0-9]+-\d+)\]/i);
-      const branchMatch = pr.head?.ref?.match(/feature\/([a-zA-Z]+-\d+)[\-_]/i);
-      const ticketKey = titleMatch
-        ? titleMatch[1].toUpperCase()
-        : branchMatch
-          ? branchMatch[1].toUpperCase()
-          : null;
-      return { ...pr, ticketKey };
-    });
+    const prs = rawPrs.map(annotatePr);
+    const rawClosed = closedRes.ok ? await closedRes.json() : [];
+    const closedPrs = rawClosed.map(annotatePr);
     const runs = runsRes.ok ? (await runsRes.json()).workflow_runs || [] : [];
 
     const doneIssues   = jiraIssues.filter(i => i.status === "Done");
@@ -63,6 +68,7 @@ export const fetchSprintData = async (product = null) => {
 
     return {
       prs,
+      closedPrs,
       runs,
       jiraIssues,
       metrics: {
@@ -74,7 +80,7 @@ export const fetchSprintData = async (product = null) => {
       }
     };
   } catch (e) {
-    return { prs: [], runs: [], jiraIssues: [], metrics: {} };
+    return { prs: [], closedPrs: [], runs: [], jiraIssues: [], metrics: {} };
   }
 };
 
