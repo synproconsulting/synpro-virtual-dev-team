@@ -66,6 +66,8 @@ Committing directly to `main` bypasses the audit trail, CI gates, and the Manage
 
 **When Claude Code flags a discrepancy at the end of its output, resolve it in the current action — never defer to a follow-up.** If a sprint setup prompt produces output noting a corrected ticket key, wrong ID, or any inconsistency in CLAUDE.md, CLAUDE_HISTORY.md, or PROJECT_CONTEXT.md, that correction must be included in the same PR before it is submitted. Specifically: if any ticket key in CLAUDE_HISTORY.md is provisional (e.g. "SDT1-111 (to be created)"), it must be resolved and corrected in the same PR that sets up the sprint IDs — not in a follow-up PR.
 
+**Jira ticket lifecycle: transition to In Progress before starting implementation.** Leave In Progress when PR is opened. Transition to Done only when the PR is merged to `main` and confirmed by the auto-merger. Never transition to Done on PR open. Until the auto-merger is taught to update Jira (SDT1-125), the operator (or a follow-up Claude Code session triggered after merge) is responsible for the Done transition — opening the PR is not the trigger.
+
 ---
 
 ## Key Architectural Decisions
