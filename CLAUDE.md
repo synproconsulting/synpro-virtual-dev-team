@@ -70,6 +70,8 @@ Committing directly to `main` bypasses the audit trail, CI gates, and the Manage
 
 **Before opening any fix PR that corrects a bug discovered during the current sprint, create a Jira bug ticket first.** Assign it to the current sprint (fix version + native sprint). Reference the ticket key in the PR title using conventional commit format: `fix(SDT1-XX): description`. Transition to In Progress before starting, leave In Progress when PR opens, Done on merge. No fix PR may be opened without a corresponding Jira ticket.
 
+**One PR at a time — no exceptions.** Before opening any PR (feature, fix, or docs), verify that zero PRs are currently open in the repository via the GitHub API. If any PR is open, wait for it to merge before opening a new one. This applies to all PR types without exception. Violating this rule causes merge conflicts and wastes sprint time.
+
 ---
 
 ## Key Architectural Decisions
