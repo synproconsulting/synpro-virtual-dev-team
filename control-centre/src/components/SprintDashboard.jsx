@@ -76,7 +76,10 @@ const SprintDashboard = () => {
   const [completeDestination, setCompleteDestination] = useState("backlog");
   const [nextSprintTarget, setNextSprintTarget] = useState("");
   const [completing, setCompleting]         = useState(false);
-  const [workflowCount, setWorkflowCount]   = useState(0);
+  // null = GitHubWorkflowMonitor has not reported yet; fall back to
+  // globalData.runs.length so the tab badge isn't stuck at 0 before the
+  // user opens the Workflows sub-tab.
+  const [workflowCount, setWorkflowCount]   = useState(null);
 
   const scrollRef = useRef(null);
   const selectedButtonRef = useRef(null);
@@ -91,7 +94,7 @@ const SprintDashboard = () => {
   useEffect(() => {
     if (!productCredentials) {
       setSprints([]); setSelected(null); setIssues([]);
-      setGlobalData(null); setMergedPRs([]); setLoading(false);
+      setGlobalData(null); setMergedPRs([]); setWorkflowCount(null); setLoading(false);
       return;
     }
     // Clear immediately on product change so the UI never shows the
@@ -101,6 +104,7 @@ const SprintDashboard = () => {
     setIssues([]);
     setGlobalData(null);
     setMergedPRs([]);
+    setWorkflowCount(null);
     setMsg(null);
     setLoading(true);
     userScrolledRef.current = false;
@@ -255,7 +259,7 @@ const SprintDashboard = () => {
     { id:"jira",      label:`Jira Issues (${issues.length})` },
     { id:"prs",       label:`Pull Requests (${allPrs.length})` },
     { id:"ci",        label:`CI/CD (${runs.length})` },
-    { id:"workflows", label:`Workflows (${workflowCount})` },
+    { id:"workflows", label:`Workflows (${workflowCount ?? runs.length})` },
   ];
 
   return (
