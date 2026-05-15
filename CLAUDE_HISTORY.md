@@ -383,3 +383,63 @@ When Claude Code flags a discrepancy (corrected ticket key, wrong ID, file-size 
 
 ### 7. CLAUDE.md size matters — keep under 40 000 characters
 Claude Code performance degrades when CLAUDE.md exceeds ~40 000 characters. Sprint 13 moved the full AD bodies (Decision / Why / Consequence / Do not) into PROJECT_CONTEXT.md Section 12, leaving one-line summaries in CLAUDE.md with cross-references (PR #202). Reference content that is not needed at every session start belongs in PROJECT_CONTEXT.md.
+
+---
+
+### Sprint 14 — Multi-Product Credentials & Product-Scoped Control Centre ✅ Complete
+Epic SDT1-116. Fix version 10462, native sprint ID 369.
+
+| Exec # | Ticket | Summary | Status | PR |
+|--------|--------|---------|--------|----|
+| 1 | SDT1-117 | Fix: Add Product returns missing or invalid Authorization header | ✅ Done | #209 |
+| 2 | SDT1-118 | Redesign products table schema — per-product credentials and environment model | ✅ Done | #210 |
+| 3 | SDT1-119 | Redesign Products tab UI — grouped sections and masked secret fields | ✅ Done | #211 |
+| 4 | SDT1-120 | Seed SynPro VSDC as first product record | ✅ Done | #213 |
+| 5 | SDT1-121 | Product-scoped Control Centre — all tabs filter by selected product | ✅ Done | #214 |
+| 6 | SDT1-114 | Fix: Sprint selector scrollable and defaults to active sprint | ✅ Done | #216 |
+
+**Fix PRs opened during Sprint 14 (infrastructure, not sprint tickets):**
+
+| PR | Branch | What it fixed |
+|----|--------|---------------|
+| #208 | fix/add-sprint14-jira-ids | Add Sprint 14 Jira IDs to CLAUDE.md and PROJECT_CONTEXT.md |
+| #212 | fix/sdt1-119-secret-fields-change-pattern | Secret fields in edit mode use Change pattern instead of empty input |
+| #215 | fix/sdt1-121-overview-tab-product-scoped | Scope Overview tab to selected product |
+| #217 | fix/sdt1-114-sprint-selector-fixes | Sprint selector scroll, order, mouse wheel and overlap fixes |
+| #218 | fix/sdt1-121-proxy-jira-project-key | Jira proxy endpoints respect jira_project_key parameter |
+| #219 | fix/sdt1-121-sprints-no-board-fallback | Remove hardcoded board/34 fallback from sprints endpoint |
+| #220 | fix/sdt1-121-jira-board-id-per-product | Add jira_board_id per product and restore active sprint state |
+| #221 | fix/sdt1-121-product-form-jira-board-id | Add Jira Board ID field to Product form |
+
+**Backlog bug tickets opened during Sprint 14:**
+
+- **SDT1-122** — Fix: Remove +Add button from product selector dropdown in header (backlog)
+- **SDT1-123** — Fix: Request logging middleware throws ValueError in log formatter (backlog)
+
+---
+
+## Sprint 14 Lessons Learned
+
+### 1. Verify the localStorage JWT key matches across all components
+SDT1-117 root cause was `AddProductModal.jsx` reading `"authToken"` while `LoginPage` stored under `"token"`. Mismatched keys cause silent auth failures with no obvious error — the request goes out without an Authorization header and the backend returns 401. Always grep for every read of `localStorage.getItem(...)` against the canonical write site before debugging "missing or invalid Authorization header" symptoms.
+
+### 2. Secret fields in edit forms must use a Change pattern, not empty inputs
+An empty password input in an edit form gives no indication whether a value is already saved and provides no safe way to update it intentionally — typing into it could either set a new value or accidentally overwrite the existing one with garbage. The Change pattern (locked display showing `........` plus a Change button that swaps in an unlocked input) makes the state explicit and the action deliberate (PR #212).
+
+### 3. Per-product credentials require encryption at rest with a stable key
+The `SECRET_ENCRYPTION_KEY` Fernet key must be generated and set in Railway **before** migration 006 runs. Once set it must never change — rotating the key makes every stored credential unreadable, with no recovery path short of manual re-entry of every secret. Store a copy of the Fernet key in a password manager immediately after generating it.
+
+### 4. `product_id=None` is wrong as the default-product signal once products are real DB rows
+SynPro VSDC is a regular `products` row with a UUID, not a null sentinel. Any backend logic that uses `product_id is None` as a special case for the default product will silently fail once the frontend ProductContext always passes a real UUID — the "default" branch becomes unreachable. PR #219 fell into this trap and PR #220 had to undo it. Trace the actual value the frontend sends before writing backend fallback logic.
+
+### 5. Hardcoded board IDs must be per-product from the start
+The hardcoded `/board/34/sprint` assumption for native sprint metadata caused cross-product sprint bleed (FPRM showed SDT1 sprints) and required three fix PRs to resolve cleanly (#218 → #219 → #220 → #221). Whenever a Jira resource (board, project, version) is referenced from the proxy, it must be a per-product column from the outset, with an optional env-var fallback for the operator to set during the migration window.
+
+### 6. Proxy endpoint fallback chains must be explicit and tested per caller
+PR #219 assumed `product_id=None` was the SynPro VSDC signal, but the frontend never sends null — the dashboard gates rendering on `productCredentials` being non-null, so every call carries a UUID. Always trace what the frontend actually sends (read the API client, not the spec) before writing a backend fallback chain. The three-level resolution (product row → env var → None) introduced in PR #220 documents each layer explicitly so the dead branch problem doesn't recur.
+
+### 7. New schema columns must be reflected in the UI form in the same PR
+`jira_board_id` was added to the backend in PR #220 but the Products form wasn't updated until PR #221, leaving operators unable to set the field via the UI for one deploy cycle. When adding a column the user is expected to populate via the Products tab, the form update belongs in the same PR — otherwise the column is unreachable from the UI until the follow-up lands.
+
+### 8. Set safety-net env vars in Railway whenever a board ID is operationally required
+The three-level resolution chain (product row → env var → None) means the `JIRA_BOARD_ID` env var acts as a safety net during the window between migration and product record update. Setting it in Railway alongside the column rollout means SynPro VSDC keeps working even if the operator forgets to fill in the new field on the existing product row.
