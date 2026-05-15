@@ -28,6 +28,7 @@ const GitHubWorkflowMonitor = ({ onRunsChange } = {}) => {
   const githubOrg = productCredentials?.github_org || "";
   const githubRepo = productCredentials?.github_repo || "";
   const ghRepoSlug = githubOrg && githubRepo ? `${githubOrg}/${githubRepo}` : null;
+  const jiraBaseUrl = productCredentials?.jira_base_url || null;
 
   const [runs, setRuns]       = useState([]);
   const [loading, setLoading] = useState(false);
@@ -165,6 +166,26 @@ const GitHubWorkflowMonitor = ({ onRunsChange } = {}) => {
                          typeof run.head_commit?.message === "string"
                            ? run.head_commit.message.split("\n")[0].slice(0, 60) : ""}
                       </span>
+                      {run.ticketKey && jiraBaseUrl && (
+                        <a
+                          href={`${jiraBaseUrl.replace(/\/$/, "")}/browse/${run.ticketKey}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{color:"var(--accent)", textDecoration:"none", flexShrink:0}}
+                        >
+                          {run.ticketKey}
+                        </a>
+                      )}
+                      {run.prNumber && (
+                        <a
+                          href={`https://github.com/${ghRepoSlug}/pull/${run.prNumber}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{color:"var(--accent)", textDecoration:"none", flexShrink:0}}
+                        >
+                          #{run.prNumber}
+                        </a>
+                      )}
                       <span style={{flexShrink:0}}>{timeAgo(run.created_at)}</span>
                       {duration && <span style={{flexShrink:0}}>{duration < 60 ? `${duration}s` : `${Math.floor(duration/60)}m ${duration%60}s`}</span>}
                     </div>
