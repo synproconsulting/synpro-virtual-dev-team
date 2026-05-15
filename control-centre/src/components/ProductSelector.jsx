@@ -25,9 +25,6 @@ export default function ProductSelector({ onAddProduct }) {
       {loadingCredentials && (
         <span className="product-selector-loading" title="Loading credentials…">…</span>
       )}
-      <button className="product-selector-add" onClick={onAddProduct} title="Add new product">
-        + Add
-      </button>
     </div>
   );
 }
