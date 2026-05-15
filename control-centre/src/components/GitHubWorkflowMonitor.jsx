@@ -23,7 +23,7 @@ const timeAgo = (dateStr) => {
 
 const WORKFLOW_FILTERS = ["All", "Auto Review and Merge", "Auto Implement", "CI Pipeline", "Deploy to UAT"];
 
-const GitHubWorkflowMonitor = ({ onRunsChange } = {}) => {
+const GitHubWorkflowMonitor = ({ onRunsChange, filterQuery = "" } = {}) => {
   const { productCredentials, loadingCredentials, credentialsError } = useProduct();
   const githubOrg = productCredentials?.github_org || "";
   const githubRepo = productCredentials?.github_repo || "";
@@ -42,7 +42,6 @@ const GitHubWorkflowMonitor = ({ onRunsChange } = {}) => {
     try {
       const data = await fetchGitHubWorkflows(ghRepoSlug);
       setRuns(data);
-      onRunsChange?.(data.length);
       setLastUpdated(new Date());
       setError(null);
     } catch (e) {
@@ -50,18 +49,31 @@ const GitHubWorkflowMonitor = ({ onRunsChange } = {}) => {
     } finally {
       setLoading(false);
     }
-  }, [ghRepoSlug, onRunsChange]);
+  }, [ghRepoSlug]);
 
   useEffect(() => {
     if (!ghRepoSlug) {
       setRuns([]); setLastUpdated(null); setError(null);
-      onRunsChange?.(0);
       return;
     }
     loadWorkflows();
     const interval = setInterval(loadWorkflows, 30000);
     return () => clearInterval(interval);
-  }, [ghRepoSlug, loadWorkflows, onRunsChange]);
+  }, [ghRepoSlug, loadWorkflows]);
+
+  // Report the post-text-filter count to the parent so the tab badge in
+  // SprintDashboard reflects the current search query (SDT1-92).
+  useEffect(() => {
+    const q = filterQuery.trim().toLowerCase();
+    const count = q
+      ? runs.filter(r =>
+          (r.name         && r.name.toLowerCase().includes(q)) ||
+          (r.display_title && r.display_title.toLowerCase().includes(q)) ||
+          (r.ticketKey    && r.ticketKey.toLowerCase().includes(q))
+        ).length
+      : runs.length;
+    onRunsChange?.(count);
+  }, [runs, filterQuery, onRunsChange]);
 
   if (loadingCredentials) {
     return <div style={{textAlign:"center",color:"var(--muted)",padding:"3rem 1rem"}}>Loading product credentials…</div>;
@@ -78,9 +90,17 @@ const GitHubWorkflowMonitor = ({ onRunsChange } = {}) => {
     </div>;
   }
 
-  const filtered = filter === "All"
+  const pillFiltered = filter === "All"
     ? runs
     : runs.filter(r => (r.name || "").includes(filter));
+  const q = filterQuery.trim().toLowerCase();
+  const filtered = q
+    ? pillFiltered.filter(r =>
+        (r.name         && r.name.toLowerCase().includes(q)) ||
+        (r.display_title && r.display_title.toLowerCase().includes(q)) ||
+        (r.ticketKey    && r.ticketKey.toLowerCase().includes(q))
+      )
+    : pillFiltered;
 
   return (
     <div>
